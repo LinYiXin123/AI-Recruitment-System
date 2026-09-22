@@ -1,0 +1,150 @@
+.avatar-orbit {
+  width: min(100%, 520px);
+  min-width: 0;
+  --avatar-size: clamp(28px, 3.3vw, 42px);
+}
+.avatar-orbit__stage {
+  position: relative;
+  aspect-ratio: 1;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 50% 50%, var(--secondary), transparent 55%),
+    var(--card);
+}
+.avatar-orbit__glow {
+  position: absolute;
+  inset: 15%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--decoration), transparent 65%);
+  opacity: 0.5;
+  filter: blur(18px);
+  pointer-events: none;
+}
+.avatar-orbit__path,
+.avatar-orbit__ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.avatar-orbit__path {
+  border: 1px dashed var(--border-strong);
+  pointer-events: none;
+}
+.avatar-orbit__ring {
+  width: var(--diameter);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+  animation: avatar-orbit-spin var(--duration) linear infinite var(--direction);
+}
+.avatar-orbit__item {
+  position: absolute;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+.avatar-orbit__avatar {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 2px solid var(--card);
+  border-radius: 50%;
+  box-shadow: 0 5px 14px -5px var(--shadow-color);
+  animation: avatar-orbit-counter-spin var(--duration) linear infinite
+    var(--direction);
+}
+button.avatar-orbit__avatar {
+  cursor: pointer;
+}
+.avatar-orbit__center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24%;
+  aspect-ratio: 1;
+  display: grid;
+  place-content: center;
+  gap: 2px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--border-strong);
+  border-radius: 28%;
+  text-align: center;
+  background: var(--card);
+  box-shadow: 0 12px 32px -15px var(--shadow-color);
+}
+.avatar-orbit__center strong {
+  color: var(--primary);
+  font-size: clamp(24px, 3vw, 34px);
+}
+.avatar-orbit__center span {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.avatar-orbit__controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 42px;
+  padding-inline: 8px;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.avatar-orbit[data-paused="true"] .avatar-orbit__ring,
+.avatar-orbit[data-paused="true"] .avatar-orbit__avatar,
+.avatar-orbit__stage:focus-within .avatar-orbit__ring,
+.avatar-orbit__stage:focus-within .avatar-orbit__avatar {
+  animation-play-state: paused;
+}
+@media (hover: hover) {
+  .avatar-orbit__stage:hover .avatar-orbit__ring,
+  .avatar-orbit__stage:hover .avatar-orbit__avatar {
+    animation-play-state: paused;
+  }
+}
+.avatar-orbit__stage:focus-visible,
+.avatar-orbit__avatar:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 3px;
+}
+@keyframes avatar-orbit-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+@keyframes avatar-orbit-counter-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+.avatar-orbit__static-label {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .avatar-orbit__motion-label,
+  .avatar-orbit__controls > button {
+    display: none;
+  }
+  .avatar-orbit__static-label {
+    display: inline;
+  }
+  .avatar-orbit__ring,
+  .avatar-orbit__avatar {
+    animation: none;
+  }
+}

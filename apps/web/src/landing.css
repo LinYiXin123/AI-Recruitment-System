@@ -1092,3 +1092,9 @@
     margin-left: -10px;
   }
 }
+
+/* 键盘聚焦时确保链接和按钮始终可见。 */
+.section-scroll-fade:focus-within { opacity: 1 !important; }
+@media (prefers-reduced-motion: reduce) {
+  .section-scroll-fade { opacity: 1 !important; }
+}

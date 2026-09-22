@@ -20,6 +20,9 @@ import {
 } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { AvatarOrbit } from "@/components/ui/avatar-orbit"
+import { samples } from "./resume-samples"
+import { ScrollFade } from "@/components/ui/scroll-fade"
 import TextScatter from "@/components/ui/text-scatter"
 import {
   Dialog,
@@ -32,6 +35,12 @@ import {
 import { ResumeDemo } from "./ResumeDemo"
 import { cn } from "@/lib/utils"
 import "./landing.css"
+
+const orbitMembers = samples.map((sample) => ({
+  id: sample.id,
+  name: `${sample.person} · ${sample.role}`,
+  avatar: sample.avatar,
+}))
 
 const navigation = [
   ["产品能力", "#features"],
@@ -213,7 +222,7 @@ export default function LandingPage() {
           className="features-section page-width"
           aria-labelledby="features-title"
         >
-          <div className="section-heading">
+          <ScrollFade className="section-heading">
             <div>
               <span className="eyebrow">看见简历背后的人</span>
               <h2 id="features-title">不止读得快，更要看得明白。</h2>
@@ -223,10 +232,14 @@ export default function LandingPage() {
               <br />
               把有温度的判断留给你。
             </p>
-          </div>
+          </ScrollFade>
           <div className="feature-grid">
             {features.map((feature) => (
-              <article className="feature-item" key={feature.number}>
+              <ScrollFade
+                as="article"
+                className="feature-item"
+                key={feature.number}
+              >
                 <div className="feature-top">
                   <feature.icon aria-hidden="true" />
                   <span>{feature.number}</span>
@@ -271,7 +284,7 @@ export default function LandingPage() {
                   <span className="tiny-dot" />
                   {feature.note}
                 </div>
-              </article>
+              </ScrollFade>
             ))}
           </div>
         </section>
@@ -332,10 +345,11 @@ export default function LandingPage() {
           className="faq-section page-width"
           aria-labelledby="faq-title"
         >
-          <div>
-            <span className="eyebrow">你可能还想知道</span>
-            <h2 id="faq-title">关于知遇 AI</h2>
-            <p>开始之前，先把问题说清楚。</p>
+          <div className="faq-orbit">
+            <h2 id="faq-title" className="sr-only">
+              关于知遇 AI 的常见问题
+            </h2>
+            <AvatarOrbit members={orbitMembers} label="虚构人物" />
           </div>
           <Accordion className="faq-list">
             {faqs.map(([question, answer], index) => (
@@ -350,7 +364,7 @@ export default function LandingPage() {
           className="closing-section page-width"
           aria-labelledby="closing-title"
         >
-          <div className="closing-panel">
+          <ScrollFade className="closing-panel">
             <div className="closing-decoration" aria-hidden="true">
               <ScanLine />
             </div>
@@ -370,10 +384,10 @@ export default function LandingPage() {
               开始体验{" "}
               <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
             </a>
-          </div>
+          </ScrollFade>
         </section>
       </main>
-      <footer className="page-width site-footer">
+      <ScrollFade as="footer" className="page-width site-footer">
         <div>
           <Brand />
           <p>让招聘回归对人的理解。</p>
@@ -404,7 +418,7 @@ export default function LandingPage() {
             </DialogContent>
           </Dialog>
         </div>
-      </footer>
+      </ScrollFade>
     </div>
   )
 }
