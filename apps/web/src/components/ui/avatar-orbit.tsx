@@ -96,10 +96,6 @@ export function AvatarOrbit({
             style={{ width: `${36 + index * 26}%` }}
           />
         ))}
-        <div className="avatar-orbit__center" aria-hidden="true">
-          <strong>{members.length}</strong>
-          <span>{label}</span>
-        </div>
         {rings.map((ring, index) => (
           <AvatarRing
             key={index}

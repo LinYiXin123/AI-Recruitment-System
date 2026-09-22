@@ -164,6 +164,18 @@ export default function LandingPage() {
       </header>
       <main id="main">
         <section className="hero page-width" aria-labelledby="hero-title">
+          <span className="background-spark hero-spark-top" aria-hidden="true">
+            ✳
+          </span>
+          <span className="background-spark hero-spark-left" aria-hidden="true">
+            ✳
+          </span>
+          <span
+            className="background-spark hero-spark-bottom"
+            aria-hidden="true"
+          >
+            ✳
+          </span>
           <div className="hero-eyebrow">
             <Badge variant="outline">
               <span className="tiny-dot" /> AI 简历分析，为招聘而设计
@@ -222,6 +234,9 @@ export default function LandingPage() {
           className="features-section page-width"
           aria-labelledby="features-title"
         >
+          <span className="background-spark features-spark" aria-hidden="true">
+            ✳
+          </span>
           <ScrollFade className="section-heading">
             <div>
               <span className="eyebrow">看见简历背后的人</span>
@@ -293,6 +308,9 @@ export default function LandingPage() {
           className="workflow-section"
           aria-labelledby="workflow-title"
         >
+          <span className="background-spark workflow-spark" aria-hidden="true">
+            ✳
+          </span>
           <div className="page-width workflow-inner">
             <div className="workflow-intro">
               <span className="eyebrow">自然融入你的招聘流程</span>
@@ -345,6 +363,9 @@ export default function LandingPage() {
           className="faq-section page-width"
           aria-labelledby="faq-title"
         >
+          <span className="background-spark faq-spark" aria-hidden="true">
+            ✳
+          </span>
           <div className="faq-orbit">
             <h2 id="faq-title" className="sr-only">
               关于知遇 AI 的常见问题

@@ -111,6 +111,66 @@
   transform: rotate(15deg);
   font-weight: 400;
 }
+/* 星芒放在各区块留白处，不参与排版及鼠标交互。 */
+.hero,
+.features-section,
+.workflow-section,
+.faq-section {
+  position: relative;
+  isolation: isolate;
+}
+.background-spark {
+  position: absolute;
+  z-index: -1;
+  color: var(--decoration);
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+.hero-spark-top {
+  top: 34px;
+  left: 16%;
+  font-size: 26px;
+  opacity: 0.65;
+  transform: rotate(-12deg);
+}
+.hero-spark-left {
+  top: 54%;
+  left: 3%;
+  font-size: 50px;
+  opacity: 0.5;
+  transform: rotate(18deg);
+}
+.hero-spark-bottom {
+  right: 9%;
+  bottom: 40px;
+  font-size: 24px;
+  opacity: 0.8;
+  transform: rotate(-8deg);
+}
+.features-spark {
+  top: 34px;
+  right: 17%;
+  font-size: 40px;
+  opacity: 0.65;
+  transform: rotate(12deg);
+}
+.workflow-spark {
+  bottom: 20px;
+  left: 38%;
+  font-size: 36px;
+  opacity: 0.8;
+  transform: rotate(-15deg);
+}
+.faq-spark {
+  top: 28px;
+  right: 22%;
+  font-size: 30px;
+  opacity: 0.7;
+  transform: rotate(20deg);
+}
 .hero-description {
   color: var(--muted-foreground);
   font-size: 16px;
@@ -1007,8 +1067,34 @@
     margin-top: 25px;
     line-height: 1.45;
   }
-  .hero-spark {
+  .hero-spark,
+  .hero-spark-left {
     display: none;
+  }
+  .hero-spark-top {
+    top: 14px;
+    left: 6%;
+    font-size: 22px;
+  }
+  .hero-spark-bottom {
+    right: 8%;
+    bottom: 8px;
+    font-size: 20px;
+  }
+  .features-spark {
+    top: 18px;
+    right: 12%;
+    font-size: 28px;
+  }
+  .workflow-spark {
+    bottom: 12px;
+    left: 14%;
+    font-size: 24px;
+  }
+  .faq-spark {
+    top: 18px;
+    right: 15%;
+    font-size: 24px;
   }
   .hero-description {
     font-size: 13px;

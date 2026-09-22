@@ -60,30 +60,6 @@
 button.avatar-orbit__avatar {
   cursor: pointer;
 }
-.avatar-orbit__center {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 24%;
-  aspect-ratio: 1;
-  display: grid;
-  place-content: center;
-  gap: 2px;
-  transform: translate(-50%, -50%);
-  border: 1px solid var(--border-strong);
-  border-radius: 28%;
-  text-align: center;
-  background: var(--card);
-  box-shadow: 0 12px 32px -15px var(--shadow-color);
-}
-.avatar-orbit__center strong {
-  color: var(--primary);
-  font-size: clamp(24px, 3vw, 34px);
-}
-.avatar-orbit__center span {
-  color: var(--muted-foreground);
-  font-size: 11px;
-}
 .avatar-orbit[data-paused="true"] .avatar-orbit__ring,
 .avatar-orbit[data-paused="true"] .avatar-orbit__avatar,
 .avatar-orbit__stage:focus-within .avatar-orbit__ring,
