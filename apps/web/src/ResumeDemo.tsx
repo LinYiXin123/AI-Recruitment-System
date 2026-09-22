@@ -230,7 +230,7 @@ function SampleSlide({
       initial={{ opacity: reducedMotion ? 1 : 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: reducedMotion ? 1 : 0 }}
-      transition={{ duration: reducedMotion ? 0 : 0.55, ease: "easeInOut" }}
+      transition={{ duration: reducedMotion ? 0 : 0.8, ease: "easeInOut" }}
     >
       <SampleReport sample={sample} onDialogOpenChange={onDialogOpenChange} />
     </motion.div>
