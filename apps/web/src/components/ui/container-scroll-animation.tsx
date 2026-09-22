@@ -31,7 +31,8 @@ export function ContainerScroll({
     // 展台到达阅读位置时完成动画，后续操作不受倾斜影响。
     offset: ["start end", "start 0.12"],
   })
-  const rotate = useTransform(scrollYProgress, [0, 1], [isMobile ? 4 : 20, 0])
+  // CSS 中 0° 就是正面；起点保持在 90° 内，避免出现反向文字。
+  const rotate = useTransform(scrollYProgress, [0, 1], [isMobile ? -20 : -75, 0])
   const scale = useTransform(
     scrollYProgress,
     [0, 1],

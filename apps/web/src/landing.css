@@ -167,7 +167,7 @@
   perspective: 1200px;
 }
 .container-scroll-card {
-  transform-origin: center bottom;
+  transform-origin: center top;
   border: 4px solid var(--border-strong);
   border-radius: 22px;
   padding: 5px;
