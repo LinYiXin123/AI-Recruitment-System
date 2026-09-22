@@ -88,8 +88,19 @@
   letter-spacing: -2.7px;
   line-height: 1.35;
 }
-.hero h1 > span:first-of-type {
+.hero-title-accent {
   color: var(--primary);
+}
+.text-scatter,
+.text-scatter-character,
+.text-scatter-glyph {
+  display: inline-block;
+}
+.text-scatter-character {
+  position: relative;
+}
+.text-scatter-glyph {
+  pointer-events: none;
 }
 .hero-spark {
   position: absolute;

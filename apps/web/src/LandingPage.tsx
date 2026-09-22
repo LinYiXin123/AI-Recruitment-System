@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
+import TextScatter from "@/components/ui/text-scatter"
 import {
   Dialog,
   DialogContent,
@@ -160,9 +161,13 @@ export default function LandingPage() {
             </Badge>
           </div>
           <h1 id="hero-title">
-            少一点翻阅。
+            <TextScatter as="span" text="少一点翻阅。" />
             <br />
-            <span>多一点，知人善任。</span>
+            <TextScatter
+              as="span"
+              text="多一点，知人善任。"
+              className="hero-title-accent"
+            />
             <span className="hero-spark" aria-hidden="true">
               ✳
             </span>
