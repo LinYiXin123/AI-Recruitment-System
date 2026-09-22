@@ -14,3 +14,15 @@ dist/
 .umi-production/
 coverage/
 *.log
+
+# 后端环境、数据库及验收产物。
+.local/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+test-results/
+playwright-report/
+
+*.tsbuildinfo
