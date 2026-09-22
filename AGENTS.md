@@ -50,9 +50,19 @@
 - 需要审查某次改动是否过度设计时使用 `ponytail-review`；需要扫描整个仓库、已有简化记录或查看使用指引时，分别使用 `ponytail-audit`、`ponytail-debt`、`ponytail-help`。
 - 资料归档、需求阅读、产品说明等非代码任务不强行套用此规则。用户说“停止 Ponytail”或“正常模式”时，本次任务不采用该规则。
 
-## 默认前端技术栈
+## 已确定的产品技术架构
 
-- 用户没有其他明确指令时，本项目默认使用 [shadcn/ui](https://github.com/shadcn-ui/ui)、[Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) 和抖音的 [Semi Design](https://github.com/DouyinFE/semi-design)，适用于外部产品页和内部系统。
+- 用户于 2026-09-23 确认采用分端方案：HR 电脑招聘后台和外部产品网页使用 React、TypeScript、Tailwind CSS、shadcn/ui 与 Semi Design；候选人手机应用和后续 HR 手机应用使用 Flutter；业务后端使用 Django 与 Django REST Framework。
+- HR 电脑端继续以浏览器中的信息密集型工作台为主，优先做好表格、筛选、抽屉、日程、键盘操作和宽窄屏适配。Flutter 不用于替换现有 HR 网页，除非用户以后明确改变方向。
+- Flutter 端面向候选人和移动办公场景，优先承载面试确认、改期、进度查看、提醒和轻量处理。Android、iOS 与 Flutter Web 是否同时交付，由具体功能范围决定；开始开发前检查对应平台工具链是否完整。
+- Web、Flutter 与后端共享同一套业务口径、身份权限和 API 契约。候选人主档案、多次应聘、面试状态与操作记录只保留一套真实来源，不为不同客户端复制彼此独立的数据。
+- Django／DRF 负责业务规则、权限、接口、异步任务和第三方集成；PostgreSQL 作为主要业务数据库，Redis、任务队列等只在实际任务需要时接入。前端不得把重要权限或招聘状态只保存在本地界面中。
+- 各端保持同一品牌色、字体层级、状态语言和交互反馈，但按设备调整信息密度与操作方式，不要求电脑端和手机端逐像素相同。
+- 本节确定技术方向，不等于立即创建 Flutter 工程或迁移现有页面。按用户提出的具体功能逐步实现，避免为尚未开始的端增加空工程和依赖。
+
+## HR 网页默认前端技术栈
+
+- 用户没有其他明确指令时，本项目 HR 电脑端与外部产品网页默认使用 React、TypeScript、[shadcn/ui](https://github.com/shadcn-ui/ui)、[Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) 和抖音的 [Semi Design](https://github.com/DouyinFE/semi-design)。
 - 本项目暂不采用 Ant Design 及其 Pro、ProComponents、X 体系；本约定取代此前要求默认使用 Ant Design 的约定。已有模板、依赖或技能不代表继续采用该技术栈。
 - 本约定对项目所有目录及会话生效，后续以用户明确指令为准。默认技术栈约定本身不触发已有代码和依赖的安装、卸载或迁移，另按实际任务处理。
 
