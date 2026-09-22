@@ -13,7 +13,16 @@
 
 - 用户没有其他明确指令时，本项目默认使用 [shadcn/ui](https://github.com/shadcn-ui/ui)、[Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) 和抖音的 [Semi Design](https://github.com/DouyinFE/semi-design)，适用于外部产品页和内部系统。
 - 本项目暂不采用 Ant Design 及其 Pro、ProComponents、X 体系；本约定取代此前要求默认使用 Ant Design 的约定。已有模板、依赖或技能不代表继续采用该技术栈。
-- 本约定对项目所有目录及会话生效，后续以用户明确指令为准。本次仅更新开发约定，已有代码和依赖的安装、卸载或迁移另按实际任务处理。
+- 本约定对项目所有目录及会话生效，后续以用户明确指令为准。默认技术栈约定本身不触发已有代码和依赖的安装、卸载或迁移，另按实际任务处理。
+
+## 前端 AI 开发工具
+
+- shadcn 官方技能位于 `.agents/skills/shadcn/SKILL.md`，来自 [shadcn/ui 官方仓库](https://github.com/shadcn-ui/ui/tree/main/skills/shadcn)。先读取技能，在目标前端工程目录查询项目配置、组件文档和示例，再编写代码。
+- Semi 官方技能位于 `.agents/skills/semi-design-guide/SKILL.md`，来自 [Semi 官方技能包](https://semi.design/skills.zip)，使用方式见 [官方说明](https://semi.design/zh-CN/start/mcp-skills)。通过 `get_semi_document` 查询组件；开发时指定实际安装的组件版本，使用 React 19 或 Tailwind 时额外查询 `react19`、`tailwind` 文档。
+- 项目 MCP 配置位于 `.codex/config.toml`：`shadcn` 使用 `shadcn@4.21.0`，`semi` 使用 `@douyinfe/semi-mcp@1.0.22`。Codex 在信任本项目后加载；新增配置后若工具未出现，重启 Codex。这两个版本是开发工具版本，不是业务组件版本。
+- shadcn CLI 通过 `npx -y shadcn@4.21.0` 调用，例如 `docs button`、`search @shadcn -q button`。更换工具版本后重新验证文档与组件查询。技能中的 `@latest` 示例应按这里记录的已验证版本执行。
+- shadcn 4.21.0 的 MCP 搜索结果可能将安装命令显示为 `[object Promise]`；使用独立工具 `get_add_command_for_items` 获取命令，再按已验证版本执行，不复制异常文本。
+- 技能与 MCP 接入不等于页面工程已初始化。需要开发页面时，再在目标工程内配置 Tailwind、初始化 shadcn 和安装 Semi 组件依赖；不为验证工具而迁移现有页面。
 
 ## Git 提交
 

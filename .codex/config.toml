@@ -1,0 +1,10 @@
+# 项目专用的官方组件查询工具；升级版本后重新验证查询能力。
+[mcp_servers.shadcn]
+command = "npx"
+args = ["-y", "shadcn@4.21.0", "mcp"]
+startup_timeout_sec = 60
+
+[mcp_servers.semi]
+command = "npx"
+args = ["-y", "@douyinfe/semi-mcp@1.0.22"]
+startup_timeout_sec = 60
