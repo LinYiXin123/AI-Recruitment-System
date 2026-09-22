@@ -65,6 +65,14 @@
 - shadcn 4.21.0 的 MCP 搜索结果可能将安装命令显示为 `[object Promise]`；使用独立工具 `get_add_command_for_items` 获取命令，再按已验证版本执行，不复制异常文本。
 - 技能与 MCP 接入不等于页面工程已初始化。需要开发页面时，再在目标工程内配置 Tailwind、初始化 shadcn 和安装 Semi 组件依赖；不为验证工具而迁移现有页面。
 
+## Flutter 与 Codex
+
+- Flutter 开发使用官方稳定版 SDK（自带 Dart）和官方 `dart-flutter@dart-flutter` 插件，来源为 `https://github.com/flutter/agent-plugins`。插件提供技能和 `dart mcp-server`，无需重复配置同一个 MCP 服务。安装、版本和连接状态以实际检查为准。
+- 当前通过 Windows 连接 Mac 开发时，Flutter SDK、插件和 MCP 应安装在执行项目的 Mac 账号下。用 `flutter --version`、`dart --version`、`flutter doctor -v` 和 `codex mcp list` 核验；网页预览继续通过 SSH 端口转发访问。
+- 编写 Flutter 页面时，按任务选择官方布局适配、路由、接口和测试技能。验证使用 `dart format`、`flutter analyze`、组件或集成测试以及目标平台构建；网页可用不代表 Android、iOS 或桌面打包环境也已齐备。
+- 启动调试应用时添加 `--print-dtd`，方便 MCP 发现并连接运行中的应用。修改 `lib/` 下的界面或普通方法后主动热重载；修改入口、初始化或全局状态时热重启。纯注释、文档及测试文件修改不触发热重载。此约定参考官方插件的 `rules/flutter-hot-reload.md`。
+- 接入开发工具与正式迁移页面分开处理；新建 Flutter 业务工程及迁移范围以用户的具体功能需求为准。
+
 ## Git 提交
 
 - 提交标题采用“中文类型：清晰说明”的格式，例如“新增：完成候选人详情抽屉”“修复：解决职位筛选未生效”。
