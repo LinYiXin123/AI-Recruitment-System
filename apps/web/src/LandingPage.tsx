@@ -430,8 +430,8 @@ export default function LandingPage() {
                 ease: [0.22, 1, 0.36, 1],
               }}
             >
-              <span className="eyebrow">关于知遇 AI</span>
-              <h2 id="faq-title">你可能还想知道</h2>
+              <h2 id="faq-title">关于知遇 AI</h2>
+              <span className="eyebrow">你可能还想知道</span>
             </motion.div>
             <Accordion className="faq-list">
               {faqs.map(([question, answer], index) => (
