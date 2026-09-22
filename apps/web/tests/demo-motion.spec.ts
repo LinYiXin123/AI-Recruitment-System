@@ -73,7 +73,10 @@ test("鼠标倾斜与光晕跟随，点击不回正且菜单保留卡片透视",
       Math.abs(new DOMMatrixReadOnly(getComputedStyle(el).transform).m23)
     )
   await expect.poll(tilt).toBeGreaterThan(0.02)
-  await expect(card).toHaveCSS("border-top-width", "8px")
+  // 整体缩放后浏览器按物理像素取整，描边仍接近原来的 8px。
+  expect(
+    await card.evaluate((el) => parseFloat(getComputedStyle(el).borderTopWidth))
+  ).toBeCloseTo(8, 0)
   const baseTilt = await tilt()
   const box = (await card.boundingBox())!
   if (isMobile) {

@@ -161,12 +161,24 @@
 }
 .demo-section {
   scroll-margin-top: 24px;
-  max-width: 1000px;
 }
 @media (min-width: 701px) {
-  /* 按窗口高度缩放展台内容，为标题、边框和底部说明留出空间。 */
-  .demo-window {
-    zoom: clamp(0.7, calc((100svh - 140px) / 700px), 1);
+  .demo-section {
+    --demo-original-width: min(1120px, calc(100vw - 80px));
+    --demo-fit: clamp(0.7, calc((100svh - 140px) / 700px), 0.88);
+  }
+  .demo-section.page-width {
+    width: calc(var(--demo-original-width) * var(--demo-fit));
+  }
+  /* 保留缩小前的排版宽度，再将边框和内容作为整体等比例缩放。 */
+  .container-scroll-card {
+    width: var(--demo-original-width);
+    zoom: var(--demo-fit);
+  }
+}
+@media (min-width: 701px) and (max-width: 1000px) {
+  .demo-section {
+    --demo-original-width: calc(100vw - 48px);
   }
 }
 .container-scroll {

@@ -118,7 +118,7 @@ test("工作台随滚动展平，正常动画下仍可操作且无横向溢出",
   await expect(page.getByRole("dialog")).not.toBeVisible()
 })
 
-test("较矮的电脑窗口能完整显示工作台并操作四种版式", async ({
+test("电脑工作台等比例缩小并完整显示四种版式", async ({
   page,
   isMobile,
 }, testInfo) => {
@@ -139,12 +139,30 @@ test("较矮的电脑窗口能完整显示工作台并操作四种版式", async
     ]) {
       await page.getByRole("combobox", { name: "选择演示岗位" }).click()
       await page.getByRole("option", { name: option, exact: true }).click()
+      const section = page.locator("#demo")
+      const card = page.locator(".container-scroll-card")
+      await section.evaluate((el) =>
+        (el as HTMLElement).style.setProperty("--demo-fit", "1")
+      )
+      await expect(card).toHaveCSS("zoom", "1")
+      const original = (await card.boundingBox())!
+      await section.evaluate((el) =>
+        (el as HTMLElement).style.removeProperty("--demo-fit")
+      )
+      await expect
+        .poll(() => card.evaluate((el) => Number(getComputedStyle(el).zoom)))
+        .toBeLessThan(1)
       await page
         .locator("#demo")
         .evaluate((el) =>
           el.scrollIntoView({ block: "start", behavior: "instant" })
         )
       const box = (await page.locator(".container-scroll-card").boundingBox())!
+      expect(box.width / original.width).toBeCloseTo(
+        box.height / original.height,
+        2
+      )
+      expect(box.width).toBeLessThan(original.width)
       expect(box.y).toBeGreaterThanOrEqual(0)
       expect(box.y + box.height).toBeLessThan(height - 20)
       expect(box.width).toBeLessThanOrEqual(1000)
