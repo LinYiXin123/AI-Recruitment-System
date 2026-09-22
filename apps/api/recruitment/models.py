@@ -163,6 +163,39 @@ class ProfileRequirement(models.Model):
         ]
 
 
+class ProfileClarification(Timestamped):
+    class Status(models.TextChoices):
+        PENDING = "pending", "待回答"
+        ANSWERED = "answered", "已回答"
+        WITHDRAWN = "withdrawn", "已撤回"
+
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    profile = models.ForeignKey(
+        ProfileVersion, on_delete=models.PROTECT, related_name="clarifications"
+    )
+    requirement = models.ForeignKey(ProfileRequirement, on_delete=models.PROTECT)
+    requester = models.ForeignKey(Membership, on_delete=models.PROTECT, related_name="+")
+    assignee = models.ForeignKey(Membership, on_delete=models.PROTECT, related_name="+")
+    question = models.CharField(max_length=1000)
+    request_key = models.UUIDField()
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    answer = models.CharField(max_length=2000, blank=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "request_key"], name="one_clarification_request"
+            ),
+            models.CheckConstraint(
+                condition=(Q(status="answered", answered_at__isnull=False) & ~Q(answer=""))
+                | (Q(status__in=["pending", "withdrawn"], answered_at__isnull=True, answer="")),
+                name="clarification_answer_complete",
+            ),
+        ]
+
+
 class Task(Timestamped):
     class Status(models.TextChoices):
         PENDING = "pending", "待处理"
@@ -173,8 +206,13 @@ class Task(Timestamped):
         REVIEW = "review", "确认招人要求"
         REVISE = "revise", "补充招人要求"
         START = "start", "确认后开始招聘"
+        CLARIFY = "clarify", "回答招人要求问题"
+        CLARIFICATION_FOLLOWUP = "clarify_followup", "整理澄清答复"
 
     profile = models.ForeignKey(ProfileVersion, on_delete=models.PROTECT)
+    clarification = models.ForeignKey(
+        ProfileClarification, on_delete=models.PROTECT, null=True, blank=True
+    )
     kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.REVIEW)
     assignee = models.ForeignKey(Membership, on_delete=models.PROTECT)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
@@ -188,7 +226,21 @@ class Task(Timestamped):
                 | (~Q(status="pending") & Q(completed_at__isnull=False)),
                 name="task_completion_time",
             ),
-            models.UniqueConstraint(fields=["profile", "kind"], name="one_profile_task_kind"),
+            models.UniqueConstraint(
+                fields=["profile", "kind"],
+                condition=Q(clarification__isnull=True),
+                name="one_profile_task_kind",
+            ),
+            models.UniqueConstraint(
+                fields=["clarification", "kind"],
+                condition=Q(clarification__isnull=False),
+                name="one_clarification_task_kind",
+            ),
+            models.CheckConstraint(
+                condition=Q(kind__in=["clarify", "clarify_followup"], clarification__isnull=False)
+                | Q(kind__in=["review", "revise", "start"], clarification__isnull=True),
+                name="task_has_expected_source",
+            ),
         ]
 
 

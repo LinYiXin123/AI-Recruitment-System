@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .access import can_confirm, can_edit
-from .models import AuditEvent, Job, ProfileRequirement, ProfileVersion, Task
+from .models import AuditEvent, Job, ProfileClarification, ProfileRequirement, ProfileVersion, Task
 
 
 def display_name(membership):
@@ -114,6 +114,55 @@ class NewJobSerializer(serializers.Serializer):
 
 class VersionSerializer(serializers.Serializer):
     version = serializers.IntegerField(min_value=1)
+
+
+class ClarificationRequestSerializer(VersionSerializer):
+    profile = serializers.IntegerField(min_value=1)
+    requirement = serializers.IntegerField(min_value=1)
+    question = serializers.CharField(max_length=1000)
+    request_key = serializers.UUIDField()
+
+
+class ClarificationAnswerSerializer(VersionSerializer):
+    answer = serializers.CharField(max_length=2000)
+
+
+class ClarificationSerializer(serializers.ModelSerializer):
+    profile_number = serializers.IntegerField(source="profile.number")
+    requirement_text = serializers.CharField(source="requirement.text")
+    assignee_name = serializers.SerializerMethodField()
+    requester_name = serializers.SerializerMethodField()
+    can_answer = serializers.SerializerMethodField()
+
+    def get_assignee_name(self, obj):
+        return display_name(obj.assignee)
+
+    def get_requester_name(self, obj):
+        return display_name(obj.requester)
+
+    def get_can_answer(self, obj):
+        m = self.context["member"]
+        return (
+            obj.status == "pending" and obj.assignee_id == m.pk and can_confirm(m, obj.profile.job)
+        )
+
+    class Meta:
+        model = ProfileClarification
+        fields = [
+            "id",
+            "profile",
+            "profile_number",
+            "requirement",
+            "requirement_text",
+            "question",
+            "status",
+            "answer",
+            "answered_at",
+            "created_at",
+            "assignee_name",
+            "requester_name",
+            "can_answer",
+        ]
 
 
 class SaveProfileSerializer(VersionSerializer):

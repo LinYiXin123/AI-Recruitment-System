@@ -10,9 +10,21 @@ from rest_framework.viewsets import GenericViewSet
 
 from .access import can_confirm, can_edit, department_ids, member, visible_jobs
 from .errors import Conflict
-from .models import AuditEvent, Department, Job, JobMember, Membership, ProfileVersion, Task
+from .models import (
+    AuditEvent,
+    Department,
+    Job,
+    JobMember,
+    Membership,
+    ProfileClarification,
+    ProfileVersion,
+    Task,
+)
 from .serializers import (
     AuditSerializer,
+    ClarificationAnswerSerializer,
+    ClarificationRequestSerializer,
+    ClarificationSerializer,
     JobSerializer,
     NewJobSerializer,
     ProfileSerializer,
@@ -182,9 +194,12 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 last.status = ProfileVersion.Status.WITHDRAWN
                 last.save()
             if last:
-                Task.objects.filter(profile=last, status="pending", kind="revise").update(
-                    status="done", completed_at=timezone.now()
+                last.clarifications.filter(status="pending").update(
+                    status="withdrawn", updated_at=timezone.now()
                 )
+                Task.objects.filter(
+                    profile=last, status="pending", kind__in=["revise", "clarify_followup"]
+                ).update(status="done", completed_at=timezone.now())
                 Task.objects.filter(profile=last, status="pending").update(
                     status="cancelled", completed_at=timezone.now()
                 )
@@ -217,12 +232,17 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             raise ValidationError("用人负责人授权已失效，请联系管理员调整后再提交。")
         if profile.requirements.filter(kind="must", needs_verification=True).exists():
             raise ValidationError("必须满足的要求仍有待核实项，请先明确后再提交确认。")
+        if profile.clarifications.filter(status="pending").exists():
+            raise ValidationError("还有待回答的澄清问题，请先完成澄清再提交正式确认。")
         if job.approver_id in [m.pk, profile.created_by_id]:
             raise ValidationError("需求经办人不能确认自己编写或提交的要求，请由其他负责人确认。")
         profile.status = ProfileVersion.Status.PENDING
         profile.submitted_by = m
         profile.submitted_at = timezone.now()
         profile.save()
+        Task.objects.filter(profile=profile, status="pending", kind="clarify_followup").update(
+            status="done", completed_at=timezone.now()
+        )
         Task.objects.create(profile=profile, assignee=job.approver)
         record(job, m, f"提交招人要求 v{profile.number} 确认")
         return Response(self.get_serializer(job).data)
@@ -280,12 +300,24 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         latest = job.profiles.first()
         if data["status"] == "open" and (not latest or latest.status != "confirmed"):
             raise ValidationError("最新招人要求经负责人确认后，才能开始或恢复招聘。")
+        if data["status"] == "open" and (
+            not job.owner.active
+            or not job.owner.user.is_active
+            or not can_edit(job.owner, job)
+            or not job.approver.active
+            or not job.approver.user.is_active
+            or not can_confirm(job.approver, job)
+        ):
+            raise ValidationError("职位负责人授权已失效，请联系管理员调整后再开始或恢复招聘。")
         if (data["status"] in ["paused", "closed"] or job.status == "closed") and not data[
             "reason"
         ]:
             raise ValidationError("请填写调整原因，方便团队了解后续安排。")
         job.status = data["status"]
         if job.status == "closed":
+            ProfileClarification.objects.filter(profile__job=job, status="pending").update(
+                status="withdrawn", updated_at=timezone.now()
+            )
             if latest and latest.status == "pending":
                 latest.status = ProfileVersion.Status.WITHDRAWN
                 latest.save()
@@ -297,6 +329,115 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 status="done", completed_at=timezone.now()
             )
         record(job, m, f"职位调整为{job.get_status_display()}", data["reason"])
+        return Response(self.get_serializer(job).data)
+
+    @action(detail=True, methods=["get", "post"])
+    def clarifications(self, request, pk=None):
+        visible = self.get_object()
+        if request.method == "GET":
+            qs = ProfileClarification.objects.filter(profile__job=visible).select_related(
+                "profile__job", "requirement", "assignee__user", "requester__user"
+            )
+            page = self.paginate_queryset(qs)
+            return self.get_paginated_response(
+                ClarificationSerializer(page, many=True, context=self.get_serializer_context()).data
+            )
+        data = validate_input(ClarificationRequestSerializer, request.data)
+        with transaction.atomic():
+            job = Job.objects.select_for_update().get(pk=visible.pk)
+            m = self.editable(job)
+            existing = ProfileClarification.objects.filter(
+                organization=m.organization, request_key=data["request_key"]
+            ).first()
+            if existing:
+                if (
+                    existing.profile_id,
+                    existing.requirement_id,
+                    existing.question,
+                    existing.requester_id,
+                ) != (
+                    data["profile"],
+                    data["requirement"],
+                    data["question"],
+                    m.pk,
+                ) or existing.profile.job_id != job.pk:
+                    raise Conflict("同一提问请求的内容已变化，请重新读取原问题。")
+                return Response(self.get_serializer(job).data)
+            if job.version != data["version"]:
+                raise Conflict()
+            profile = job.profiles.first()
+            if not profile or profile.pk != data["profile"] or profile.status != "draft":
+                raise Conflict("只能针对当前草稿提问，请读取最新招人要求。")
+            requirement = get_object_or_404(profile.requirements, pk=data["requirement"])
+            if (
+                not job.approver.active
+                or not job.approver.user.is_active
+                or not can_confirm(job.approver, job)
+            ):
+                raise ValidationError("指定负责人授权已失效，请联系管理员调整后再提问。")
+            clarification, created = ProfileClarification.objects.get_or_create(
+                organization=m.organization,
+                request_key=data["request_key"],
+                defaults={
+                    "profile": profile,
+                    "requirement": requirement,
+                    "question": data["question"],
+                    "requester": m,
+                    "assignee": job.approver,
+                },
+            )
+            if not created:
+                raise Conflict("提问请求编号已被使用，请重新读取原问题。")
+            Task.objects.create(
+                profile=profile, clarification=clarification, kind="clarify", assignee=job.approver
+            )
+            record(job, m, f"发起招人要求 v{profile.number} 澄清", data["question"])
+            return Response(self.get_serializer(job).data, status=201)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"clarifications/(?P<clarification_id>[0-9]+)/answer",
+    )
+    @transaction.atomic
+    def answer_clarification(self, request, pk=None, clarification_id=None):
+        data = validate_input(ClarificationAnswerSerializer, request.data)
+        visible = self.get_object()
+        job = Job.objects.select_for_update().get(pk=visible.pk)
+        m = member(request)
+        clarification = get_object_or_404(
+            ProfileClarification, pk=clarification_id, profile__job=job
+        )
+        if clarification.assignee_id != m.pk or not can_confirm(m, job):
+            raise PermissionDenied("只有这条问题指定的用人负责人可以回答。")
+        if clarification.status == "answered" and clarification.answer == data["answer"]:
+            return Response(self.get_serializer(job).data)
+        latest = job.profiles.first()
+        if (
+            job.version != data["version"]
+            or job.status == "closed"
+            or clarification.status != "pending"
+            or not latest
+            or latest.pk != clarification.profile_id
+            or latest.status != "draft"
+        ):
+            raise Conflict("问题或画像版本已变化，请重新读取；旧版问题不能继续作答。")
+        clarification.answer = data["answer"]
+        clarification.status = "answered"
+        clarification.answered_at = timezone.now()
+        clarification.save()
+        Task.objects.filter(clarification=clarification, kind="clarify", status="pending").update(
+            status="done", completed_at=timezone.now()
+        )
+        Task.objects.create(
+            profile=latest, clarification=clarification, kind="clarify_followup", assignee=job.owner
+        )
+        record(
+            job,
+            m,
+            f"回答招人要求 v{latest.number} 澄清",
+            f"问题编号 {clarification.pk}，回答见澄清问答。",
+        )
         return Response(self.get_serializer(job).data)
 
     @action(detail=True, methods=["get"])
@@ -314,6 +455,12 @@ class TaskViewSet(ListModelMixin, GenericViewSet):
             Task.objects.filter(status="pending", profile__job__in=visible_jobs(m))
             .filter(
                 Q(kind="review", profile__status="pending")
+                | Q(kind="clarify", profile__status="draft", clarification__status="pending")
+                | Q(
+                    kind="clarify_followup",
+                    profile__status="draft",
+                    clarification__status="answered",
+                )
                 | Q(kind="revise", profile__status="changes_requested")
                 | Q(
                     kind="start",
@@ -331,9 +478,12 @@ class TaskViewSet(ListModelMixin, GenericViewSet):
             )
         # 角色被撤销后，旧任务不可继续成为操作入口。
         return qs.filter(assignee=m).filter(
-            Q(kind="review", profile__job__department_id__in=department_ids(m, ["manager"]))
+            Q(
+                kind__in=["review", "clarify"],
+                profile__job__department_id__in=department_ids(m, ["manager"]),
+            )
             | Q(
-                kind__in=["revise", "start"],
+                kind__in=["revise", "start", "clarify_followup"],
                 profile__job__department_id__in=department_ids(m, ["hr"]),
             )
         )

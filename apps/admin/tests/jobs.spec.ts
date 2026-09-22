@@ -195,3 +195,93 @@ test('建岗响应丢失后重试，只保留一条职位', async ({ page }) => 
   const response = await page.request.get('/api/v1/jobs/?search=幂等建岗');
   expect((await response.json()).count).toBe(1);
 });
+
+test('澄清问题经负责人回答后仍需整理与正式确认', async ({ page, browser }) => {
+  await login(page);
+  await createJob(page, '招聘专员（澄清验收）');
+  await page.getByRole('button', { name: '填写招人要求', exact: true }).click();
+  await page.getByLabel('对外职位描述', { exact: true }).fill('负责招聘流程协作');
+  await page.getByLabel('要求来源').fill('虚构澄清验收记录');
+  await page.getByLabel('具体要求 1').fill('能够独立完成招聘需求分析');
+  await page.getByLabel('此项仍需核实，不能直接作为淘汰依据').check();
+  await page.getByRole('button', { name: '保存要求草稿' }).click();
+  await expect(page.getByText('新版本已保存。提交后将由负责人确认。')).toBeVisible();
+  await page.getByRole('tab', { name: '澄清问答', exact: true }).click();
+  await page.getByLabel('需要澄清哪条要求（必填）').selectOption({ index: 1 });
+  await page.getByLabel('想向负责人了解什么（必填）').fill('需要独立负责哪类招聘项目？');
+  await page.route('**/api/v1/jobs/*/clarifications/', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fetch();
+      await route.abort();
+    } else await route.continue();
+  });
+  await page.getByRole('button', { name: '提交澄清问题' }).click();
+  await expect(page.getByRole('alert')).toContainText('暂时连接不上服务');
+  await expect(page.getByLabel('想向负责人了解什么（必填）')).toHaveValue(
+    '需要独立负责哪类招聘项目？',
+  );
+  await page.unroute('**/api/v1/jobs/*/clarifications/');
+  await page.getByRole('button', { name: '提交澄清问题' }).click();
+  await expect(page.getByText('问题已交给负责人，工作台待办已创建。')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '需要独立负责哪类招聘项目？' })).toHaveCount(1);
+  await closeDetail(page);
+  const context = await browser.newContext();
+  const manager = await context.newPage();
+  await login(manager, 'local_manager');
+  await manager
+    .getByRole('listitem')
+    .filter({ hasText: '招聘专员（澄清验收）' })
+    .getByRole('button', { name: '去处理' })
+    .click();
+  await expect(manager.getByRole('tab', { name: '澄清问答' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await manager.getByRole('button', { name: '回答这个问题' }).click();
+  await manager.getByLabel('你的答复（必填）').fill('能够独立完成技术岗位的需求访谈和岗位分析。');
+  const leavePrompt = manager.waitForEvent('dialog');
+  const switchTab = manager.getByRole('tab', { name: '招人要求', exact: true }).click();
+  const unsavedDialog = await leavePrompt;
+  expect(unsavedDialog.message()).toContain('尚未保存');
+  await unsavedDialog.dismiss();
+  await switchTab;
+  await expect(manager.getByLabel('你的答复（必填）')).toHaveValue(
+    '能够独立完成技术岗位的需求访谈和岗位分析。',
+  );
+  await manager.getByRole('button', { name: '保存答复' }).click();
+  await expect(manager.getByText('答复已保存，HR 将整理要求后再提交正式确认。')).toBeVisible();
+  await manager.reload();
+  await expect(
+    manager.getByRole('listitem').filter({ hasText: '招聘专员（澄清验收）' }),
+  ).toHaveCount(0);
+  await page.reload();
+  await page
+    .getByRole('listitem')
+    .filter({ hasText: '招聘专员（澄清验收）' })
+    .getByRole('button', { name: '去处理' })
+    .click();
+  await expect(page.getByText('能够独立完成技术岗位的需求访谈和岗位分析。')).toBeVisible();
+  for (const width of [390, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    expect(
+      await page.locator('.sheet-scroll').evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
+    ).toBeTruthy();
+    await page.screenshot({ path: `../../.local/验收-澄清问答-${width}.png`, fullPage: true });
+  }
+  await page.getByRole('tab', { name: '招人要求', exact: true }).click();
+  await expect(page.getByText('v1 · 草稿', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '开始招聘', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '调整要求' }).click();
+  await page.getByLabel('具体要求 1').fill('能够独立完成技术岗位的需求访谈和岗位分析');
+  await page.getByLabel('此项仍需核实，不能直接作为淘汰依据').uncheck();
+  await page.getByRole('button', { name: '保存要求草稿' }).click();
+  await expect(page.getByText('新版本已保存。提交后将由负责人确认。')).toBeVisible();
+  await page.getByRole('button', { name: '提交确认', exact: true }).click();
+  await expect(page.getByText('已提交，等待用人负责人确认。')).toBeVisible();
+  await page.getByRole('tab', { name: '澄清问答', exact: true }).click();
+  await expect(page.getByText('能够独立完成技术岗位的需求访谈和岗位分析。')).toBeVisible();
+  await expect(page.getByText('v1', { exact: true })).toBeVisible();
+  await closeDetail(page);
+  await expect(page.getByText('招人要求 v1 · 整理澄清答复')).toHaveCount(0);
+  await context.close();
+});

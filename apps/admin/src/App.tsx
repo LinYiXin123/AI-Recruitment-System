@@ -24,6 +24,11 @@ export default function App() {
   const [local, setLocal] = useState(false);
   const [route, setRoute] = useState(window.location.hash === '#jobs' ? 'jobs' : 'today');
   const [jobId, setJobId] = useState<number | null>(null);
+  const [jobTab, setJobTab] = useState('requirements');
+  function openJob(id: number, tab = 'requirements') {
+    setJobTab(tab);
+    setJobId(id);
+  }
   const [creating, setCreating] = useState(false);
   const [revision, setRevision] = useState(0);
   const [leaving, setLeaving] = useState(false);
@@ -162,14 +167,14 @@ export default function App() {
           {route === 'today' ? (
             <Today
               revision={revision}
-              openJob={setJobId}
+              openJob={openJob}
               canCreate={me.departments.length > 0}
               create={() => setCreating(true)}
             />
           ) : (
             <Jobs
               revision={revision}
-              openJob={setJobId}
+              openJob={openJob}
               canCreate={me.departments.length > 0}
               create={() => setCreating(true)}
             />
@@ -182,7 +187,7 @@ export default function App() {
           close={() => setCreating(false)}
           created={(job) => {
             setCreating(false);
-            setJobId(job.id);
+            openJob(job.id);
             setRevision((r) => r + 1);
           }}
         />
@@ -190,6 +195,7 @@ export default function App() {
       {jobId !== null && (
         <JobDetail
           id={jobId}
+          initialTab={jobTab}
           close={() => setJobId(null)}
           changed={() => setRevision((r) => r + 1)}
         />

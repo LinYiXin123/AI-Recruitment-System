@@ -35,6 +35,7 @@ import {
   profileStatus,
   type Requirement,
 } from '@/lib/api';
+import { Clarifications } from '@/pages/clarifications';
 
 export function CreateJob({
   me,
@@ -211,10 +212,12 @@ export function CreateJob({
 
 export function JobDetail({
   id,
+  initialTab = 'requirements',
   close,
   changed,
 }: {
   id: number;
+  initialTab?: string;
   close: () => void;
   changed: () => void;
 }) {
@@ -223,6 +226,8 @@ export function JobDetail({
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState(initialTab);
+  const [clarificationDirty, setClarificationDirty] = useState(false);
   const [reviewNote, setReviewNote] = useState('');
   const [nextStatus, setNextStatus] = useState('');
   const [reason, setReason] = useState('');
@@ -257,7 +262,7 @@ export function JobDetail({
     }
   }
   function requestClose() {
-    const unsaved = editing || reviewNote.trim() || reason.trim();
+    const unsaved = editing || clarificationDirty || reviewNote.trim() || reason.trim();
     if (!busy && (!unsaved || window.confirm('还有尚未保存的内容，确定关闭吗？'))) {
       close();
       returnFocus.current?.focus();
@@ -299,8 +304,13 @@ export function JobDetail({
             <ErrorNotice
               message={error}
               retry={() => {
-                if (!editing || window.confirm('重新加载会放弃未保存的编辑，是否继续？')) {
+                if (
+                  (!editing && !clarificationDirty) ||
+                  window.confirm('重新加载会放弃未保存的编辑，是否继续？')
+                ) {
                   setEditing(false);
+                  setClarificationDirty(false);
+                  setTab('requirements');
                   void load();
                 }
               }}
@@ -324,9 +334,21 @@ export function JobDetail({
               }}
             />
           ) : (
-            <Tabs defaultValue="requirements">
+            <Tabs
+              value={tab}
+              onValueChange={(value) => {
+                if (
+                  busy ||
+                  (clarificationDirty && !window.confirm('澄清问答尚未保存，确定离开吗？'))
+                )
+                  return;
+                setClarificationDirty(false);
+                setTab(String(value));
+              }}
+            >
               <TabsList>
                 <TabsTrigger value="requirements">招人要求</TabsTrigger>
+                <TabsTrigger value="clarifications">澄清问答</TabsTrigger>
                 <TabsTrigger value="history">版本与记录</TabsTrigger>
                 <TabsTrigger value="info">职位信息</TabsTrigger>
               </TabsList>
@@ -468,6 +490,25 @@ export function JobDetail({
                       </Button>
                     </div>
                   )}
+              </TabsContent>
+              <TabsContent value="clarifications" className="detail-tab">
+                <Clarifications
+                  job={job}
+                  busy={busy}
+                  setBusy={setBusy}
+                  dirty={setClarificationDirty}
+                  failed={(message) => {
+                    setError(message);
+                    setNotice('');
+                  }}
+                  saved={(j, message) => {
+                    setJob(j);
+                    setClarificationDirty(false);
+                    setError('');
+                    setNotice(message);
+                    changed();
+                  }}
+                />
               </TabsContent>
               <TabsContent value="history" className="detail-tab">
                 <History id={id} version={job.version} />

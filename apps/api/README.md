@@ -48,6 +48,8 @@ docker compose --env-file apps/api/.env up -d postgres
 | `jobs/` | GET／POST | 按授权范围分页搜索；创建职位 |
 | `jobs/{id}/` | GET | 职位详情、最新画像及当前可操作权限 |
 | `jobs/{id}/profiles/` | GET／POST | 读取历史；追加 JD 快照和要求版本 |
+| `jobs/{id}/clarifications/` | GET／POST | 分页读取历史问答；针对当前草稿的具体要求提问，创建负责人待办 |
+| `jobs/{id}/clarifications/{question_id}/answer/` | POST | 指定负责人回答，完成原待办并创建 HR 整理答复待办；不会批准画像 |
 | `jobs/{id}/submit-profile/` | POST | 将最新草稿送负责人确认，创建真实待办 |
 | `jobs/{id}/review-profile/` | POST | `outcome=confirm` 或 `changes_requested`，补充时 note 必填 |
 | `jobs/{id}/change-status/` | POST | 开始、暂停、关闭或重新开启；暂停／关闭／重开需 reason |
@@ -59,6 +61,10 @@ docker compose --env-file apps/api/.env up -d postgres
 所有已有职位的修改动作必须传当前 `version`。保存要求另传 `jd`、`source`、`requirements` 数组，每项包含 `kind=must/preferred/exclusion`、`text`、可选 `rationale`、`needs_verification`；排除信号必须说明 rationale。一次最多 50 项。必须满足的要求仍有待核实项时，不能提交确认；其他待核实要求保留标记，不能自动用于淘汰。默认禁止确认自己编写、提交或负责的需求。
 
 成功动作返回最新职位。错误为 `{errors: ...}`，403 表示登录或权限问题，404 表示不存在或不可见，409 表示已变化／已处理，400 表示表单或业务前置条件不满足。没有任意修改 status 的通用 PATCH，也没有删除历史的入口。
+
+F06 澄清提问传 `version`、`profile`、`requirement`、`question`（1–1000 字）、`request_key`（UUID）。负责人沿用职位指定确认人，前端不能指定其他人扩大权限。答复传 `version`、`answer`（1–2000 字）；重复同内容返回当前结果，不同答案不覆盖已保存历史。ProfileClarification 的 requirement 对应规格 criterion；创建、答复、Task 和 AuditEvent 同事务。当前草稿仍有待回答问题时不能送审。替换草稿或关闭职位会撤回未回答问题，旧版已回答记录保留。回答不自动清除 needs_verification，HR 核对并保存新版要求后再送审。
+
+启动或恢复招聘时重新校验 HR 负责人及要求确认人的成员状态和部门职责；先前确认不绕过当前授权。澄清相关 Task 使用 clarification 外键及 kind=clarify/clarify_followup，同一问题同类任务唯一；保存新版或提交已答清的草稿时结束整理待办。
 
 负责人确认后，Job.active_profile 切到该版本；新草稿不替换原生效依据。确认后不自动开始招聘；HR 从首页待办决定开始。调整要求会生成新草稿并撤回过时待办；负责人要求补充时，HR 获得补充任务。关闭职位撤回全部未完成的要求相关任务。业务状态与待办在同一事务中改变。
 
@@ -76,4 +82,4 @@ pytest 使用独立 `test_recruitment`，要求本机数据库角色有建库权
 
 本轮只做本地可运行交付，未执行生产发布。生产环境至少需要独立凭据、非 DEBUG 配置、实际允许域名、HTTPS 同源反向代理、合适的应用服务、数据库备份和访问控制；开发体验账号不能用于真实资料。AI、简历文件、渠道、飞书和 Flutter 尚未接入，本工程没有模拟其成功状态。
 
-实现依据：[Django 会话](https://docs.djangoproject.com/en/5.2/topics/http/sessions/)、[数据库约束](https://docs.djangoproject.com/en/5.2/ref/models/constraints/)、[DRF 权限](https://www.django-rest-framework.org/api-guide/permissions/)。完整产品关系继续以 `docs/产品设计/03_开发交接与数据库关系.md` 为基线。
+实现依据：[Django 会话](https://docs.djangoproject.com/en/5.2/topics/http/sessions/)、[数据库约束](https://docs.djangoproject.com/en/5.2/ref/models/constraints/)、[DRF 权限](https://www.django-rest-framework.org/api-guide/permissions/)。完整产品关系以 `docs/产品设计/04–07` 详细规格为基线，已实现映射与验收边界见 [08 交付记录](../../docs/产品设计/08_第一步实施交付记录.md)。

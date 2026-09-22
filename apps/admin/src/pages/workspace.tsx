@@ -10,7 +10,7 @@ import { api, dateTime, type Job, jobStatus, type Page, profileStatus, type Task
 
 type WorkspaceProps = {
   revision: number;
-  openJob: (id: number) => void;
+  openJob: (id: number, tab?: string) => void;
   canCreate: boolean;
   create: () => void;
 };
@@ -59,7 +59,7 @@ function TaskQueue({
 }: {
   scope: string;
   revision: number;
-  openJob: (id: number) => void;
+  openJob: (id: number, tab?: string) => void;
 }) {
   const [data, setData] = useState<Page<Task> | null>(null);
   const [error, setError] = useState('');
@@ -95,7 +95,7 @@ function TaskQueue({
           title={scope === 'mine' ? '当前没有需要你处理的事项' : '当前没有等待中的事项'}
           description={
             scope === 'mine'
-              ? '分配给你的要求确认、补充和招聘启动事项会出现在这里。'
+              ? '分配给你的澄清、要求确认、补充和招聘启动事项会出现在这里。'
               : '提交招人要求后，可在这里查看由谁接着处理。'
           }
         >
@@ -120,7 +120,12 @@ function TaskQueue({
                 <Button
                   variant={scope === 'mine' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => openJob(t.job_id)}
+                  onClick={() =>
+                    openJob(
+                      t.job_id,
+                      t.kind.startsWith('clarify') ? 'clarifications' : 'requirements',
+                    )
+                  }
                 >
                   {scope === 'mine' ? (t.kind === 'review' ? '查看并确认' : '去处理') : '查看进展'}
                   <ArrowRight data-icon="inline-end" />

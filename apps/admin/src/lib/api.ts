@@ -47,6 +47,21 @@ export type Task = {
   created_at: string;
   status: string;
 };
+export type Clarification = {
+  id: number;
+  profile: number;
+  profile_number: number;
+  requirement: number;
+  requirement_text: string;
+  question: string;
+  status: 'pending' | 'answered' | 'withdrawn';
+  answer: string;
+  answered_at: string | null;
+  created_at: string;
+  assignee_name: string;
+  requester_name: string;
+  can_answer: boolean;
+};
 export type Person = { id: number; name: string };
 export type Me = {
   name: string;

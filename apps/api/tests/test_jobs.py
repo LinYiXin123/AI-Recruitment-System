@@ -318,3 +318,203 @@ def test_default_no_self_approval_and_unresolved_required_rule(team):
     job = save_profile(c, job).data
     job = action(c, job, "submit-profile").data
     assert ProfileVersion.objects.get(pk=job["latest_profile"]["id"]).submitted_by_id == hr.id
+
+
+def ask(client, job, **changes):
+    p = job["latest_profile"]
+    return action(
+        client,
+        job,
+        "clarifications",
+        profile=p["id"],
+        requirement=p["requirements"][0]["id"],
+        question="需要独立负责哪类项目？",
+        request_key=str(uuid.uuid4()),
+        **changes,
+    )
+
+
+def test_clarification_answer_is_not_approval_and_history_is_preserved(team):
+    from recruitment.models import ProfileClarification
+
+    _, _, hr, manager, _ = team
+    hc, mc = client_for(hr), client_for(manager)
+    job = save_profile(
+        hc,
+        new_job(team),
+        requirements=[{"kind": "must", "text": "能独立完成需求分析", "needs_verification": True}],
+    ).data
+    before = job
+    job = ask(hc, job).data
+    q = ProfileClarification.objects.get()
+    replay = action(
+        hc,
+        before,
+        "clarifications",
+        profile=q.profile_id,
+        requirement=q.requirement_id,
+        question=q.question,
+        request_key=str(q.request_key),
+    )
+    assert replay.status_code == 200
+    assert Task.objects.filter(kind="clarify").count() == 1
+    assert mc.get("/api/v1/tasks/").data["count"] == 1
+    assert action(hc, job, "submit-profile").status_code == 400
+    job = action(
+        mc, job, f"clarifications/{q.pk}/answer", answer="需要独立完成招聘业务流程的调研和设计。"
+    ).data
+    assert job["latest_profile"]["status"] == "draft"
+    assert job["active_profile"] is None
+    assert job["latest_profile"]["requirements"][0]["needs_verification"] is True
+    assert Task.objects.get(kind="clarify").status == "done"
+    assert hc.get("/api/v1/tasks/").data["results"][0]["kind"] == "clarify_followup"
+    assert (
+        action(
+            mc,
+            before,
+            f"clarifications/{q.pk}/answer",
+            answer="需要独立完成招聘业务流程的调研和设计。",
+        ).status_code
+        == 200
+    )
+    assert (
+        action(mc, job, f"clarifications/{q.pk}/answer", answer="试图覆盖答复").status_code == 409
+    )
+    job = save_profile(hc, job).data
+    assert Task.objects.get(kind="clarify_followup").status == "done"
+    history = hc.get(f"/api/v1/jobs/{job['id']}/clarifications/").data["results"]
+    assert history[0]["profile_number"] == 1
+    assert history[0]["answer"] == "需要独立完成招聘业务流程的调研和设计。"
+    job = action(hc, job, "submit-profile").data
+    job = action(mc, job, "review-profile", outcome="confirm").data
+    assert action(hc, job, "change-status", status="open").status_code == 200
+
+
+def test_clarification_scope_stale_version_and_revoked_assignment(team):
+    from recruitment.models import ProfileClarification
+
+    org, dept, hr, manager, outsider = team
+    hc, mc = client_for(hr), client_for(manager)
+    job = save_profile(hc, new_job(team)).data
+    other_job = save_profile(hc, new_job(team)).data
+    p = job["latest_profile"]
+    assert (
+        action(
+            hc,
+            job,
+            "clarifications",
+            profile=p["id"],
+            requirement=other_job["latest_profile"]["requirements"][0]["id"],
+            question="伪造另一职位条件",
+            request_key=str(uuid.uuid4()),
+        ).status_code
+        == 404
+    )
+    job = ask(hc, job).data
+    q = ProfileClarification.objects.get()
+    for person in [
+        outsider,
+        actor(org, username="config_admin", admin=True),
+        actor(Organization.objects.create(name="外部"), username="external"),
+    ]:
+        c = client_for(person)
+        assert c.get(f"/api/v1/jobs/{job['id']}/clarifications/").status_code == 404
+        assert action(c, job, f"clarifications/{q.pk}/answer", answer="越权回答").status_code == 404
+    other_manager = client_for(actor(org, dept, "manager", "other_reviewer"))
+    assert (
+        other_manager.get(f"/api/v1/jobs/{job['id']}/clarifications/").data["results"][0][
+            "can_answer"
+        ]
+        is False
+    )
+    assert (
+        action(other_manager, job, f"clarifications/{q.pk}/answer", answer="非指定人").status_code
+        == 403
+    )
+    assert action(hc, job, "submit-profile").status_code == 400
+    newer = save_profile(hc, job).data
+    q.refresh_from_db()
+    assert q.status == "withdrawn"
+    assert Task.objects.get(clarification=q).status == "cancelled"
+    assert (
+        action(mc, newer, f"clarifications/{q.pk}/answer", answer="旧版本回答").status_code == 409
+    )
+    job = ask(hc, newer).data
+    latest_question = ProfileClarification.objects.latest("id")
+    manager.roles.all().delete()
+    assert mc.get("/api/v1/tasks/").data["count"] == 0
+    assert (
+        action(
+            mc, job, f"clarifications/{latest_question.pk}/answer", answer="撤权后回答"
+        ).status_code
+        == 404
+    )
+    assert ask(hc, job).status_code == 400
+    job = action(hc, job, "change-status", status="closed", reason="结束验证").data
+    latest_question.refresh_from_db()
+    assert latest_question.status == "withdrawn"
+    assert not Task.objects.filter(status="pending").exists()
+
+
+def test_clarification_and_task_roll_back_together(team, monkeypatch):
+    import recruitment.views as views
+    from recruitment.models import ProfileClarification
+
+    _, _, hr, _, _ = team
+    hc = client_for(hr)
+    job = save_profile(hc, new_job(team)).data
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("模拟事务中断")
+
+    monkeypatch.setattr(views, "record", fail)
+    with pytest.raises(RuntimeError):
+        ask(hc, job)
+    assert ProfileClarification.objects.count() == 0
+    assert Task.objects.count() == 0
+    assert Job.objects.get(pk=job["id"]).version == job["version"]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_clarification_answers_commit_once(team):
+    from recruitment.models import ProfileClarification
+
+    _, _, hr, manager, _ = team
+    hc = client_for(hr)
+    job = ask(hc, save_profile(hc, new_job(team)).data).data
+    q = ProfileClarification.objects.get()
+    clients = [client_for(manager), client_for(manager)]
+    barrier = Barrier(2)
+
+    def answer(entry):
+        i, c = entry
+        close_old_connections()
+        try:
+            barrier.wait(timeout=5)
+            return action(
+                c, job, f"clarifications/{q.pk}/answer", answer=f"具体要求答复 {i}"
+            ).status_code
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(answer, enumerate(clients)))
+    assert sorted(results) == [200, 409]
+    assert Task.objects.filter(kind="clarify_followup").count() == 1
+    assert AuditEvent.objects.filter(action__startswith="回答招人要求").count() == 1
+
+
+def test_activation_rechecks_required_member_authorization(team):
+    _, _, hr, manager, collaborator = team
+    hc = client_for(hr)
+    job = save_profile(hc, new_job(team, collaborators=[collaborator.pk])).data
+    job = action(hc, job, "submit-profile").data
+    job = action(client_for(manager), job, "review-profile", outcome="confirm").data
+    manager.active = False
+    manager.save()
+    assert action(hc, job, "change-status", status="open").status_code == 400
+    manager.active = True
+    manager.save()
+    hr.active = False
+    hr.save()
+    assert action(client_for(collaborator), job, "change-status", status="open").status_code == 400
