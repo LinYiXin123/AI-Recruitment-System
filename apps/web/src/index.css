@@ -31,24 +31,24 @@
 }
 :root {
   color-scheme: light;
-  --background: #f8f9f4;
-  --foreground: #26372f;
+  --background: #f7f9fe;
+  --foreground: #24334d;
   --card: #fff;
-  --primary: #285440;
-  --primary-foreground: #fafcf6;
-  --secondary: #eaf0e1;
-  --secondary-foreground: #2e4b38;
-  --muted-foreground: #667264;
-  --surface: #f4f6f0;
-  --border: #e1e6db;
-  --border-strong: #cbd5c1;
-  --decoration: #a6bc7a;
-  --highlight: #f0f4e5;
+  --primary: #2456b8;
+  --primary-foreground: #fff;
+  --secondary: #eaf1fd;
+  --secondary-foreground: #294b85;
+  --muted-foreground: #596b83;
+  --surface: #f0f4fb;
+  --border: #dce4f1;
+  --border-strong: #c4d3ea;
+  --decoration: #bed5ff;
+  --highlight: #edf3ff;
   --pending-surface: #fcfaf4;
   --pending-background: #f5edda;
   --pending-foreground: #8c642c;
-  --shadow-color: #28423135;
-  --closing-muted: #c4d3be;
+  --shadow-color: #244b852b;
+  --closing-muted: #d6e4ff;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
