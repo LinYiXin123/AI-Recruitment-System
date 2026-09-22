@@ -1,4 +1,11 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import {
+  AnimatePresence,
+  motion,
+  useInView,
+  useIsPresent,
+  useReducedMotion,
+} from "framer-motion"
 import {
   ArrowRight,
   ChevronLeft,
@@ -6,6 +13,8 @@ import {
   Check,
   CircleHelp,
   FileText,
+  Pause,
+  Play,
   ScanLine,
   Sparkles,
   TextSearch,
@@ -21,10 +30,27 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { samples, type Sample } from "./resume-samples"
 
-function SampleReport({ sample }: { sample: Sample }) {
+const sampleOptions = samples.map((sample, index) => ({
+  value: sample.id,
+  label: `${String(index + 1).padStart(2, "0")} · ${sample.role}`,
+}))
+
+function SampleReport({
+  sample,
+  onDialogOpenChange,
+}: {
+  sample: Sample
+  onDialogOpenChange: (open: boolean) => void
+}) {
   return (
     <div className="demo-columns">
       <div className="resume-side">
@@ -104,7 +130,7 @@ function SampleReport({ sample }: { sample: Sample }) {
                 <h4>{match.title}</h4>
                 <p>{match.detail}</p>
               </div>
-              <Dialog>
+              <Dialog onOpenChange={onDialogOpenChange}>
                 <DialogTrigger
                   render={
                     <Button
@@ -149,7 +175,7 @@ function SampleReport({ sample }: { sample: Sample }) {
           <p>
             <span className="tiny-dot" /> 建议围绕待核实项进一步沟通
           </p>
-          <Dialog>
+          <Dialog onOpenChange={onDialogOpenChange}>
             <DialogTrigger render={<Button variant="outline" size="sm" />}>
               查看面试建议{" "}
               <ArrowRight data-icon="inline-end" aria-hidden="true" />
@@ -174,11 +200,66 @@ function SampleReport({ sample }: { sample: Sample }) {
   )
 }
 
+function SampleSlide({
+  sample,
+  reducedMotion,
+  onDialogOpenChange,
+}: {
+  sample: Sample
+  reducedMotion: boolean
+  onDialogOpenChange: (open: boolean) => void
+}) {
+  const present = useIsPresent()
+  return (
+    <motion.div
+      className="demo-slide"
+      inert={!present}
+      initial={{ opacity: reducedMotion ? 1 : 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: reducedMotion ? 1 : 0 }}
+      transition={{ duration: reducedMotion ? 0 : 0.22, ease: "easeInOut" }}
+    >
+      <SampleReport sample={sample} onDialogOpenChange={onDialogOpenChange} />
+    </motion.div>
+  )
+}
+
 export function ResumeDemo() {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const sample = samples[selectedIndex]
+  const sectionRef = useRef<HTMLElement>(null)
+  const inView = useInView(sectionRef, { amount: 0.2 })
+  const reducedMotion = useReducedMotion()
+  const [playing, setPlaying] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [focusWithin, setFocusWithin] = useState(false)
+  const [pageVisible, setPageVisible] = useState(() => !document.hidden)
+  const autoPlaying =
+    playing &&
+    !reducedMotion &&
+    inView &&
+    pageVisible &&
+    !menuOpen &&
+    !dialogOpen &&
+    !focusWithin
+
+  useEffect(() => {
+    const update = () => setPageVisible(!document.hidden)
+    document.addEventListener("visibilitychange", update)
+    return () => document.removeEventListener("visibilitychange", update)
+  }, [])
+
+  useEffect(() => {
+    if (!autoPlaying) return
+    const timer = window.setTimeout(() => {
+      setSelectedIndex((index) => (index + 1) % samples.length)
+    }, 2000)
+    return () => window.clearTimeout(timer)
+  }, [autoPlaying, selectedIndex])
   return (
     <section
+      ref={sectionRef}
       id="demo"
       className="demo-section page-width"
       aria-labelledby="demo-title"
@@ -191,7 +272,18 @@ export function ResumeDemo() {
           </div>
         }
       >
-        <div className="demo-window">
+        <div
+          className="demo-window"
+          onFocusCapture={(event) =>
+            setFocusWithin(
+              !(event.target as HTMLElement).closest("[data-autoplay-control]")
+            )
+          }
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget))
+              setFocusWithin(false)
+          }}
+        >
           <div className="demo-toolbar">
             <div className="flex items-center gap-3">
               <div className="window-dots" aria-hidden="true">
@@ -202,21 +294,30 @@ export function ResumeDemo() {
               <h2 id="demo-title">简历分析工作台</h2>
             </div>
             <div className="demo-controls">
-              <NativeSelect
-                aria-label="选择演示岗位"
-                value={sample.id}
-                onChange={(event) =>
-                  setSelectedIndex(
-                    samples.findIndex((item) => item.id === event.target.value)
-                  )
-                }
-              >
-                {samples.map((item, index) => (
-                  <NativeSelectOption key={item.id} value={item.id}>
-                    {String(index + 1).padStart(2, "0")} · {item.role}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
+              <div className="demo-select">
+                <Select
+                  items={sampleOptions}
+                  value={sample.id}
+                  open={menuOpen}
+                  onOpenChange={setMenuOpen}
+                  modal={false}
+                  onValueChange={(value) => {
+                    const index = samples.findIndex((item) => item.id === value)
+                    if (index >= 0) setSelectedIndex(index)
+                  }}
+                >
+                  <SelectTrigger aria-label="选择演示岗位">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent inline alignItemWithTrigger={false}>
+                    {sampleOptions.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="demo-pagination">
                 <Button
                   variant="ghost"
@@ -227,7 +328,11 @@ export function ResumeDemo() {
                 >
                   <ChevronLeft aria-hidden="true" />
                 </Button>
-                <span className="demo-count" role="status" aria-live="polite">
+                <span
+                  className="demo-count"
+                  role="status"
+                  aria-live={autoPlaying ? "off" : "polite"}
+                >
                   {String(selectedIndex + 1).padStart(2, "0")} /{" "}
                   {samples.length}
                 </span>
@@ -240,10 +345,32 @@ export function ResumeDemo() {
                 >
                   <ChevronRight aria-hidden="true" />
                 </Button>
+                {!reducedMotion && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    data-autoplay-control
+                    aria-label={playing ? "暂停自动轮播" : "开始自动轮播"}
+                    onClick={() => setPlaying((value) => !value)}
+                  >
+                    {playing ? (
+                      <Pause aria-hidden="true" />
+                    ) : (
+                      <Play aria-hidden="true" />
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
           </div>
-          <SampleReport sample={sample} key={sample.id} />
+          <AnimatePresence initial={false} mode="wait">
+            <SampleSlide
+              key={sample.id}
+              sample={sample}
+              reducedMotion={!!reducedMotion}
+              onDialogOpenChange={setDialogOpen}
+            />
+          </AnimatePresence>
           <div className="demo-status">
             <span>
               <span className="tiny-dot" /> 交互演示 · 虚构数据

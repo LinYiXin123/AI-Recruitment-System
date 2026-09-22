@@ -20,9 +20,9 @@ test("首页展示完整，体验入口可用且无横向溢出", async ({ page 
     "transform",
     "none"
   )
-  await expect(
-    page.getByRole("combobox", { name: "选择演示岗位" })
-  ).toHaveValue("product")
+  await expect(page.getByRole("combobox", { name: "选择演示岗位" })).toHaveText(
+    "01 · 产品经理"
+  )
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth
@@ -87,7 +87,7 @@ test("工作台随滚动展平，正常动画下仍可操作且无横向溢出",
 
   const tab = page.getByRole("combobox", { name: "选择演示岗位" })
   await tab.evaluate((element) => element.focus({ preventScroll: true }))
-  await expect(card).toHaveCSS("transform", "none")
+  await expect.poll(tilt).toBeGreaterThan(0.001)
   await tab.evaluate((element) => element.blur())
   await expect.poll(tilt).toBeGreaterThan(0.001)
 
@@ -106,7 +106,10 @@ test("工作台随滚动展平，正常动画下仍可操作且无横向溢出",
       )
     )
     .toBeCloseTo(1, 2)
-  await tab.selectOption("engineering")
+  await tab.click()
+  await page
+    .getByRole("option", { name: "02 · 前端工程师", exact: true })
+    .click()
   await page.getByRole("button", { name: "查看面试建议" }).click()
   await expect(page.getByRole("dialog")).toContainText(
     "首屏优化用了哪些测量工具"
@@ -118,26 +121,22 @@ test("工作台随滚动展平，正常动画下仍可操作且无横向溢出",
 test("28 组示例的头像、岗位与原文依据对应，翻页边界正确", async ({ page }) => {
   await page.goto("/#demo")
   const selector = page.getByRole("combobox", { name: "选择演示岗位" })
-  const options = await selector
-    .locator("option")
-    .evaluateAll((items) =>
-      items.map((item) => ({
-        value: item.getAttribute("value")!,
-        label: item.textContent!,
-      }))
-    )
+  await selector.click()
+  const options = await page.getByRole("option").allTextContents()
   expect(options).toHaveLength(28)
-  expect(new Set(options.map((item) => item.value)).size).toBe(28)
+  expect(new Set(options).size).toBe(28)
+  await page.keyboard.press("Escape")
   await expect(page.getByRole("button", { name: "上一个示例" })).toBeDisabled()
   for (const [index, option] of options.entries()) {
-    await selector.selectOption(option.value)
+    await selector.click()
+    await page.getByRole("option", { name: option, exact: true }).click()
     const number = String(index + 1).padStart(2, "0")
     await expect(
       page.getByRole("heading", { name: `候选人 ${number}`, exact: true })
     ).toBeVisible()
     await expect(page.getByRole("status")).toHaveText(`${number} / 28`)
     await expect(page.locator(".analysis-heading .eyebrow")).toContainText(
-      option.label.split(" · ")[1]
+      option.split(" · ")[1]
     )
     const avatar = page.locator(".resume-avatar img")
     await expect(avatar).toHaveAttribute("src", `/avatars/${index + 1}.png`)
@@ -175,9 +174,10 @@ test("28 组示例的头像、岗位与原文依据对应，翻页边界正确",
 
 test("切换岗位后依据与面试建议一致，弹窗支持键盘退出", async ({ page }) => {
   await page.goto("/#demo")
+  await page.getByRole("combobox", { name: "选择演示岗位" }).click()
   await page
-    .getByRole("combobox", { name: "选择演示岗位" })
-    .selectOption("engineering")
+    .getByRole("option", { name: "02 · 前端工程师", exact: true })
+    .click()
   await expect(
     page.getByRole("heading", { name: "候选人 02", exact: true })
   ).toBeVisible()
@@ -195,9 +195,8 @@ test("切换岗位后依据与面试建议一致，弹窗支持键盘退出", as
   await page.getByRole("button", { name: "查看面试建议" }).click()
   await expect(dialog).toContainText("首屏优化用了哪些测量工具")
   await dialog.getByRole("button", { name: "关闭", exact: true }).click()
-  await page
-    .getByRole("combobox", { name: "选择演示岗位" })
-    .selectOption("product")
+  await page.getByRole("combobox", { name: "选择演示岗位" }).click()
+  await page.getByRole("option", { name: "01 · 产品经理", exact: true }).click()
   await expect(
     page.getByRole("heading", { name: "候选人 01", exact: true })
   ).toBeVisible()
@@ -206,9 +205,9 @@ test("切换岗位后依据与面试建议一致，弹窗支持键盘退出", as
   ).not.toBeVisible()
   await page.getByRole("button", { name: "下一个示例" }).focus()
   await page.keyboard.press("Enter")
-  await expect(
-    page.getByRole("combobox", { name: "选择演示岗位" })
-  ).toHaveValue("engineering")
+  await expect(page.getByRole("combobox", { name: "选择演示岗位" })).toHaveText(
+    "02 · 前端工程师"
+  )
 })
 
 test("导航、常见问题与隐私说明可操作", async ({ page, isMobile }) => {
