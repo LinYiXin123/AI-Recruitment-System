@@ -118,7 +118,9 @@ test("工作台随滚动展平，正常动画下仍可操作且无横向溢出",
   await expect(page.getByRole("dialog")).not.toBeVisible()
 })
 
-test("28 组示例的头像、岗位与原文依据对应，翻页边界正确", async ({ page }) => {
+test("28 组示例的排版配色、头像与原文依据对应，翻页边界正确", async ({
+  page,
+}, testInfo) => {
   await page.goto("/#demo")
   const selector = page.getByRole("combobox", { name: "选择演示岗位" })
   await selector.click()
@@ -127,6 +129,8 @@ test("28 组示例的头像、岗位与原文依据对应，翻页边界正确",
   expect(new Set(options).size).toBe(28)
   await page.keyboard.press("Escape")
   await expect(page.getByRole("button", { name: "上一个示例" })).toBeDisabled()
+  const backgrounds = new Set<string>()
+  const compositions = new Set<string>()
   for (const [index, option] of options.entries()) {
     await selector.click()
     await page.getByRole("option", { name: option, exact: true }).click()
@@ -138,6 +142,31 @@ test("28 组示例的头像、岗位与原文依据对应，翻页边界正确",
     await expect(page.locator(".analysis-heading .eyebrow")).toContainText(
       option.split(" · ")[1]
     )
+    const report = page.locator(".analysis-side")
+    const appearance = await report.evaluate((el) => {
+      const style = getComputedStyle(el)
+      const heading = getComputedStyle(el.querySelector(".analysis-heading")!)
+      const evidence = getComputedStyle(el.querySelector(".analysis-evidence")!)
+      return {
+        background: style.backgroundColor,
+        composition: [
+          style.display,
+          heading.backgroundColor,
+          heading.borderLeftWidth,
+          evidence.gridTemplateColumns,
+          evidence.borderLeftWidth,
+        ].join("|"),
+        overflow: el.scrollWidth > el.clientWidth,
+      }
+    })
+    backgrounds.add(appearance.background)
+    if (index < 4) {
+      compositions.add(appearance.composition)
+      await report.screenshot({
+        path: testInfo.outputPath(`analysis-${index + 1}.png`),
+      })
+    }
+    expect(appearance.overflow).toBe(false)
     const avatar = page.locator(".resume-avatar img")
     await expect(avatar).toHaveAttribute("src", `/avatars/${index + 1}.png`)
     await expect
@@ -162,6 +191,8 @@ test("28 组示例的头像、岗位与原文依据对应，翻页边界正确",
       )
     ).toBe(true)
   }
+  expect(backgrounds.size).toBe(7)
+  expect(compositions.size).toBe(4)
   await expect(page.getByRole("button", { name: "下一个示例" })).toBeDisabled()
   await page.getByRole("button", { name: "上一个示例" }).click()
   await expect(page.getByRole("status")).toHaveText("27 / 28")

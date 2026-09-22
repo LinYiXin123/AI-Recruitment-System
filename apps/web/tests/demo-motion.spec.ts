@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test"
 
-test("每两秒淡入淡出轮播，菜单暂停、手动暂停与末页循环可用", async ({
+test("每三秒淡入淡出轮播，菜单暂停、手动暂停与末页循环可用", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" })
@@ -12,8 +12,8 @@ test("每两秒淡入淡出轮播，菜单暂停、手动暂停与末页循环�
   const count = page.locator(".demo-count")
   const started = Date.now()
   await expect(count).toHaveText("01 / 28")
-  await expect(count).toHaveText("02 / 28", { timeout: 3000 })
-  expect(Date.now() - started).toBeGreaterThan(1500)
+  await expect(count).toHaveText("02 / 28", { timeout: 4200 })
+  expect(Date.now() - started).toBeGreaterThan(2400)
   await expect
     .poll(
       () =>
@@ -31,23 +31,23 @@ test("每两秒淡入淡出轮播，菜单暂停、手动暂停与末页循环�
   const selector = page.getByRole("combobox", { name: "选择演示岗位" })
   await selector.click()
   const pausedCount = await count.textContent()
-  await page.waitForTimeout(2300)
+  await page.waitForTimeout(3300)
   await expect(count).toHaveText(pausedCount!)
   await page.getByRole("option", { name: "28 · 品牌策划", exact: true }).click()
   await expect(
     page.getByRole("heading", { name: "候选人 28", exact: true })
   ).toBeVisible()
   await page.getByRole("button", { name: "暂停自动轮播" }).click()
-  await page.waitForTimeout(2300)
+  await page.waitForTimeout(3300)
   await expect(count).toHaveText("28 / 28")
   await page.getByRole("button", { name: "开始自动轮播" }).click()
-  await expect(count).toHaveText("01 / 28", { timeout: 3000 })
+  await expect(count).toHaveText("01 / 28", { timeout: 4200 })
   await expect(
     page.getByRole("heading", { name: "候选人 01", exact: true })
   ).toBeVisible()
   await page.getByRole("button", { name: "查看面试建议" }).click()
   await expect(page.getByRole("dialog")).toBeVisible()
-  await page.waitForTimeout(2300)
+  await page.waitForTimeout(3300)
   await expect(count).toHaveText("01 / 28")
   await expect(page.getByRole("dialog")).toContainText("产品经理 · 面试建议")
 })

@@ -421,6 +421,10 @@ export const samples = [
   person: `候选人 ${String(index + 1).padStart(2, "0")}`,
   initials: String(index + 1).padStart(2, "0"),
   avatar: `/avatars/${index + 1}.png`,
+  layout: ["spotlight", "cards", "timeline", "split"][index % 4],
+  palette: ["blue", "teal", "violet", "amber", "rose", "cyan", "indigo"][
+    index % 7
+  ],
 }))
 
 export type Sample = (typeof samples)[number]

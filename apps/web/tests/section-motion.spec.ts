@@ -42,7 +42,14 @@ test("内容随滚动反复淡入淡出，页底完整可见且入口可用", as
 
   await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
   for (const selector of [".closing-panel", ".site-footer"]) {
-    await expect(page.locator(selector)).toHaveCSS("opacity", "1")
+    // 滚动位置取整可能差不到一像素，仍应达到视觉上的完整显示。
+    await expect
+      .poll(() =>
+        page
+          .locator(selector)
+          .evaluate((el) => Number(getComputedStyle(el).opacity))
+      )
+      .toBeGreaterThan(0.99)
     await expect(page.locator(selector)).toHaveCSS("mask-image", "none")
   }
   await page.getByRole("button", { name: "演示与隐私说明" }).click()

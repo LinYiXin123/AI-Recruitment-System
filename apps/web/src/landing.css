@@ -459,6 +459,67 @@
   color: var(--primary);
   margin-right: 4px;
 }
+/* 分析内容与操作一致，局部主题和排版随示例变化。 */
+.analysis-side {
+  --report-accent: #2456a6;
+  --report-wash: #edf4ff;
+  --report-line: #c8d9f3;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 560px;
+  background: var(--report-wash);
+}
+.analysis-side[data-palette="teal"] { --report-accent: #17655d; --report-wash: #edf8f4; --report-line: #bfddd4; }
+.analysis-side[data-palette="violet"] { --report-accent: #6b4497; --report-wash: #f5f0fb; --report-line: #dacbeb; }
+.analysis-side[data-palette="amber"] { --report-accent: #87551c; --report-wash: #fff6e9; --report-line: #ecd6b5; }
+.analysis-side[data-palette="rose"] { --report-accent: #9a435c; --report-wash: #fff0f3; --report-line: #eccad4; }
+.analysis-side[data-palette="cyan"] { --report-accent: #196779; --report-wash: #edf9fc; --report-line: #c1e0e7; }
+.analysis-side[data-palette="indigo"] { --report-accent: #4c4e9b; --report-wash: #f0f1fc; --report-line: #ced0ed; }
+.analysis-side .panel-label,
+.analysis-side .eyebrow { color: var(--report-accent); }
+.analysis-evidence { display: grid; gap: 12px; }
+.analysis-evidence .match-row { background: var(--card); border-color: var(--report-line); }
+.analysis-evidence .status-icon { color: var(--report-accent); background: var(--report-wash); }
+.analysis-evidence .pending-row { background: var(--pending-surface); }
+.analysis-evidence .pending-row .status-icon { color: var(--pending-foreground); background: var(--pending-background); }
+.analysis-side .analysis-bottom { margin-top: auto; padding-top: 22px; }
+.analysis-side[data-layout="spotlight"] .analysis-heading {
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--report-accent);
+  color: white;
+}
+.analysis-side[data-layout="spotlight"] .analysis-heading :is(.eyebrow, p) { color: white; }
+.analysis-side[data-layout="cards"] .analysis-evidence { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.analysis-side[data-layout="cards"] .match-row:not(.pending-row) { flex-wrap: wrap; align-content: start; border-top: 3px solid var(--report-accent); }
+.analysis-side[data-layout="cards"] .match-row:not(.pending-row) > .min-w-0 { flex: 1 1 100%; order: 1; }
+.analysis-side[data-layout="cards"] .match-row:not(.pending-row) > button { margin-left: auto; }
+.analysis-side[data-layout="cards"] .pending-row { grid-column: 1 / -1; }
+.analysis-side[data-layout="timeline"] .analysis-evidence { margin-left: 12px; border-left: 2px solid var(--report-line); gap: 0; }
+.analysis-side[data-layout="timeline"] .match-row { border: 0; border-radius: 0; background: transparent; padding: 15px 0; }
+.analysis-side[data-layout="timeline"] .status-icon { margin-left: -13px; border: 3px solid var(--report-wash); width: 26px; height: 26px; background: var(--report-accent); color: white; }
+.analysis-side[data-layout="timeline"] .pending-row { border-top: 1px dashed var(--report-line); }
+.analysis-side[data-layout="split"] { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); align-content: start; column-gap: 20px; }
+.analysis-side[data-layout="split"] > .panel-label,
+.analysis-side[data-layout="split"] > .analysis-bottom { grid-column: 1 / -1; }
+.analysis-side[data-layout="split"] .analysis-heading { margin: 26px 0 0; padding-left: 14px; border-left: 4px solid var(--report-accent); align-self: start; }
+.analysis-side[data-layout="split"] .analysis-heading h3 { font-size: 25px; line-height: 1.45; }
+.analysis-side[data-layout="split"] .analysis-evidence { margin-top: 26px; }
+.analysis-side[data-layout="split"] .match-row { flex-wrap: wrap; }
+.analysis-side[data-layout="split"] .match-row > .min-w-0 { flex-basis: calc(100% - 40px); }
+.analysis-side[data-layout="split"] .match-row > button { margin-left: auto; }
+@media (max-width: 1100px) {
+  .analysis-side[data-layout="split"] { column-gap: 12px; grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr); }
+  .analysis-side[data-layout="split"] .analysis-heading h3 { font-size: 20px; }
+}
+@media (max-width: 700px) {
+  .analysis-side { min-height: 680px; }
+  .analysis-side[data-layout="split"] { display: flex; }
+}
+@media (max-width: 380px) {
+  .analysis-side[data-layout="cards"] .analysis-evidence { grid-template-columns: 1fr; }
+}
 .demo-status {
   display: flex;
   justify-content: space-between;

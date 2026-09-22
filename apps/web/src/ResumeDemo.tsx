@@ -110,17 +110,30 @@ function SampleReport({
           </div>
         </div>
       </div>
-      <div className="analysis-side">
+      <div
+        className="analysis-side"
+        data-layout={sample.layout}
+        data-palette={sample.palette}
+      >
         <div className="panel-label">
           <Sparkles aria-hidden="true" /> AI 分析示例{" "}
           <Badge variant="secondary">有据可查</Badge>
         </div>
         <div className="analysis-heading">
           <span className="eyebrow">针对岗位 · {sample.role}</span>
-          <h3>匹配在哪里，一目了然。</h3>
+          <h3>
+            {
+              {
+                spotlight: "匹配在哪里，一目了然。",
+                cards: "把优势，逐项展开。",
+                timeline: "沿着经历，找到依据。",
+                split: "看见亮点，也留意疑问。",
+              }[sample.layout]
+            }
+          </h3>
           <p>{sample.requirements}</p>
         </div>
-        <div className="flex flex-col gap-3">
+        <div className="analysis-evidence">
           {sample.matches.map((match) => (
             <div className="match-row" key={match.title}>
               <div className="status-icon">
@@ -217,7 +230,7 @@ function SampleSlide({
       initial={{ opacity: reducedMotion ? 1 : 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: reducedMotion ? 1 : 0 }}
-      transition={{ duration: reducedMotion ? 0 : 0.22, ease: "easeInOut" }}
+      transition={{ duration: reducedMotion ? 0 : 0.55, ease: "easeInOut" }}
     >
       <SampleReport sample={sample} onDialogOpenChange={onDialogOpenChange} />
     </motion.div>
@@ -254,7 +267,7 @@ export function ResumeDemo() {
     if (!autoPlaying) return
     const timer = window.setTimeout(() => {
       setSelectedIndex((index) => (index + 1) % samples.length)
-    }, 2000)
+    }, 3000)
     return () => window.clearTimeout(timer)
   }, [autoPlaying, selectedIndex])
   return (
