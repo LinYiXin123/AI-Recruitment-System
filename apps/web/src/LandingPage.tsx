@@ -361,7 +361,7 @@ export default function LandingPage() {
                 className="text-link workflow-reveal"
                 {...workflowMotion(-56, 3)}
               >
-                用示例走一遍 <ArrowRight aria-hidden="true" />
+                走一遍 <ArrowRight aria-hidden="true" />
               </motion.a>
             </div>
             <ol className="workflow-steps">

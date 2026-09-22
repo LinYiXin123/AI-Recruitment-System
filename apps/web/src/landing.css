@@ -908,7 +908,10 @@
   position: relative;
 }
 .closing-panel .eyebrow {
-  color: var(--decoration);
+  display: inline-block;
+  padding: 2px 4px;
+  color: var(--primary);
+  background: var(--secondary);
 }
 .closing-panel h2 {
   font-size: 30px;
