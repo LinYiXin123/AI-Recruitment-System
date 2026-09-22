@@ -1,8 +1,6 @@
-import { useRef, useState, type CSSProperties } from "react"
+import { useRef, type CSSProperties } from "react"
 import { useInView } from "framer-motion"
-import { Pause, Play } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
 import "./avatar-orbit.css"
 
 export interface OrbitMember {
@@ -76,14 +74,13 @@ export function AvatarOrbit({
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const inView = useInView(ref)
-  const [paused, setPaused] = useState(false)
   const rings = [
     members.slice(0, 8),
     members.slice(8, 20),
     members.slice(20),
   ].filter((ring) => ring.length)
   return (
-    <div ref={ref} className="avatar-orbit" data-paused={paused || !inView}>
+    <div ref={ref} className="avatar-orbit" data-paused={!inView}>
       <div
         className="avatar-orbit__stage"
         role="group"
@@ -111,23 +108,6 @@ export function AvatarOrbit({
             onSelect={onSelect}
           />
         ))}
-      </div>
-      <div className="avatar-orbit__controls">
-        <span className="avatar-orbit__motion-label">悬停或键盘聚焦可暂停</span>
-        <span className="avatar-orbit__static-label">静态展示</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setPaused((value) => !value)}
-          aria-label={paused ? "继续头像旋转" : "暂停头像旋转"}
-        >
-          {paused ? (
-            <Play data-icon="inline-start" aria-hidden="true" />
-          ) : (
-            <Pause data-icon="inline-start" aria-hidden="true" />
-          )}
-          {paused ? "继续" : "暂停"}
-        </Button>
       </div>
     </div>
   )

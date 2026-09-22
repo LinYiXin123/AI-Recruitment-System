@@ -129,7 +129,7 @@ export default function LandingPage() {
               href="#demo"
               className={cn(buttonVariants({ size: "sm" }), "header-cta")}
             >
-              查看演示{" "}
+              开始体验{" "}
               <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
             </a>
             <details
@@ -393,15 +393,15 @@ export default function LandingPage() {
           <p>让招聘回归对人的理解。</p>
         </div>
         <div className="footer-meta">
-          <span>© {new Date().getFullYear()} 知遇 AI · 产品概念演示</span>
+          <span>© {new Date().getFullYear()} 知遇 AI · 产品概念</span>
           <Dialog>
             <DialogTrigger render={<Button variant="ghost" size="sm" />}>
               <Fingerprint data-icon="inline-start" aria-hidden="true" />
-              演示与隐私说明
+              隐私说明
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>演示与隐私说明</DialogTitle>
+                <DialogTitle>隐私说明</DialogTitle>
                 <DialogDescription>
                   本页是招聘产品的交互演示。
                 </DialogDescription>

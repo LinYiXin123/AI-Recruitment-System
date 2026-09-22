@@ -541,20 +541,12 @@
 }
 .demo-status {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 10px;
   border-top: 1px solid var(--border);
   padding: 12px 24px;
   font-size: 10px;
   color: var(--muted-foreground);
-}
-.demo-status > span:first-child {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-.demo-status .tiny-dot {
-  color: var(--primary);
 }
 .demo-hint {
   display: flex;

@@ -116,8 +116,7 @@ function SampleReport({
         data-palette={sample.palette}
       >
         <div className="panel-label">
-          <Sparkles aria-hidden="true" /> AI 分析示例{" "}
-          <Badge variant="secondary">有据可查</Badge>
+          <Sparkles aria-hidden="true" /> AI 分析示例
         </div>
         <div className="analysis-heading">
           <span className="eyebrow">针对岗位 · {sample.role}</span>
@@ -385,9 +384,6 @@ export function ResumeDemo() {
             />
           </AnimatePresence>
           <div className="demo-status">
-            <span>
-              <span className="tiny-dot" /> 交互演示 · 虚构数据
-            </span>
             <span>分析提供参考，决定始终由你作出</span>
           </div>
         </div>

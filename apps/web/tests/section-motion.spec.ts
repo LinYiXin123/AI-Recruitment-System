@@ -52,14 +52,17 @@ test("内容随滚动反复淡入淡出，页底完整可见且入口可用", as
       .toBeGreaterThan(0.99)
     await expect(page.locator(selector)).toHaveCSS("mask-image", "none")
   }
-  await page.getByRole("button", { name: "演示与隐私说明" }).click()
+  await page.getByRole("button", { name: "隐私说明" }).click()
   await expect(page.getByRole("dialog")).toContainText("不保存你的演示操作")
   await page.keyboard.press("Escape")
-  await page.getByRole("link", { name: "开始体验", exact: true }).click()
+  await page
+    .locator(".closing-panel")
+    .getByRole("link", { name: "开始体验", exact: true })
+    .click()
   await expect(page).toHaveURL(/#demo$/)
 })
 
-test("28 个头像同步正立旋转，悬停、键盘及手动暂停有效", async ({
+test("头像无外框和控制栏，保持正立旋转及悬停、键盘暂停", async ({
   page,
   isMobile,
 }) => {
@@ -69,6 +72,10 @@ test("28 个头像同步正立旋转，悬停、键盘及手动暂停有效", as
   await stage.scrollIntoViewIfNeeded()
   const rings = page.locator(".avatar-orbit__ring")
   const avatars = page.locator(".avatar-orbit__avatar")
+  await expect(stage).toHaveCSS("border-top-width", "0px")
+  await expect(stage).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
+  await expect(stage).toHaveCSS("background-image", "none")
+  await expect(page.locator(".avatar-orbit__controls")).toHaveCount(0)
   await expect(avatars).toHaveCount(28)
   await expect(rings).toHaveCount(3)
   await expect(page.locator(".faq-list").getByRole("button")).toHaveCount(4)
@@ -89,9 +96,11 @@ test("28 个头像同步正立旋转，悬停、键盘及手动暂停有效", as
   await stage.focus()
   await expect(rings.first()).toHaveCSS("animation-play-state", "paused")
   await page.keyboard.press("Tab")
-  await expect(page.getByRole("button", { name: "暂停头像旋转" })).toBeFocused()
+  await expect(
+    page.locator(".faq-list").getByRole("button").first()
+  ).toBeFocused()
   await expect(rings.first()).toHaveCSS("animation-play-state", "running")
-  await page.keyboard.press("Enter")
+  await stage.focus()
   await expect(rings.first()).toHaveCSS("animation-play-state", "paused")
 
   // 在所有圆环的同一时间点，圆环和头像的旋转矩阵应互相抵消。
@@ -108,12 +117,11 @@ test("28 个头像同步正立旋转，悬停、键盘及手动暂停有效", as
     })
   })
   expect(upright).toBe(true)
-  await page.getByRole("button", { name: "继续头像旋转" }).click()
+  await stage.evaluate((el) => (el as HTMLElement).blur())
   await expect(rings.first()).toHaveCSS("animation-play-state", "running")
   await page.emulateMedia({ reducedMotion: "reduce" })
   await expect(rings.first()).toHaveCSS("animation-name", "none")
   await expect(avatars.first()).toHaveCSS("animation-name", "none")
-  await expect(page.getByText("静态展示", { exact: true })).toBeVisible()
   await expect(page.locator(".section-scroll-fade").first()).toHaveCSS(
     "opacity",
     "1"

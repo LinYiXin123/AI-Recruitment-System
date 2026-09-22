@@ -327,7 +327,7 @@ test("导航、常见问题与隐私说明可操作", async ({ page, isMobile })
   await expect(
     page.getByText("真实文件解析与 AI 模型尚未接入", { exact: false })
   ).toBeVisible()
-  await page.getByRole("button", { name: "演示与隐私说明" }).click()
+  await page.getByRole("button", { name: "隐私说明" }).click()
   await expect(page.getByRole("dialog")).toContainText("不保存你的演示操作")
   await page.getByRole("button", { name: "关闭", exact: true }).click()
   expect(

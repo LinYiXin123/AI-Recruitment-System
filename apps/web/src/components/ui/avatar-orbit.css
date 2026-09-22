@@ -8,11 +8,6 @@
   aspect-ratio: 1;
   isolation: isolate;
   overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at 50% 50%, var(--secondary), transparent 55%),
-    var(--card);
 }
 .avatar-orbit__glow {
   position: absolute;
@@ -89,16 +84,6 @@ button.avatar-orbit__avatar {
   color: var(--muted-foreground);
   font-size: 11px;
 }
-.avatar-orbit__controls {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  min-height: 42px;
-  padding-inline: 8px;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--muted-foreground);
-}
 .avatar-orbit[data-paused="true"] .avatar-orbit__ring,
 .avatar-orbit[data-paused="true"] .avatar-orbit__avatar,
 .avatar-orbit__stage:focus-within .avatar-orbit__ring,
@@ -132,17 +117,7 @@ button.avatar-orbit__avatar {
     transform: rotate(-360deg);
   }
 }
-.avatar-orbit__static-label {
-  display: none;
-}
 @media (prefers-reduced-motion: reduce) {
-  .avatar-orbit__motion-label,
-  .avatar-orbit__controls > button {
-    display: none;
-  }
-  .avatar-orbit__static-label {
-    display: inline;
-  }
   .avatar-orbit__ring,
   .avatar-orbit__avatar {
     animation: none;
