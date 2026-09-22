@@ -85,10 +85,24 @@ test('失败后保留表单、恢复保存与窄屏操作', async ({ page }) => 
   await page.getByLabel('对外职位描述', { exact: true }).fill('整理招聘需求。');
   await page.getByLabel('要求来源').fill('虚构会议记录');
   await page.getByLabel('具体要求 1').fill('了解招聘流程');
-  await page.route('**/api/v1/jobs/*/profiles/', (route) =>
-    route.request().method() === 'POST' ? route.abort() : route.continue(),
-  );
+  let releaseSave = () => {};
+  const saving = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  await page.route('**/api/v1/jobs/*/profiles/', async (route) => {
+    if (route.request().method() === 'POST') {
+      await saving;
+      await route.abort();
+    } else await route.continue();
+  });
   await page.getByRole('button', { name: '保存要求草稿' }).click();
+  await expect(page.getByRole('button', { name: '正在保存…', exact: true })).toBeDisabled();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: '关闭详情' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByLabel('具体要求 1')).toHaveValue('了解招聘流程');
+  releaseSave();
   await expect(page.getByRole('alert')).toContainText('暂时连接不上服务');
   await expect(page.getByLabel('具体要求 1')).toHaveValue('了解招聘流程');
   await page.unroute('**/api/v1/jobs/*/profiles/');
@@ -130,6 +144,15 @@ test('负责人要求补充后，HR 待办完成并重新送审', async ({ page,
   await login(manager, 'local_manager');
   await manager.getByRole('button', { name: '查看并确认' }).click();
   await manager.getByLabel('确认备注 / 需补充内容').fill('请写清楚设计协作经验的要求');
+  const discardPrompt = manager.waitForEvent('dialog');
+  const closeAttempt = manager.getByRole('button', { name: '关闭详情' }).click();
+  const prompt = await discardPrompt;
+  expect(prompt.message()).toContain('尚未保存');
+  await prompt.dismiss();
+  await closeAttempt;
+  await expect(manager.getByLabel('确认备注 / 需补充内容')).toHaveValue(
+    '请写清楚设计协作经验的要求',
+  );
   await manager.getByRole('button', { name: '请 HR 补充' }).click();
   await expect(manager.getByText('已记录需要补充的内容，HR 可修改后重新提交。')).toBeVisible();
   await page.reload();

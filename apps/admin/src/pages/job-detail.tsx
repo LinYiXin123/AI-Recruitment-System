@@ -257,7 +257,8 @@ export function JobDetail({
     }
   }
   function requestClose() {
-    if (!busy && (!editing || window.confirm('招人要求尚未保存，确定关闭吗？'))) {
+    const unsaved = editing || reviewNote.trim() || reason.trim();
+    if (!busy && (!unsaved || window.confirm('还有尚未保存的内容，确定关闭吗？'))) {
       close();
       returnFocus.current?.focus();
     }
@@ -310,6 +311,8 @@ export function JobDetail({
           ) : editing ? (
             <ProfileEditor
               job={job}
+              busy={busy}
+              setBusy={setBusy}
               cancel={() => {
                 if (window.confirm('放弃本次未保存的招人要求？')) setEditing(false);
               }}
@@ -411,6 +414,7 @@ export function JobDetail({
                             <FieldLabel htmlFor="review-note">确认备注 / 需补充内容</FieldLabel>
                             <Textarea
                               id="review-note"
+                              disabled={busy}
                               value={reviewNote}
                               onChange={(e) => setReviewNote(e.target.value)}
                               maxLength={1000}
@@ -495,6 +499,7 @@ export function JobDetail({
                       <FieldLabel htmlFor="next-status">调整职位状态</FieldLabel>
                       <NativeSelect
                         id="next-status"
+                        disabled={busy}
                         value={nextStatus}
                         onChange={(e) => setNextStatus(e.target.value)}
                       >
@@ -516,6 +521,7 @@ export function JobDetail({
                           <FieldLabel htmlFor="status-reason">调整原因</FieldLabel>
                           <Textarea
                             id="status-reason"
+                            disabled={busy}
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
                             maxLength={1000}
@@ -593,10 +599,14 @@ function ProfileContent({ profile: p }: { profile: Profile }) {
 
 function ProfileEditor({
   job,
+  busy,
+  setBusy,
   cancel,
   saved,
 }: {
   job: Job;
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
   cancel: () => void;
   saved: (j: Job) => void;
 }) {
@@ -607,7 +617,6 @@ function ProfileEditor({
       ]
     ).map((r) => ({ ...r, key: crypto.randomUUID() })),
   );
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [jd, setJd] = useState(job.jd);
   const [source, setSource] = useState(job.latest_profile?.source || '');
