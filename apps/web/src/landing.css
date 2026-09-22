@@ -863,6 +863,8 @@
 }
 .faq-section {
   display: grid;
+  overflow: clip;
+  overflow-clip-margin: 8px;
   grid-template-columns: 0.8fr 1.2fr;
   gap: 70px;
   padding-block: 100px;
@@ -1253,6 +1255,14 @@
 
 /* 键盘聚焦时确保链接和按钮始终可见。 */
 .section-scroll-fade:focus-within { opacity: 1 !important; }
+.faq-reveal:focus-within {
+  opacity: 1 !important;
+  transform: none !important;
+}
 @media (prefers-reduced-motion: reduce) {
   .section-scroll-fade { opacity: 1 !important; }
+  .faq-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }

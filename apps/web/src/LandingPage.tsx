@@ -1,4 +1,5 @@
 import { useRef } from "react"
+import { motion, useReducedMotion } from "framer-motion"
 import {
   ArrowDown,
   ArrowRight,
@@ -109,6 +110,7 @@ function Brand() {
 
 export default function LandingPage() {
   const mobileMenu = useRef<HTMLDetailsElement>(null)
+  const reducedMotion = useReducedMotion()
   return (
     <div id="top">
       <a className="skip-link" href="#main">
@@ -366,15 +368,42 @@ export default function LandingPage() {
           <span className="background-spark faq-spark" aria-hidden="true">
             ✳
           </span>
-          <div className="faq-orbit">
+          <motion.div
+            className="faq-orbit faq-reveal"
+            data-direction="left"
+            initial={{ opacity: 0, x: -56 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ amount: 0.2 }}
+            transition={{
+              duration: reducedMotion ? 0 : 0.8,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+          >
             <h2 id="faq-title" className="sr-only">
               关于知遇 AI 的常见问题
             </h2>
             <AvatarOrbit members={orbitMembers} label="虚构人物" />
-          </div>
+          </motion.div>
           <Accordion className="faq-list">
             {faqs.map(([question, answer], index) => (
-              <AccordionItem key={question} value={`faq-${index}`}>
+              <AccordionItem
+                key={question}
+                value={`faq-${index}`}
+                className="faq-reveal"
+                data-direction="right"
+                render={
+                  <motion.div
+                    initial={{ opacity: 0, x: 56 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ amount: 0.2 }}
+                    transition={{
+                      duration: reducedMotion ? 0 : 0.8,
+                      delay: reducedMotion ? 0 : index * 0.12,
+                      ease: [0.22, 1, 0.36, 1],
+                    }}
+                  />
+                }
+              >
                 <AccordionTrigger>{question}</AccordionTrigger>
                 <AccordionContent>{answer}</AccordionContent>
               </AccordionItem>
