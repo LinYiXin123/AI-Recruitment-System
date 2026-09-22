@@ -118,6 +118,50 @@ test("工作台随滚动展平，正常动画下仍可操作且无横向溢出",
   await expect(page.getByRole("dialog")).not.toBeVisible()
 })
 
+test("较矮的电脑窗口能完整显示工作台并操作四种版式", async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.skip(isMobile, "手机保留上下阅读布局，不缩小文字")
+  await page.goto("/")
+  for (const [width, height] of [
+    [1280, 650],
+    [1366, 600],
+    [1495, 765],
+    [1024, 650],
+  ]) {
+    await page.setViewportSize({ width, height })
+    for (const option of [
+      "01 · 产品经理",
+      "02 · 前端工程师",
+      "03 · 交互设计师",
+      "04 · 数据分析师",
+    ]) {
+      await page.getByRole("combobox", { name: "选择演示岗位" }).click()
+      await page.getByRole("option", { name: option, exact: true }).click()
+      await page
+        .locator("#demo")
+        .evaluate((el) =>
+          el.scrollIntoView({ block: "start", behavior: "instant" })
+        )
+      const box = (await page.locator(".container-scroll-card").boundingBox())!
+      expect(box.y).toBeGreaterThanOrEqual(0)
+      expect(box.y + box.height).toBeLessThan(height - 20)
+      expect(box.width).toBeLessThanOrEqual(1000)
+      await expect(page.locator(".demo-toolbar")).toBeInViewport({ ratio: 1 })
+      await expect(page.locator(".demo-status")).toBeInViewport({ ratio: 1 })
+      await page.getByRole("button", { name: "查看面试建议" }).click()
+      await expect(page.getByRole("dialog")).toContainText(
+        option.split(" · ")[1]
+      )
+      await page.keyboard.press("Escape")
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`workbench-${width}-${height}.png`),
+    })
+  }
+})
+
 test("28 组示例的排版配色、头像与原文依据对应，翻页边界正确", async ({
   page,
 }, testInfo) => {

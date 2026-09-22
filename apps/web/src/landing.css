@@ -161,6 +161,13 @@
 }
 .demo-section {
   scroll-margin-top: 24px;
+  max-width: 1000px;
+}
+@media (min-width: 701px) {
+  /* 按窗口高度缩放展台内容，为标题、边框和底部说明留出空间。 */
+  .demo-window {
+    zoom: clamp(0.7, calc((100svh - 140px) / 700px), 1);
+  }
 }
 .container-scroll {
   position: relative;
