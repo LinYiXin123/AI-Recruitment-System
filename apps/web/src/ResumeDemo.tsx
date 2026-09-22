@@ -393,8 +393,7 @@ export function ResumeDemo() {
         </div>
       </ContainerScroll>
       <p className="demo-hint">
-        28 组虚构示例，选择岗位或点击 <TextSearch aria-hidden="true" />{" "}
-        查看匹配依据。当前展示预设结果，无需上传真实简历。
+        选择岗位或点击 <TextSearch aria-hidden="true" /> 查看匹配依据。
       </p>
     </section>
   )
