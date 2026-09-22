@@ -9,12 +9,11 @@
 - 需要审查某次改动是否过度设计时使用 `ponytail-review`；需要扫描整个仓库、已有简化记录或查看使用指引时，分别使用 `ponytail-audit`、`ponytail-debt`、`ponytail-help`。
 - 资料归档、需求阅读、产品说明等非代码任务不强行套用此规则。用户说“停止 Ponytail”或“正常模式”时，本次任务不采用该规则。
 
-## Ant Design 开发约定
+## 默认前端技术栈
 
-- 内部系统采用 `apps/admin/` 中的完整 Ant Design Pro 工程，使用 Ant Design、ProComponents 和 Ant Design X。外部产品页另行设计。
-- 编写组件前先阅读 [官方 Agent 指南](https://ant.design/docs/react/for-agents-cn.md) 与 [官方 antd 技能](https://raw.githubusercontent.com/ant-design/ant-design-cli/main/skills/antd/SKILL.md)，按项目实际安装版本查询 API、示例和弃用提示，不凭记忆套用旧版写法。
-- 在 `apps/admin/` 中使用 `npx antd info <组件> --version <实际版本> --format json`，再查询 `demo`；修改后运行 `npx antd lint ./src --format json`。ProComponents 与 X 另外核对各自当前版本的官方文档及类型定义。
-- 官方技能安装命令为 `npx skills add ant-design/ant-design-cli`。项目依赖按锁文件安装；上游演示账号、模拟接口和本地 AI 演示回复不属于正式招聘业务能力。
+- 用户没有其他明确指令时，本项目默认使用 [shadcn/ui](https://github.com/shadcn-ui/ui)、[Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) 和抖音的 [Semi Design](https://github.com/DouyinFE/semi-design)，适用于外部产品页和内部系统。
+- 本项目暂不采用 Ant Design 及其 Pro、ProComponents、X 体系；本约定取代此前要求默认使用 Ant Design 的约定。已有模板、依赖或技能不代表继续采用该技术栈。
+- 本约定对项目所有目录及会话生效，后续以用户明确指令为准。本次仅更新开发约定，已有代码和依赖的安装、卸载或迁移另按实际任务处理。
 
 ## Git 提交
 
