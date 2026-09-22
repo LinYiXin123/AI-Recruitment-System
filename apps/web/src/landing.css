@@ -794,6 +794,7 @@
 }
 .workflow-section {
   background: var(--secondary);
+  overflow: clip;
   padding-block: 74px;
   scroll-margin-top: 0;
 }
@@ -1255,13 +1256,15 @@
 
 /* 键盘聚焦时确保链接和按钮始终可见。 */
 .section-scroll-fade:focus-within { opacity: 1 !important; }
-.faq-reveal:focus-within {
+.faq-reveal:focus-within,
+.workflow-reveal:focus-within {
   opacity: 1 !important;
   transform: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
   .section-scroll-fade { opacity: 1 !important; }
-  .faq-reveal {
+  .faq-reveal,
+  .workflow-reveal {
     opacity: 1 !important;
     transform: none !important;
   }

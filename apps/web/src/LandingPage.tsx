@@ -1,5 +1,5 @@
 import { useRef } from "react"
-import { motion, useReducedMotion } from "framer-motion"
+import { motion, useReducedMotion, type MotionProps } from "framer-motion"
 import {
   ArrowDown,
   ArrowRight,
@@ -111,6 +111,27 @@ function Brand() {
 export default function LandingPage() {
   const mobileMenu = useRef<HTMLDetailsElement>(null)
   const reducedMotion = useReducedMotion()
+  const workflowMotion = (x: number, order: number): MotionProps => ({
+    initial: "hidden",
+    whileInView: "visible",
+    viewport: { amount: 0.25 },
+    variants: {
+      hidden: {
+        opacity: 0,
+        x,
+        transition: { duration: reducedMotion ? 0 : 0.5, ease: "easeInOut" },
+      },
+      visible: {
+        opacity: 1,
+        x: 0,
+        transition: {
+          duration: reducedMotion ? 0 : 0.8,
+          delay: reducedMotion ? 0 : order * 0.12,
+          ease: [0.22, 1, 0.36, 1],
+        },
+      },
+    },
+  })
   return (
     <div id="top">
       <a className="skip-link" href="#main">
@@ -315,20 +336,33 @@ export default function LandingPage() {
           </span>
           <div className="page-width workflow-inner">
             <div className="workflow-intro">
-              <span className="eyebrow">自然融入你的招聘流程</span>
-              <h2 id="workflow-title">
+              <motion.span
+                className="eyebrow workflow-reveal"
+                {...workflowMotion(-56, 0)}
+              >
+                自然融入你的招聘流程
+              </motion.span>
+              <motion.h2
+                id="workflow-title"
+                className="workflow-reveal"
+                {...workflowMotion(-56, 1)}
+              >
                 从一份简历，
                 <br />
                 到一次好对话。
-              </h2>
-              <p>
+              </motion.h2>
+              <motion.p className="workflow-reveal" {...workflowMotion(-56, 2)}>
                 围绕招聘人员的判断过程，
                 <br />
                 把信息、依据和下一步连在一起。
-              </p>
-              <a href="#demo" className="text-link">
+              </motion.p>
+              <motion.a
+                href="#demo"
+                className="text-link workflow-reveal"
+                {...workflowMotion(-56, 3)}
+              >
                 用示例走一遍 <ArrowRight aria-hidden="true" />
-              </a>
+              </motion.a>
             </div>
             <ol className="workflow-steps">
               {[
@@ -347,15 +381,19 @@ export default function LandingPage() {
                   "复核关键经历，用具体问题验证下一步判断。",
                   "03",
                 ],
-              ].map(([title, description, number]) => (
-                <li key={number}>
+              ].map(([title, description, number], index) => (
+                <motion.li
+                  key={number}
+                  className="workflow-reveal"
+                  {...workflowMotion(56, index)}
+                >
                   <span className="step-number">{number}</span>
                   <div>
                     <h3>{title}</h3>
                     <p>{description}</p>
                   </div>
                   <ArrowUpRight aria-hidden="true" />
-                </li>
+                </motion.li>
               ))}
             </ol>
           </div>
