@@ -32,7 +32,7 @@ export function ContainerScroll({
     offset: ["start end", "start 0.12"],
   })
   // CSS 中 0° 就是正面；起点保持在 90° 内，避免出现反向文字。
-  const rotate = useTransform(scrollYProgress, [0, 1], [isMobile ? -20 : -75, 0])
+  const rotate = useTransform(scrollYProgress, [0, 1], [isMobile ? 20 : 75, 0])
   const scale = useTransform(
     scrollYProgress,
     [0, 1],

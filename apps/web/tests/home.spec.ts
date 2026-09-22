@@ -21,8 +21,8 @@ test("首页展示完整，体验入口可用且无横向溢出", async ({ page 
     "none"
   )
   await expect(
-    page.getByRole("tab", { name: "产品经理", exact: true })
-  ).toHaveAttribute("aria-selected", "true")
+    page.getByRole("combobox", { name: "选择演示岗位" })
+  ).toHaveValue("product")
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth
@@ -57,6 +57,16 @@ test("工作台随滚动展平，正常动画下仍可操作且无横向溢出",
     content: "html { scroll-behavior: auto !important; }",
   })
   const card = page.locator(".container-scroll-card")
+  expect(
+    await card.evaluate((element) => {
+      const origin = getComputedStyle(element).transformOrigin.split(" ")
+      return (
+        Math.abs(
+          parseFloat(origin[1]) - (element as HTMLElement).offsetHeight
+        ) < 1
+      )
+    })
+  ).toBe(true)
   const tilt = () =>
     card.evaluate((element) =>
       Math.abs(new DOMMatrixReadOnly(getComputedStyle(element).transform).m23)
@@ -75,7 +85,7 @@ test("工作台随滚动展平，正常动画下仍可操作且无横向溢出",
     ).toBe(true)
   }
 
-  const tab = page.getByRole("tab", { name: "前端工程师", exact: true })
+  const tab = page.getByRole("combobox", { name: "选择演示岗位" })
   await tab.evaluate((element) => element.focus({ preventScroll: true }))
   await expect(card).toHaveCSS("transform", "none")
   await tab.evaluate((element) => element.blur())
@@ -96,10 +106,7 @@ test("工作台随滚动展平，正常动画下仍可操作且无横向溢出",
       )
     )
     .toBeCloseTo(1, 2)
-  await tab.click()
-  await expect(
-    page.getByRole("tabpanel", { name: "产品经理", exact: true })
-  ).not.toBeVisible()
+  await tab.selectOption("engineering")
   await page.getByRole("button", { name: "查看面试建议" }).click()
   await expect(page.getByRole("dialog")).toContainText(
     "首屏优化用了哪些测量工具"
@@ -108,11 +115,71 @@ test("工作台随滚动展平，正常动画下仍可操作且无横向溢出",
   await expect(page.getByRole("dialog")).not.toBeVisible()
 })
 
+test("28 组示例的头像、岗位与原文依据对应，翻页边界正确", async ({ page }) => {
+  await page.goto("/#demo")
+  const selector = page.getByRole("combobox", { name: "选择演示岗位" })
+  const options = await selector
+    .locator("option")
+    .evaluateAll((items) =>
+      items.map((item) => ({
+        value: item.getAttribute("value")!,
+        label: item.textContent!,
+      }))
+    )
+  expect(options).toHaveLength(28)
+  expect(new Set(options.map((item) => item.value)).size).toBe(28)
+  await expect(page.getByRole("button", { name: "上一个示例" })).toBeDisabled()
+  for (const [index, option] of options.entries()) {
+    await selector.selectOption(option.value)
+    const number = String(index + 1).padStart(2, "0")
+    await expect(
+      page.getByRole("heading", { name: `候选人 ${number}`, exact: true })
+    ).toBeVisible()
+    await expect(page.getByRole("status")).toHaveText(`${number} / 28`)
+    await expect(page.locator(".analysis-heading .eyebrow")).toContainText(
+      option.label.split(" · ")[1]
+    )
+    const avatar = page.locator(".resume-avatar img")
+    await expect(avatar).toHaveAttribute("src", `/avatars/${index + 1}.png`)
+    await expect
+      .poll(() =>
+        avatar.evaluate(
+          (image: HTMLImageElement) => image.complete && image.naturalWidth > 0
+        )
+      )
+      .toBe(true)
+    const source = await page.locator(".resume-highlight").textContent()
+    await page
+      .getByRole("button", { name: /的简历依据$/ })
+      .first()
+      .click()
+    await expect(page.getByRole("dialog").locator("blockquote")).toHaveText(
+      source!
+    )
+    await page.keyboard.press("Escape")
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth
+      )
+    ).toBe(true)
+  }
+  await expect(page.getByRole("button", { name: "下一个示例" })).toBeDisabled()
+  await page.getByRole("button", { name: "上一个示例" }).click()
+  await expect(page.getByRole("status")).toHaveText("27 / 28")
+  await page.getByRole("button", { name: "下一个示例" }).click()
+  await page.getByRole("button", { name: "查看面试建议" }).click()
+  await expect(page.getByRole("dialog")).toContainText(
+    "传播主题被目标用户正确理解"
+  )
+})
+
 test("切换岗位后依据与面试建议一致，弹窗支持键盘退出", async ({ page }) => {
   await page.goto("/#demo")
-  await page.getByRole("tab", { name: "前端工程师", exact: true }).click()
+  await page
+    .getByRole("combobox", { name: "选择演示岗位" })
+    .selectOption("engineering")
   await expect(
-    page.getByRole("heading", { name: "候选人 B", exact: true })
+    page.getByRole("heading", { name: "候选人 02", exact: true })
   ).toBeVisible()
   const sourceButton = page.getByRole("button", {
     name: "查看React 与 TypeScript 实践的简历依据",
@@ -128,19 +195,20 @@ test("切换岗位后依据与面试建议一致，弹窗支持键盘退出", as
   await page.getByRole("button", { name: "查看面试建议" }).click()
   await expect(dialog).toContainText("首屏优化用了哪些测量工具")
   await dialog.getByRole("button", { name: "关闭", exact: true }).click()
-  await page.getByRole("tab", { name: "产品经理", exact: true }).click()
+  await page
+    .getByRole("combobox", { name: "选择演示岗位" })
+    .selectOption("product")
   await expect(
-    page.getByRole("heading", { name: "候选人 A", exact: true })
+    page.getByRole("heading", { name: "候选人 01", exact: true })
   ).toBeVisible()
   await expect(
     page.getByRole("heading", { name: "React 与 TypeScript 实践", exact: true })
   ).not.toBeVisible()
-  await page.getByRole("tab", { name: "产品经理", exact: true }).focus()
-  await page.keyboard.press("ArrowRight")
+  await page.getByRole("button", { name: "下一个示例" }).focus()
   await page.keyboard.press("Enter")
   await expect(
-    page.getByRole("tab", { name: "前端工程师", exact: true })
-  ).toHaveAttribute("aria-selected", "true")
+    page.getByRole("combobox", { name: "选择演示岗位" })
+  ).toHaveValue("engineering")
 })
 
 test("导航、常见问题与隐私说明可操作", async ({ page, isMobile }) => {
