@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { ContainerScroll } from "@/components/ui/container-scroll-animation"
 import {
   Dialog,
   DialogContent,
@@ -243,39 +244,44 @@ export function ResumeDemo() {
       className="demo-section page-width"
       aria-labelledby="demo-title"
     >
-      <div className="demo-caption">
-        <span className="eyebrow">从一份简历开始</span>
-        <p>读懂经历，也看见值得追问的地方。</p>
-      </div>
-      <div className="demo-window">
-        <Tabs defaultValue="product" className="gap-0">
-          <div className="demo-toolbar">
-            <div className="flex items-center gap-3">
-              <div className="window-dots" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </div>
-              <h2 id="demo-title">简历分析工作台</h2>
-            </div>
-            <TabsList aria-label="选择演示岗位">
-              <TabsTrigger value="product">产品经理</TabsTrigger>
-              <TabsTrigger value="engineering">前端工程师</TabsTrigger>
-            </TabsList>
+      <ContainerScroll
+        titleComponent={
+          <div className="demo-caption">
+            <span className="eyebrow">从一份简历开始</span>
+            <p>读懂经历，也看见值得追问的地方。</p>
           </div>
-          {samples.map((sample) => (
-            <TabsContent value={sample.id} key={sample.id}>
-              <SampleReport sample={sample} />
-            </TabsContent>
-          ))}
-        </Tabs>
-        <div className="demo-status">
-          <span>
-            <span className="tiny-dot" /> 交互演示 · 虚构数据
-          </span>
-          <span>分析提供参考，决定始终由你作出</span>
+        }
+      >
+        <div className="demo-window">
+          <Tabs defaultValue="product" className="gap-0">
+            <div className="demo-toolbar">
+              <div className="flex items-center gap-3">
+                <div className="window-dots" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </div>
+                <h2 id="demo-title">简历分析工作台</h2>
+              </div>
+              <TabsList aria-label="选择演示岗位">
+                <TabsTrigger value="product">产品经理</TabsTrigger>
+                <TabsTrigger value="engineering">前端工程师</TabsTrigger>
+              </TabsList>
+            </div>
+            {samples.map((sample) => (
+              <TabsContent value={sample.id} key={sample.id}>
+                <SampleReport sample={sample} />
+              </TabsContent>
+            ))}
+          </Tabs>
+          <div className="demo-status">
+            <span>
+              <span className="tiny-dot" /> 交互演示 · 虚构数据
+            </span>
+            <span>分析提供参考，决定始终由你作出</span>
+          </div>
         </div>
-      </div>
+      </ContainerScroll>
       <p className="demo-hint">
         切换岗位，或点击 <TextSearch aria-hidden="true" />{" "}
         查看匹配依据。当前展示预设结果，无需上传真实简历。

@@ -151,6 +151,21 @@
 .demo-section {
   scroll-margin-top: 24px;
 }
+.container-scroll {
+  position: relative;
+  perspective: 1200px;
+}
+.container-scroll-card {
+  transform-origin: center bottom;
+  border: 4px solid var(--border-strong);
+  border-radius: 22px;
+  padding: 5px;
+  background: var(--secondary);
+  box-shadow: 0 32px 65px -28px var(--shadow-color);
+}
+.container-scroll-card:focus-within {
+  transform: none !important;
+}
 .demo-caption {
   display: flex;
   align-items: center;
