@@ -6,3 +6,11 @@
 .env
 .env.*
 !.env.example
+
+# 前端依赖与生成产物只保留在本机。
+node_modules/
+dist/
+.umi/
+.umi-production/
+coverage/
+*.log

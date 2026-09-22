@@ -9,6 +9,13 @@
 - 需要审查某次改动是否过度设计时使用 `ponytail-review`；需要扫描整个仓库、已有简化记录或查看使用指引时，分别使用 `ponytail-audit`、`ponytail-debt`、`ponytail-help`。
 - 资料归档、需求阅读、产品说明等非代码任务不强行套用此规则。用户说“停止 Ponytail”或“正常模式”时，本次任务不采用该规则。
 
+## Ant Design 开发约定
+
+- 内部系统采用 `apps/admin/` 中的完整 Ant Design Pro 工程，使用 Ant Design、ProComponents 和 Ant Design X。外部产品页另行设计。
+- 编写组件前先阅读 [官方 Agent 指南](https://ant.design/docs/react/for-agents-cn.md) 与 [官方 antd 技能](https://raw.githubusercontent.com/ant-design/ant-design-cli/main/skills/antd/SKILL.md)，按项目实际安装版本查询 API、示例和弃用提示，不凭记忆套用旧版写法。
+- 在 `apps/admin/` 中使用 `npx antd info <组件> --version <实际版本> --format json`，再查询 `demo`；修改后运行 `npx antd lint ./src --format json`。ProComponents 与 X 另外核对各自当前版本的官方文档及类型定义。
+- 官方技能安装命令为 `npx skills add ant-design/ant-design-cli`。项目依赖按锁文件安装；上游演示账号、模拟接口和本地 AI 演示回复不属于正式招聘业务能力。
+
 ## Git 提交
 
 - 提交标题采用“中文类型：清晰说明”的格式，例如“新增：完成候选人详情抽屉”“修复：解决职位筛选未生效”。
