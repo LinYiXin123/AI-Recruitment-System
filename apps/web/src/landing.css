@@ -110,15 +110,15 @@
   pointer-events: none;
 }
 .hero-spark {
-  position: absolute;
+  --float-duration: 18s;
+  --float-delay: -4s;
   right: -65px;
   top: 2px;
   font-size: 42px;
-  color: var(--decoration);
   transform: rotate(15deg);
   font-weight: 400;
 }
-/* 星芒放在各区块留白处，不参与排版及鼠标交互。 */
+/* 装饰放在区块留白处；漂移使用独立属性，保留原有旋转角度。 */
 .hero,
 .features-section,
 .workflow-section,
@@ -126,17 +126,24 @@
   position: relative;
   isolation: isolate;
 }
-.background-spark {
+.hero-spark,
+.background-spark,
+.background-shape {
   position: absolute;
   z-index: -1;
   color: var(--decoration);
+  pointer-events: none;
+  user-select: none;
+  animation: background-drift var(--float-duration, 16s) ease-in-out
+    var(--float-delay, 0s) infinite;
+}
+.background-spark {
   font-size: 32px;
   font-weight: 400;
   line-height: 1;
-  pointer-events: none;
-  user-select: none;
 }
 .hero-spark-top {
+  --float-delay: -6s;
   top: 34px;
   left: 16%;
   font-size: 26px;
@@ -144,6 +151,9 @@
   transform: rotate(-12deg);
 }
 .hero-spark-left {
+  --float-duration: 22s;
+  --float-delay: -11s;
+  --float-x: -10px;
   top: 54%;
   left: 3%;
   font-size: 50px;
@@ -151,13 +161,16 @@
   transform: rotate(18deg);
 }
 .hero-spark-bottom {
+  --float-delay: -9s;
   right: 9%;
-  bottom: 40px;
+  bottom: 62px;
   font-size: 24px;
   opacity: 0.8;
   transform: rotate(-8deg);
 }
 .features-spark {
+  --float-duration: 20s;
+  --float-delay: -3s;
   top: 34px;
   right: 17%;
   font-size: 40px;
@@ -165,6 +178,7 @@
   transform: rotate(12deg);
 }
 .workflow-spark {
+  --float-delay: -7s;
   bottom: 20px;
   left: 38%;
   font-size: 36px;
@@ -172,11 +186,95 @@
   transform: rotate(-15deg);
 }
 .faq-spark {
+  --float-duration: 18s;
+  --float-delay: -12s;
   top: 28px;
   right: 22%;
   font-size: 30px;
   opacity: 0.7;
   transform: rotate(20deg);
+}
+.background-shape {
+  opacity: 0.65;
+  --float-duration: 22s;
+  --float-x: -12px;
+  --float-y: 12px;
+}
+.shape-ring {
+  width: 30px;
+  height: 30px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+.shape-arc {
+  width: 54px;
+  height: 54px;
+  border: 3px solid currentColor;
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+  transform: rotate(35deg);
+}
+.shape-dots {
+  width: 36px;
+  height: 36px;
+  background: radial-gradient(circle, currentColor 1.8px, transparent 2px)
+    0 0 / 12px 12px;
+}
+.hero-ring {
+  top: 44px;
+  right: 9%;
+  --float-delay: -5s;
+}
+.hero-arc {
+  top: 31%;
+  left: 7%;
+  --float-delay: -14s;
+}
+.hero-dots {
+  top: 62%;
+  right: 4%;
+  --float-delay: -8s;
+}
+.features-ring {
+  top: 38px;
+  left: 5%;
+  --float-delay: -10s;
+}
+.features-dots {
+  bottom: 28px;
+  right: 32%;
+  --float-delay: -16s;
+}
+.workflow-arc {
+  right: 10%;
+  bottom: 24px;
+  --float-delay: -4s;
+}
+.faq-dots {
+  top: 42px;
+  left: 30%;
+  --float-delay: -13s;
+}
+@keyframes background-drift {
+  0%,
+  100% {
+    translate: 0 0;
+    rotate: -6deg;
+  }
+  50% {
+    translate: var(--float-x, 10px) var(--float-y, -14px);
+    rotate: 8deg;
+  }
+}
+[data-background-paused="true"]
+  :is(.hero-spark, .background-spark, .background-shape) {
+  animation-play-state: paused;
+}
+.background-motion-toggle {
+  position: absolute;
+  right: 0;
+  bottom: 8px;
 }
 .hero-description {
   color: var(--muted-foreground);
@@ -1099,8 +1197,36 @@
   }
   .hero-spark-bottom {
     right: 8%;
-    bottom: 8px;
+    bottom: 12px;
     font-size: 20px;
+  }
+  .hero-ring {
+    top: 14px;
+    right: 16%;
+    width: 18px;
+    height: 18px;
+  }
+  .hero-arc,
+  .hero-dots,
+  .features-dots,
+  .faq-dots {
+    display: none;
+  }
+  .features-ring {
+    top: 18px;
+    width: 18px;
+    height: 18px;
+  }
+  .workflow-arc {
+    bottom: 8px;
+    width: 30px;
+    height: 30px;
+    border-width: 2px;
+  }
+  .background-motion-toggle {
+    position: relative;
+    bottom: auto;
+    margin-top: 20px;
   }
   .features-spark {
     top: 18px;
@@ -1280,6 +1406,14 @@
   transform: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
+  .hero-spark,
+  .background-spark,
+  .background-shape {
+    animation: none;
+  }
+  .background-motion-toggle {
+    display: none;
+  }
   .section-scroll-fade { opacity: 1 !important; }
   .faq-reveal,
   .workflow-reveal {

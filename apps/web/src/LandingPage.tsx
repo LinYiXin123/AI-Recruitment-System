@@ -1,4 +1,4 @@
-import { useRef } from "react"
+import { useRef, useState } from "react"
 import { motion, useReducedMotion, type MotionProps } from "framer-motion"
 import {
   ArrowDown,
@@ -10,6 +10,8 @@ import {
   Focus,
   Menu,
   MessageSquareText,
+  Pause,
+  Play,
   ScanLine,
   Sparkles,
 } from "lucide-react"
@@ -123,6 +125,7 @@ function Brand() {
 
 export default function LandingPage() {
   const mobileMenu = useRef<HTMLDetailsElement>(null)
+  const [backgroundPaused, setBackgroundPaused] = useState(false)
   const reducedMotion = useReducedMotion()
   const workflowMotion = (x: number, order: number): MotionProps => ({
     initial: "hidden",
@@ -146,7 +149,7 @@ export default function LandingPage() {
     },
   })
   return (
-    <div id="top">
+    <div id="top" data-background-paused={backgroundPaused}>
       <a className="skip-link" href="#main">
         跳转到主要内容
       </a>
@@ -212,6 +215,18 @@ export default function LandingPage() {
           >
             ✳
           </span>
+          <span
+            className="background-shape shape-ring hero-ring"
+            aria-hidden="true"
+          />
+          <span
+            className="background-shape shape-arc hero-arc"
+            aria-hidden="true"
+          />
+          <span
+            className="background-shape shape-dots hero-dots"
+            aria-hidden="true"
+          />
           <div className="hero-eyebrow">
             <Badge variant="outline">
               <span className="tiny-dot" /> AI 简历分析，为招聘而设计
@@ -265,6 +280,19 @@ export default function LandingPage() {
             <br />
             多一些彼此理解。
           </div>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="background-motion-toggle"
+            onClick={() => setBackgroundPaused((paused) => !paused)}
+          >
+            {backgroundPaused ? (
+              <Play data-icon="inline-start" aria-hidden="true" />
+            ) : (
+              <Pause data-icon="inline-start" aria-hidden="true" />
+            )}
+            {backgroundPaused ? "播放背景动效" : "暂停背景动效"}
+          </Button>
         </section>
         <ResumeDemo />
         <section
@@ -275,6 +303,14 @@ export default function LandingPage() {
           <span className="background-spark features-spark" aria-hidden="true">
             ✳
           </span>
+          <span
+            className="background-shape shape-ring features-ring"
+            aria-hidden="true"
+          />
+          <span
+            className="background-shape shape-dots features-dots"
+            aria-hidden="true"
+          />
           <ScrollFade className="section-heading">
             <div>
               <span className="eyebrow">看见简历背后的人</span>
@@ -352,6 +388,10 @@ export default function LandingPage() {
           <span className="background-spark workflow-spark" aria-hidden="true">
             ✳
           </span>
+          <span
+            className="background-shape shape-arc workflow-arc"
+            aria-hidden="true"
+          />
           <div className="page-width workflow-inner">
             <div className="workflow-intro">
               <motion.span
@@ -424,6 +464,10 @@ export default function LandingPage() {
           <span className="background-spark faq-spark" aria-hidden="true">
             ✳
           </span>
+          <span
+            className="background-shape shape-dots faq-dots"
+            aria-hidden="true"
+          />
           <motion.div
             className="faq-orbit faq-reveal"
             data-direction="left"
