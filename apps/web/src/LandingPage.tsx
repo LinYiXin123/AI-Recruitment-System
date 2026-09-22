@@ -52,7 +52,11 @@ const features = [
   {
     icon: FileSearch,
     number: "01",
-    title: "从经历里，读出匹配点",
+    title: (
+      <>
+        从经历里，<mark className="text-highlight">读出匹配点</mark>
+      </>
+    ),
     description:
       "围绕岗位要求整理经历、技能和项目，让你更快找到值得深入了解的人。",
     note: "岗位要求 × 简历经历",
@@ -61,7 +65,11 @@ const features = [
   {
     icon: Focus,
     number: "02",
-    title: "每一个判断，都有来处",
+    title: (
+      <>
+        每一个判断，<mark className="text-highlight">都有来处</mark>
+      </>
+    ),
     description:
       "匹配点对应简历原文，信息不足单独标记。多一份依据，少一份猜测。",
     note: "结论有来源，信息有边界",
@@ -71,7 +79,12 @@ const features = [
     icon: MessageSquareText,
     number: "03",
     title: "带着好问题，进入面试",
-    description: "把待核实的经历变成具体问题，让下一次沟通从关键处开始。",
+    description: (
+      <>
+        把待核实的经历变成<mark className="text-highlight">具体问题</mark>
+        ，让下一次沟通从关键处开始。
+      </>
+    ),
     note: "从筛选，走向有质量的沟通",
     visual: "interview",
   },
@@ -217,9 +230,11 @@ export default function LandingPage() {
             </span>
           </h1>
           <p className="hero-description">
-            让 AI 读懂简历里的经历，找到与岗位的连接。
+            让 AI 读懂简历里的经历，找到
+            <mark className="text-highlight">与岗位的连接</mark>。
             <br className="desktop-break" />
-            把时间留给真正重要的事：了解人，遇见对的人。
+            把时间留给真正重要的事：了解人，
+            <mark className="text-highlight">遇见对的人</mark>。
           </p>
           <div className="hero-actions">
             <a href="#demo" className={buttonVariants({ size: "lg" })}>
@@ -263,12 +278,15 @@ export default function LandingPage() {
           <ScrollFade className="section-heading">
             <div>
               <span className="eyebrow">看见简历背后的人</span>
-              <h2 id="features-title">不止读得快，更要看得明白。</h2>
+              <h2 id="features-title">
+                不止读得快，更要<mark className="text-highlight">看得明白</mark>
+                。
+              </h2>
             </div>
             <p>
               把重复的整理交给 AI，
-              <br />
-              把有温度的判断留给你。
+              <br />把<mark className="text-highlight">有温度的判断</mark>
+              留给你。
             </p>
           </ScrollFade>
           <div className="feature-grid">

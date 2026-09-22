@@ -123,10 +123,28 @@ function SampleReport({
           <h3>
             {
               {
-                spotlight: "匹配在哪里，一目了然。",
-                cards: "把优势，逐项展开。",
-                timeline: "沿着经历，找到依据。",
-                split: "看见亮点，也留意疑问。",
+                spotlight: (
+                  <>
+                    匹配在哪里，<mark className="text-highlight">一目了然</mark>
+                    。
+                  </>
+                ),
+                cards: (
+                  <>
+                    把优势，<mark className="text-highlight">逐项展开</mark>。
+                  </>
+                ),
+                timeline: (
+                  <>
+                    沿着经历，<mark className="text-highlight">找到依据</mark>。
+                  </>
+                ),
+                split: (
+                  <>
+                    看见亮点，也<mark className="text-highlight">留意疑问</mark>
+                    。
+                  </>
+                ),
               }[sample.layout]
             }
           </h3>
@@ -139,7 +157,9 @@ function SampleReport({
                 <Check aria-hidden="true" />
               </div>
               <div className="min-w-0 flex-1">
-                <h4>{match.title}</h4>
+                <h4>
+                  <mark className="text-highlight">{match.title}</mark>
+                </h4>
                 <p>{match.detail}</p>
               </div>
               <Dialog onOpenChange={onDialogOpenChange}>
@@ -177,7 +197,8 @@ function SampleReport({
             </div>
             <div>
               <h4>
-                {sample.missing} <span>待核实</span>
+                <mark className="text-highlight">{sample.missing}</mark>{" "}
+                <span>待核实</span>
               </h4>
               <p>{sample.missingDetail}</p>
             </div>
