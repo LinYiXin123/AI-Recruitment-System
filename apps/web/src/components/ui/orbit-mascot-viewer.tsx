@@ -274,8 +274,8 @@ export default function OrbitMascotViewer({
       <Canvas
         aria-hidden="true"
         camera={{ position: [0, 0, 5], fov: 26 }}
-        dpr={1}
-        gl={{ alpha: true, antialias: false, powerPreference: "low-power" }}
+        dpr={[1, 1.5]}
+        gl={{ alpha: true, antialias: true, powerPreference: "low-power" }}
       >
         <ambientLight intensity={1.6} />
         <hemisphereLight args={["#f4f8ff", "#829ec6", 1.6]} />
