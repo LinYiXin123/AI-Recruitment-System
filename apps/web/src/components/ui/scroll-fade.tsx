@@ -8,15 +8,17 @@ const elements = {
   footer: motion.footer,
 }
 
-/** 进入视口时淡入，离开时淡出；反向滚动沿同一进度恢复。 */
+/** 随滚动淡入淡出，可从指定方向滑入并向原方向退场。 */
 export function ScrollFade({
   as = "div",
   className,
   children,
+  from,
 }: {
   as?: keyof typeof elements
   className?: string
   children: ReactNode
+  from?: "left" | "bottom" | "right"
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const { scrollYProgress } = useScroll({
@@ -29,12 +31,18 @@ export function ScrollFade({
     [0, 1 / 3, 2 / 3, 1],
     [0, 1, 1, 0]
   )
+  const x = useTransform(
+    opacity,
+    [0, 1],
+    [from === "left" ? -56 : from === "right" ? 56 : 0, 0]
+  )
+  const y = useTransform(opacity, [0, 1], [from === "bottom" ? 56 : 0, 0])
   const Element = elements[as]
   return (
     <Element
       ref={ref}
       className={cn("section-scroll-fade", className)}
-      style={{ opacity }}
+      style={{ opacity, ...(from && { x, y }) }}
     >
       {children}
     </Element>

@@ -1,44 +1,82 @@
 import { test, expect } from "@playwright/test"
 
-test("内容随滚动反复淡入淡出，页底完整可见且入口可用", async ({ page }) => {
+test("三项能力从左、下、右反复滑入退场，页底完整可见且入口可用", async ({
+  page,
+}) => {
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await page.goto("/")
   await page.addStyleTag({
     content: "html { scroll-behavior: auto !important; }",
   })
-  const feature = page.locator(".feature-item").first()
-  const position = await feature.evaluate((el) => ({
-    top: el.getBoundingClientRect().top + scrollY,
-    height: el.clientHeight,
-  }))
-  const opacity = () =>
-    feature.evaluate((el) => Number(getComputedStyle(el).opacity))
-  await page.evaluate((top) => scrollTo(0, top - innerHeight), position.top)
-  await expect.poll(opacity).toBeLessThan(0.02)
-  await page.evaluate(
-    ({ top, height }) => scrollTo(0, top - innerHeight + height / 2),
-    position
-  )
-  await expect.poll(opacity).toBeGreaterThan(0.35)
-  await expect.poll(opacity).toBeLessThan(0.65)
-  await page.evaluate(
-    ({ top, height }) => scrollTo(0, top - (innerHeight - height) / 2),
-    position
-  )
-  await expect.poll(opacity).toBeGreaterThan(0.99)
-  await page.evaluate(
-    ({ top, height }) => scrollTo(0, top + height / 2),
-    position
-  )
-  await expect.poll(opacity).toBeGreaterThan(0.35)
-  await expect.poll(opacity).toBeLessThan(0.65)
-  await page.evaluate(({ top, height }) => scrollTo(0, top + height), position)
-  await expect.poll(opacity).toBeLessThan(0.02)
-  await page.evaluate(
-    ({ top, height }) => scrollTo(0, top - (innerHeight - height) / 2),
-    position
-  )
-  await expect.poll(opacity).toBeGreaterThan(0.99)
+  const features = page.locator(".feature-item")
+  const directions = [
+    { x: -1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 0 },
+  ]
+  for (let index = 0; index < 3; index++) {
+    const feature = features.nth(index)
+    const position = await feature.evaluate((el) => ({
+      top:
+        el.getBoundingClientRect().top +
+        scrollY -
+        new DOMMatrixReadOnly(getComputedStyle(el).transform).m42,
+      height: el.clientHeight,
+    }))
+    const opacity = () =>
+      feature.evaluate((el) => Number(getComputedStyle(el).opacity))
+    const offset = () =>
+      feature.evaluate((el) => {
+        const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform)
+        return { x: matrix.m41, y: matrix.m42 }
+      })
+    await page.evaluate((top) => scrollTo(0, top - innerHeight), position.top)
+    await expect.poll(opacity).toBeLessThan(0.02)
+
+    // 中途停下滚动，检查真实入场与退场的位置，避免只验证终点。
+    for (const phase of ["enter", "exit"] as const) {
+      await page.evaluate(
+        ({ top, height, phase }) =>
+          scrollTo(
+            0,
+            phase === "enter"
+              ? top - innerHeight + height / 2
+              : top + height / 2
+          ),
+        { ...position, phase }
+      )
+      await expect.poll(opacity).toBeGreaterThan(0.35)
+      await expect.poll(opacity).toBeLessThan(0.65)
+      const translation = await offset()
+      for (const axis of ["x", "y"] as const) {
+        const direction = directions[index][axis]
+        if (direction) expect(translation[axis] * direction).toBeGreaterThan(0)
+        else expect(translation[axis]).toBe(0)
+      }
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth
+        )
+      ).toBe(true)
+      await page.evaluate(
+        ({ top, height }) => scrollTo(0, top - (innerHeight - height) / 2),
+        position
+      )
+      await expect.poll(opacity).toBeGreaterThan(0.99)
+      await expect.poll(offset).toEqual({ x: 0, y: 0 })
+    }
+    await page.evaluate(
+      ({ top, height }) => scrollTo(0, top + height),
+      position
+    )
+    await expect.poll(opacity).toBeLessThan(0.02)
+    await page.evaluate(
+      ({ top, height }) => scrollTo(0, top - (innerHeight - height) / 2),
+      position
+    )
+    await expect.poll(opacity).toBeGreaterThan(0.99)
+    await expect.poll(offset).toEqual({ x: 0, y: 0 })
+  }
 
   await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
   for (const selector of [".closing-panel", ".site-footer"]) {
@@ -87,7 +125,9 @@ test("头像无外框和控制栏，悬停、点击及聚焦时仍保持正立�
       .first()
       .evaluate((el) => getComputedStyle(el).transform)
     await expect
-      .poll(() => rings.first().evaluate((el) => getComputedStyle(el).transform))
+      .poll(() =>
+        rings.first().evaluate((el) => getComputedStyle(el).transform)
+      )
       .not.toBe(initial)
   }
   await expectRotating()
@@ -128,6 +168,10 @@ test("头像无外框和控制栏，悬停、点击及聚焦时仍保持正立�
     "opacity",
     "1"
   )
+  for (const feature of await page.locator(".feature-item").all()) {
+    await expect(feature).toHaveCSS("opacity", "1")
+    await expect(feature).toHaveCSS("transform", "none")
+  }
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth

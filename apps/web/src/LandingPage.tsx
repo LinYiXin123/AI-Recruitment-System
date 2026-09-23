@@ -65,6 +65,7 @@ const features = [
       "围绕岗位要求整理经历、技能和项目，让你更快找到值得深入了解的人。",
     note: "岗位要求 × 简历经历",
     visual: "match",
+    from: "left" as const,
   },
   {
     icon: Focus,
@@ -78,6 +79,7 @@ const features = [
       "匹配点对应简历原文，信息不足单独标记。多一份依据，少一份猜测。",
     note: "结论有来源，信息有边界",
     visual: "evidence",
+    from: "bottom" as const,
   },
   {
     icon: MessageSquareText,
@@ -91,6 +93,7 @@ const features = [
     ),
     note: "从筛选，走向有质量的沟通",
     visual: "interview",
+    from: "right" as const,
   },
 ]
 const faqs = [
@@ -308,6 +311,7 @@ export default function LandingPage() {
                 as="article"
                 className="feature-item"
                 key={feature.number}
+                from={feature.from}
               >
                 <div className="feature-top">
                   <feature.icon aria-hidden="true" />
