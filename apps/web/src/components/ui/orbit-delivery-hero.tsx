@@ -45,6 +45,7 @@ export interface OrbitSceneProps {
     pitchTarget: number
     heading?: number
     cameraHeading?: number
+    mascotHeading?: number
   }>
   active: boolean
   auto: boolean

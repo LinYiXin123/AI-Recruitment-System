@@ -24,7 +24,11 @@ test("中文星球开场位于原首页之前，真实模型可旋转、暂停�
 }, testInfo) => {
   test.setTimeout(60000)
   const errors: string[] = []
+  const requestedAssets = new Set<string>()
   page.on("pageerror", (error) => errors.push(error.message))
+  page.on("request", (request) => {
+    requestedAssets.add(new URL(request.url()).pathname)
+  })
   await page.goto("/")
   const hero = page.locator(".orbit-delivery")
   const stage = page.getByRole("group", { name: "旋转知遇星球" })
@@ -35,6 +39,7 @@ test("中文星球开场位于原首页之前，真实模型可旋转、暂停�
     "introduction"
   )
   await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 30000 })
+  expect(requestedAssets).toContain("/orbit/models/zhiyu-mascot.glb")
   await expect(stage.locator("canvas")).toBeVisible()
   await stage.scrollIntoViewIfNeeded()
   await stage.focus()

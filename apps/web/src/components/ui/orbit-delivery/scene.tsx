@@ -712,7 +712,70 @@ function Courier({ motion, paused, reduced, onReady }) {
   if (error) throw error;
   return <group ref={facing} rotation={[0, Math.PI / 2, 0]}><group ref={lean}><group scale={MODEL_SCALE}>{asset && <primitive object={asset.scene} dispose={null} />}</group></group></group>;
 }
+function ZhiYuMascot({ motion, paused, reduced, onReady }) {
+  const base = useContext2(AssetBaseContext);
+  const facing = useRef(null), bob = useRef(null);
+  const [asset, setAsset] = useState2(null);
+  const [error, setError] = useState2(null);
+  useEffect2(() => {
+    const abort = new AbortController();
+    const draco = new DRACOLoader2().setDecoderPath("/orbit/draco/").setDecoderConfig({ type: "wasm" }).setWorkerLimit(1);
+    const loader = new GLTFLoader2().setDRACOLoader(draco);
+    let cancelled = false;
+    let owned;
+    onReady?.(false);
+    fetch(`${base}models/zhiyu-mascot.glb`, { signal: AbortSignal.any([abort.signal, AbortSignal.timeout(25000)]) }).then(async (response) => {
+      if (!response.ok) throw new Error(`ZhiYu mascot could not load (${response.status})`);
+      const data = await response.arrayBuffer();
+      if (cancelled) return;
+      const gltf = await loader.parseAsync(data, `${base}models/`);
+      if (cancelled) {
+        disposeScene(gltf.scene);
+        return;
+      }
+      gltf.scene.traverse((node) => {
+        if (!(node instanceof Mesh3)) return;
+        for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+          if (material instanceof MeshStandardMaterial2) {
+            material.metalness = 0;
+            material.roughness = 0.88;
+            material.normalScale.setScalar(0.35);
+            if (material.map) material.map.anisotropy = 4;
+          }
+        }
+      });
+      owned = gltf.scene;
+      setAsset(owned);
+      onReady?.(true);
+    }).catch((reason) => {
+      if (!cancelled) setError(reason instanceof Error ? reason : new Error(String(reason)));
+    }).finally(() => {
+      if (!cancelled) draco.dispose();
+    });
+    return () => {
+      cancelled = true;
+      abort.abort();
+      draco.dispose();
+      if (owned) disposeScene(owned);
+    };
+  }, [onReady, base]);
+  useFrame((_, delta) => {
+    if (!asset) return;
+    const dt = Math.min(delta, 0.05), m = motion.current;
+    const running = !paused && !reduced;
+    const target = (m.mascotHeading ?? 0) + Math.PI;
+    const turn = Math.atan2(Math.sin(target - facing.current.rotation.y), Math.cos(target - facing.current.rotation.y));
+    facing.current.rotation.y += turn * (1 - Math.exp(-10 * dt));
+    const stride = Math.sin(m.time * 7.4);
+    bob.current.position.y = 0.43 + (running ? Math.abs(stride) * 0.045 : 0);
+    bob.current.rotation.z = running ? stride * 0.075 : 0;
+    bob.current.rotation.x = running ? -0.055 : 0;
+  });
+  if (error) throw error;
+  return <group ref={facing}><group ref={bob} position={[0, 0.43, 0]} scale={MASCOT_SCALE}>{asset && <primitive object={asset} dispose={null} />}</group></group>;
+}
 var MODEL_SCALE;
+var MASCOT_SCALE;
 var init_Courier = __esm({
   "src/Courier.tsx"() {
     "use strict";
@@ -724,6 +787,7 @@ var init_Courier = __esm({
     init_courierGreeting();
     init_sceneOptimization();
     MODEL_SCALE = 0.76 / 1.7;
+    MASCOT_SCALE = 0.88;
   }
 });
 
@@ -810,34 +874,33 @@ __export(PlanetScene_exports, {
 import { useEffect as useEffect5, useMemo, useRef as useRef4, useState as useState3 } from "react";
 import { Canvas as Canvas2, useFrame as useFrame4, useThree as useThree3 } from "@react-three/fiber";
 import { MathUtils as MathUtils6, Quaternion as Quaternion8, Vector3 as Vector37 } from "three";
-function sceneZoom(width, height) {
-  return Math.min(width / (width < 700 ? 5.65 : 5.25), height / 6.6);
-}
 function ResponsiveCamera() {
   const { size, camera } = useThree3();
   useEffect5(() => {
     const ortho = camera;
-    ortho.zoom = sceneZoom(size.width, size.height);
+    ortho.zoom = size.width / (size.width < 700 ? 5.65 : 5.25);
     ortho.updateProjectionMatrix();
   }, [size.width, size.height, camera]);
   return null;
 }
 function World2({ motion, auto, reduced, onReady }) {
-  const planet = useRef4(null), runner = useRef4(null);
+  const planet = useRef4(null), runner = useRef4(null), mascot = useRef4(null);
   const asset = usePlanetAsset();
   const [courierReady, setCourierReady] = useState3(false);
+  const [mascotReady, setMascotReady] = useState3(false);
   useEffect5(() => {
-    onReady?.(!!asset && courierReady);
-  }, [asset, courierReady, onReady]);
-  const radius = useRef4(2.2);
+    onReady?.(!!asset && courierReady && mascotReady);
+  }, [asset, courierReady, mascotReady, onReady]);
+  const radius = useRef4(2.2), mascotRadius = useRef4(2.2);
   const surface2 = useRef4(createSurfaceMotion());
   const globe = useMemo(createGlobeMotion, []);
-  const frame = useMemo(() => ({ screenUp: new Vector37(), localVelocity: new Vector37(), cameraFront: new Vector37(), inverseRunner: new Quaternion8() }), []);
+  const frame = useMemo(() => ({ screenUp: new Vector37(), localVelocity: new Vector37(), cameraFront: new Vector37(), inverseRunner: new Quaternion8(), courierLocal: new Vector37(), courierNormal: new Vector37(), courierVelocity: new Vector37(), mascotLocal: new Vector37(), mascotNormal: new Vector37(), mascotVelocity: new Vector37(), mascotAxis: new Vector37(0, 0, 1), inverseMascot: new Quaternion8() }), []);
   const size = useThree3((state) => state.size);
-  const zoom = sceneZoom(size.width, size.height);
-  const centerY = size.height / zoom * 0.19 - 2.17;
+  const small = size.width < 700;
+  const zoom = size.width / (small ? 5.65 : 5.25);
+  const centerY = size.height / zoom * (small ? 0.08 : 0.19) - 2.17;
   useFrame4(({ camera }, delta) => {
-    if (!asset || !courierReady) return;
+    if (!asset || !courierReady || !mascotReady) return;
     const m = motion.current;
     const elapsed = Math.min(delta, 0.05), count = Math.ceil(elapsed / (1 / 120));
     frame.screenUp.copy(up3).applyQuaternion(camera.quaternion);
@@ -845,24 +908,45 @@ function World2({ motion, auto, reduced, onReady }) {
       const dt = elapsed / count;
       stepGlobeMotion(globe, m, dt, auto, reduced);
       stepSurface(surface2.current, m, globe.orientation, frame.screenUp, dt, reduced, !auto);
+      if (auto) m.encounterTime = (m.encounterTime ?? 0) + dt;
     }
     planet.current.quaternion.copy(globe.orientation);
     const s = surface2.current;
-    const r = surfaceRadius(asset.surface, s.current.x, s.current.y, s.current.z) * 2.25;
-    radius.current = MathUtils6.damp(radius.current, r + 8e-3, 25, elapsed);
-    runner.current.position.copy(s.worldNormal).multiplyScalar(radius.current);
-    runner.current.quaternion.setFromUnitVectors(up3, s.worldNormal);
+    const encounter = (m.encounterTime ?? 0) * 0.55 + 0.7;
+    const separation = 0.52 * Math.cos(encounter);
+    const angularVelocity = 0.52 * 0.55 * Math.sin(encounter);
+    frame.courierLocal.copy(s.current).applyAxisAngle(frame.mascotAxis, -separation);
+    frame.mascotLocal.copy(s.current).applyAxisAngle(frame.mascotAxis, separation);
+    frame.courierNormal.copy(frame.courierLocal).applyQuaternion(globe.orientation);
+    frame.mascotNormal.copy(frame.mascotLocal).applyQuaternion(globe.orientation);
+    const courierSurfaceRadius = surfaceRadius(asset.surface, frame.courierLocal.x, frame.courierLocal.y, frame.courierLocal.z) * 2.25;
+    const mascotSurfaceRadius = surfaceRadius(asset.surface, frame.mascotLocal.x, frame.mascotLocal.y, frame.mascotLocal.z) * 2.25;
+    radius.current = MathUtils6.damp(radius.current, courierSurfaceRadius + 8e-3, 25, elapsed);
+    mascotRadius.current = MathUtils6.damp(mascotRadius.current, mascotSurfaceRadius + 8e-3, 25, elapsed);
+    runner.current.position.copy(frame.courierNormal).multiplyScalar(radius.current);
+    runner.current.quaternion.setFromUnitVectors(up3, frame.courierNormal);
+    mascot.current.position.copy(frame.mascotNormal).multiplyScalar(mascotRadius.current);
+    mascot.current.quaternion.setFromUnitVectors(up3, frame.mascotNormal);
+    frame.courierVelocity.crossVectors(frame.mascotAxis, frame.courierLocal).multiplyScalar(angularVelocity).applyQuaternion(globe.orientation);
+    frame.mascotVelocity.crossVectors(frame.mascotAxis, frame.mascotLocal).multiplyScalar(-angularVelocity).applyQuaternion(globe.orientation);
+    frame.inverseMascot.copy(mascot.current.quaternion).invert();
+    frame.localVelocity.copy(frame.mascotVelocity).applyQuaternion(frame.inverseMascot);
+    m.mascotHeading = Math.atan2(frame.localVelocity.x, frame.localVelocity.z);
     frame.inverseRunner.copy(runner.current.quaternion).invert();
     frame.cameraFront.set(0, 0, 1).applyQuaternion(camera.quaternion).applyQuaternion(frame.inverseRunner);
     m.cameraHeading = Math.atan2(frame.cameraFront.x, frame.cameraFront.z);
-    if (s.velocity.lengthSq() > 1e-4) {
-      frame.localVelocity.copy(s.worldVelocity).applyQuaternion(frame.inverseRunner);
+    if (frame.courierVelocity.lengthSq() > 1e-4) {
+      frame.localVelocity.copy(frame.courierVelocity).applyQuaternion(frame.inverseRunner);
       m.heading = Math.atan2(-frame.localVelocity.z, frame.localVelocity.x);
     }
+    const speed = auto ? Math.abs(angularVelocity) : 0;
+    m.characterVelocity = speed;
+    m.activity = MathUtils6.damp(m.activity, MathUtils6.smoothstep(speed, 0.03, 0.18), 9, elapsed);
   }, -1);
   return <group position={[0, centerY, 0]}>
     <group ref={planet} scale={2.25}>{asset && <primitive object={asset.scene} dispose={null} />}</group>
     <group ref={runner} visible={!!asset && courierReady}><Courier motion={motion} paused={!auto} reduced={reduced} onReady={setCourierReady} /></group>
+    <group ref={mascot} visible={!!asset && mascotReady}><ZhiYuMascot motion={motion} paused={!auto} reduced={reduced} onReady={setMascotReady} /></group>
   </group>;
 }
 function PlanetScene2(props) {
