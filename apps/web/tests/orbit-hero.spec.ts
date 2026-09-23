@@ -72,7 +72,9 @@ test("中文星球开场位于原首页之前，真实模型可旋转、暂停�
     )
     await expect(mascot).toHaveClass(/is-dragging/)
     await expect
-      .poll(() => mascot.evaluate((element) => getComputedStyle(element).position))
+      .poll(() =>
+        mascot.evaluate((element) => getComputedStyle(element).position)
+      )
       .toBe("absolute")
     await page.mouse.up()
     await expect(mascot).not.toHaveClass(/is-dragging/)
@@ -184,6 +186,44 @@ test("三维渲染不可用时显示中文降级，首页导航继续可用", as
   })
   await page.getByRole("link", { name: "开启知遇之旅" }).click()
   await expect(page.locator("#hero-title")).toBeInViewport()
+})
+
+test("星球首轮资源失败后会自动恢复", async ({ page, isMobile }) => {
+  test.skip(isMobile, "手机渲染已在主流程中覆盖")
+  let firstRequest = true
+  await page.route("**/orbit/models/courier.glb", async (route) => {
+    if (firstRequest) {
+      firstRequest = false
+      await route.fulfill({ status: 503, body: "暂时不可用" })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto("/")
+  await expect(
+    page.getByRole("group", { name: "旋转知遇星球" })
+  ).toHaveAttribute("data-ready", "true", { timeout: 30000 })
+  expect(firstRequest).toBe(false)
+  await expect(page.getByText("小小星球暂时未能呈现")).toHaveCount(0)
+})
+
+test("连续重新打开首页时星球仍能稳定呈现", async ({ page, isMobile }) => {
+  test.skip(isMobile, "手机渲染已在主流程中覆盖")
+  test.setTimeout(75000)
+  const errors: string[] = []
+  page.on("pageerror", (error) => errors.push(error.message))
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.goto("/")
+    const stage = page.getByRole("group", { name: "旋转知遇星球" })
+    await expect(stage).toHaveAttribute("data-ready", "true", {
+      timeout: 30000,
+    })
+    await expect(page.getByText("小小星球暂时未能呈现")).toHaveCount(0)
+  }
+
+  expect(errors).toEqual([])
 })
 
 test("星球默认持续转动，手机在星球上纵向滑动仍能浏览下一屏", async ({

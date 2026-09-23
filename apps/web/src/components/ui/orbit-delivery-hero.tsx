@@ -27,12 +27,15 @@ const OrbitScene = lazy(() => orbitScene)
 const orbitMascotViewer = import("./orbit-mascot-viewer")
 const OrbitMascotViewer = lazy(() => orbitMascotViewer)
 
+let cachedWebGLSupport: boolean | undefined
+
 function supportsWebGL() {
+  if (cachedWebGLSupport !== undefined) return cachedWebGLSupport
   const canvas = document.createElement("canvas")
-  const supported = Boolean(
-    canvas.getContext("webgl2") || canvas.getContext("webgl")
-  )
-  return supported
+  const context = canvas.getContext("webgl2") || canvas.getContext("webgl")
+  cachedWebGLSupport = Boolean(context)
+  context?.getExtension("WEBGL_lose_context")?.loseContext()
+  return cachedWebGLSupport
 }
 
 export interface OrbitSceneProps {
@@ -86,7 +89,7 @@ export default function OrbitDeliveryHero({
 }: {
   assetBaseUrl?: string
 }) {
-  const webglSupported = supportsWebGL()
+  const [webglSupported] = useState(supportsWebGL)
   const stage = useRef<HTMLDivElement>(null)
   const motion = useRef({
     planetAngle: 0,
@@ -114,6 +117,7 @@ export default function OrbitDeliveryHero({
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(() => !webglSupported)
   const [attempt, setAttempt] = useState(0)
+  const [recoveryCount, setRecoveryCount] = useState(0)
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -140,6 +144,17 @@ export default function OrbitDeliveryHero({
     }
   }, [])
 
+  useEffect(() => {
+    if (!failed || !webglSupported || recoveryCount >= 2) return
+    const timeout = window.setTimeout(() => {
+      setReady(false)
+      setFailed(false)
+      setRecoveryCount((count) => count + 1)
+      setAttempt((count) => count + 1)
+    }, 350)
+    return () => window.clearTimeout(timeout)
+  }, [failed, recoveryCount, webglSupported])
+
   const release = (id: number) => {
     if (drag.current?.id !== id) return
     drag.current = null
@@ -162,7 +177,8 @@ export default function OrbitDeliveryHero({
   const retry = () => {
     setReady(false)
     setFailed(false)
-    setAttempt(attempt + 1)
+    setRecoveryCount(0)
+    setAttempt((count) => count + 1)
   }
   const fallback = (
     <div className="orbit-feedback orbit-error" role="status">
@@ -194,7 +210,7 @@ export default function OrbitDeliveryHero({
             className="orbit-title-accent"
           />
         </h1>
-        {webglSupported && (
+        {webglSupported && ready && !failed && (
           <Suspense fallback={null}>
             <OrbitMascotViewer assetBaseUrl={assetBaseUrl} paused={paused} />
           </Suspense>

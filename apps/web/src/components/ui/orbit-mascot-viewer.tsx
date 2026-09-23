@@ -150,7 +150,11 @@ function MascotModel({
     root.current.scale.setScalar(modelScale.current)
   })
 
-  return <group ref={root}>{model && <primitive object={model} dispose={null} />}</group>
+  return (
+    <group ref={root}>
+      {model && <primitive object={model} dispose={null} />}
+    </group>
+  )
 }
 
 export default function OrbitMascotViewer({
@@ -167,10 +171,6 @@ export default function OrbitMascotViewer({
   const modelScale = useRef(DEFAULT_SCALE)
   const drag = useRef<{ id: number; x: number; y: number } | null>(null)
   const motion = useRef({ phase: 0, wasPaused: paused, wasManual: false })
-  const [canRender] = useState(() => {
-    const canvas = document.createElement("canvas")
-    return Boolean(canvas.getContext("webgl2") || canvas.getContext("webgl"))
-  })
   const [dragging, setDragging] = useState(false)
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -230,11 +230,9 @@ export default function OrbitMascotViewer({
     "--mascot-offset-y": `${DEFAULT_POSITION.y}px`,
   } as CSSProperties
 
-  if (!canRender) return null
-
   return (
     <div
-      className={`orbit-mascot${dragging ? " is-dragging" : ""}`}
+      className={dragging ? "orbit-mascot is-dragging" : "orbit-mascot"}
       style={style}
       role="group"
       tabIndex={0}
@@ -276,8 +274,8 @@ export default function OrbitMascotViewer({
       <Canvas
         aria-hidden="true"
         camera={{ position: [0, 0, 5], fov: 26 }}
-        dpr={[1, 1.5]}
-        gl={{ alpha: true, antialias: true, powerPreference: "low-power" }}
+        dpr={1}
+        gl={{ alpha: true, antialias: false, powerPreference: "low-power" }}
       >
         <ambientLight intensity={1.6} />
         <hemisphereLight args={["#f4f8ff", "#829ec6", 1.6]} />
@@ -298,9 +296,7 @@ export default function OrbitMascotViewer({
       {!ready && !failed && (
         <span className="orbit-mascot-loading">正在准备信封…</span>
       )}
-      {failed && (
-        <span className="orbit-mascot-loading">信封暂时未能呈现</span>
-      )}
+      {failed && <span className="orbit-mascot-loading">信封暂时未能呈现</span>}
       <span id="orbit-mascot-instructions" className="sr-only">
         拖动或按方向键，旋转知遇信封。
       </span>
