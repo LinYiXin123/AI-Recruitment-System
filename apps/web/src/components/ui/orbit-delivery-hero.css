@@ -42,9 +42,11 @@
   line-height: 1.27;
   letter-spacing: -0.045em;
 }
-.orbit-copy h1 em {
+.orbit-title-accent {
   color: var(--primary);
-  font-style: normal;
+}
+.orbit-copy .text-scatter {
+  pointer-events: auto;
 }
 .orbit-description {
   color: var(--muted-foreground);
@@ -205,19 +207,6 @@
   color: var(--muted-foreground);
   font-size: 14px;
   pointer-events: none;
-}
-.orbit-loader {
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--border);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: orbit-loading 1.2s linear infinite;
-}
-@keyframes orbit-loading {
-  to {
-    transform: rotate(360deg);
-  }
 }
 .orbit-error {
   flex-direction: column;

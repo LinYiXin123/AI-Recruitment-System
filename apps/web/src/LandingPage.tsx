@@ -10,8 +10,6 @@ import {
   Focus,
   Menu,
   MessageSquareText,
-  Pause,
-  Play,
   ScanLine,
   Sparkles,
 } from "lucide-react"
@@ -146,7 +144,6 @@ function Brand() {
 
 export default function LandingPage() {
   const mobileMenu = useRef<HTMLDetailsElement>(null)
-  const [backgroundPaused, setBackgroundPaused] = useState(false)
   const [experienceOpen, setExperienceOpen] = useState(false)
   const [enteringRole, setEnteringRole] = useState<ExperienceRole | null>(null)
   const [experienceError, setExperienceError] = useState("")
@@ -210,11 +207,7 @@ export default function LandingPage() {
     },
   })
   return (
-    <div
-      id="top"
-      className="landing-page"
-      data-background-paused={backgroundPaused}
-    >
+    <div id="top" className="landing-page">
       <div
         id="background-motion"
         className="background-motion"
@@ -607,20 +600,6 @@ export default function LandingPage() {
           </Dialog>
         </div>
       </ScrollFade>
-      <Button
-        variant="outline"
-        size="sm"
-        className="background-motion-toggle"
-        aria-controls="background-motion"
-        onClick={() => setBackgroundPaused((paused) => !paused)}
-      >
-        {backgroundPaused ? (
-          <Play data-icon="inline-start" aria-hidden="true" />
-        ) : (
-          <Pause data-icon="inline-start" aria-hidden="true" />
-        )}
-        {backgroundPaused ? "播放背景动效" : "暂停背景动效"}
-      </Button>
       <Dialog
         open={experienceOpen}
         onOpenChange={(open) => {

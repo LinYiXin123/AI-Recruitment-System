@@ -119,9 +119,9 @@ export default function TextScatter({
       ref={(element) => {
         root.current = element
       }}
+      aria-label={text}
       className={cn("text-scatter", className)}
     >
-      <span className="sr-only">{text}</span>
       <span aria-hidden="true">
         {Array.from(text).map((char, index) => (
           <span key={index} className="text-scatter-character">
