@@ -744,6 +744,8 @@
   padding-top: 108px;
   padding-bottom: 100px;
   scroll-margin-top: 35px;
+  overflow: clip;
+  overflow-clip-margin: 12px;
 }
 .section-heading {
   display: flex;
@@ -1336,7 +1338,10 @@
 }
 
 /* 键盘聚焦时确保链接和按钮始终可见。 */
-.section-scroll-fade:focus-within { opacity: 1 !important; }
+.section-scroll-fade:focus-within {
+  opacity: 1 !important;
+  transform: none !important;
+}
 .faq-reveal:focus-within,
 .workflow-reveal:focus-within {
   opacity: 1 !important;
@@ -1350,7 +1355,10 @@
   .background-motion-toggle {
     display: none;
   }
-  .section-scroll-fade { opacity: 1 !important; }
+  .section-scroll-fade {
+    opacity: 1 !important;
+    transform: none !important;
+  }
   .faq-reveal,
   .workflow-reveal {
     opacity: 1 !important;

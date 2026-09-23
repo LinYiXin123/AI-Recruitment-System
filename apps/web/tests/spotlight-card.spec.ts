@@ -19,6 +19,10 @@ test("三个能力示意区的蓝色光晕跟随鼠标，移开后淡出且不�
     await card.evaluate((el) =>
       el.scrollIntoView({ block: "center", behavior: "instant" })
     )
+    await expect(page.locator("#features .feature-item").nth(index)).toHaveCSS(
+      "transform",
+      "none"
+    )
     const before = await card.boundingBox()
     await page.mouse.move(before!.x + 20, before!.y + 24)
     await expect(card).toHaveAttribute("data-glow-active", "true")
