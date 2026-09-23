@@ -61,16 +61,8 @@ button.avatar-orbit__avatar {
   cursor: pointer;
 }
 .avatar-orbit[data-paused="true"] .avatar-orbit__ring,
-.avatar-orbit[data-paused="true"] .avatar-orbit__avatar,
-.avatar-orbit__stage:focus-within .avatar-orbit__ring,
-.avatar-orbit__stage:focus-within .avatar-orbit__avatar {
+.avatar-orbit[data-paused="true"] .avatar-orbit__avatar {
   animation-play-state: paused;
-}
-@media (hover: hover) {
-  .avatar-orbit__stage:hover .avatar-orbit__ring,
-  .avatar-orbit__stage:hover .avatar-orbit__avatar {
-    animation-play-state: paused;
-  }
 }
 .avatar-orbit__stage:focus-visible,
 .avatar-orbit__avatar:focus-visible {

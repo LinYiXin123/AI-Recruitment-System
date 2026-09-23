@@ -62,7 +62,7 @@ test("内容随滚动反复淡入淡出，页底完整可见且入口可用", as
   await expect(page).toHaveURL(/#demo$/)
 })
 
-test("头像无外框和控制栏，保持正立旋转及悬停、键盘暂停", async ({
+test("头像无外框和控制栏，悬停、点击及聚焦时仍保持正立旋转", async ({
   page,
   isMobile,
 }) => {
@@ -80,29 +80,31 @@ test("头像无外框和控制栏，保持正立旋转及悬停、键盘暂停",
   await expect(rings).toHaveCount(3)
   await expect(page.locator(".faq-list").getByRole("button")).toHaveCount(4)
   await page.mouse.move(0, 0)
-  await expect(rings.first()).toHaveCSS("animation-play-state", "running")
-  const initial = await rings
-    .first()
-    .evaluate((el) => getComputedStyle(el).transform)
-  await expect
-    .poll(() => rings.first().evaluate((el) => getComputedStyle(el).transform))
-    .not.toBe(initial)
+  const expectRotating = async () => {
+    await expect(rings.first()).toHaveCSS("animation-play-state", "running")
+    await expect(avatars.first()).toHaveCSS("animation-play-state", "running")
+    const initial = await rings
+      .first()
+      .evaluate((el) => getComputedStyle(el).transform)
+    await expect
+      .poll(() => rings.first().evaluate((el) => getComputedStyle(el).transform))
+      .not.toBe(initial)
+  }
+  await expectRotating()
   if (!isMobile) {
     await stage.hover()
-    await expect(rings.first()).toHaveCSS("animation-play-state", "paused")
-    await expect(avatars.first()).toHaveCSS("animation-play-state", "paused")
-    await page.mouse.move(0, 0)
+    await expectRotating()
   }
+  await stage.click()
+  await expectRotating()
+  await page.mouse.move(0, 0)
   await stage.focus()
-  await expect(rings.first()).toHaveCSS("animation-play-state", "paused")
+  await expectRotating()
   await page.keyboard.press("Tab")
   await expect(
     page.locator(".faq-list").getByRole("button").first()
   ).toBeFocused()
   await expect(rings.first()).toHaveCSS("animation-play-state", "running")
-  await stage.focus()
-  await expect(rings.first()).toHaveCSS("animation-play-state", "paused")
-
   // 在所有圆环的同一时间点，圆环和头像的旋转矩阵应互相抵消。
   const upright = await stage.evaluate((el) => {
     el.getAnimations({ subtree: true }).forEach((animation) => {
