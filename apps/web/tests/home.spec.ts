@@ -9,7 +9,7 @@ test("首页展示完整，体验入口可用且无横向溢出", async ({ page 
     "none"
   )
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    "知人善任"
+    "认真以待"
   )
   await expect(
     page.getByRole("heading", { name: "简历分析工作台" })
@@ -123,6 +123,8 @@ test("电脑工作台等比例缩小并完整显示四种版式", async ({
   isMobile,
 }, testInfo) => {
   test.skip(isMobile, "手机保留上下阅读布局，不缩小文字")
+  // 16 次切换及多视口截图，在无硬件加速的浏览器中需要更长的总时限。
+  test.setTimeout(120000)
   await page.goto("/")
   for (const [width, height] of [
     [1280, 650],
@@ -183,6 +185,7 @@ test("电脑工作台等比例缩小并完整显示四种版式", async ({
 test("28 组示例的排版配色、头像与原文依据对应，翻页边界正确", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(120000)
   await page.goto("/#demo")
   const selector = page.getByRole("combobox", { name: "选择演示岗位" })
   await selector.click()
@@ -200,7 +203,9 @@ test("28 组示例的排版配色、头像与原文依据对应，翻页边界�
     await expect(
       page.getByRole("heading", { name: `候选人 ${number}`, exact: true })
     ).toBeVisible()
-    await expect(page.getByRole("status")).toHaveText(`${number} / 28`)
+    await expect(page.locator("#demo").getByRole("status")).toHaveText(
+      `${number} / 28`
+    )
     await expect(page.locator(".analysis-heading .eyebrow")).toContainText(
       option.split(" · ")[1]
     )
@@ -257,7 +262,7 @@ test("28 组示例的排版配色、头像与原文依据对应，翻页边界�
   expect(compositions.size).toBe(4)
   await expect(page.getByRole("button", { name: "下一个示例" })).toBeDisabled()
   await page.getByRole("button", { name: "上一个示例" }).click()
-  await expect(page.getByRole("status")).toHaveText("27 / 28")
+  await expect(page.locator("#demo").getByRole("status")).toHaveText("27 / 28")
   await page.getByRole("button", { name: "下一个示例" }).click()
   await page.getByRole("button", { name: "查看面试建议" }).click()
   await expect(page.getByRole("dialog")).toContainText(

@@ -21,8 +21,9 @@ test("标题文字可散开并自动归位，布局和标题语义保持完整",
 }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" })
   if (isMobile) await page.setViewportSize({ width: 320, height: 844 })
-  await page.goto("/")
-  const heading = page.getByRole("heading", { level: 1 })
+  await page.goto("/#introduction")
+  const heading = page.locator("#hero-title")
+  await heading.scrollIntoViewIfNeeded()
   await expect(heading).toHaveAccessibleName(
     /少一点翻阅。\s*多一点，知人善任。/
   )
@@ -48,7 +49,7 @@ test("减少动态效果时标题静止，切换偏好立即停止并复位", as
   page,
   isMobile,
 }) => {
-  await page.goto("/")
+  await page.goto("/#introduction")
   const character = page.locator("#hero-title .text-scatter-character").first()
   const glyph = character.locator(".text-scatter-glyph")
   await scatter(page, character, isMobile)

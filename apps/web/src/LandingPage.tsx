@@ -24,6 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { AvatarOrbit } from "@/components/ui/avatar-orbit"
+import OrbitDeliveryHero from "@/components/ui/orbit-delivery-hero"
 import { samples } from "./resume-samples"
 import { ScrollFade } from "@/components/ui/scroll-fade"
 import TextScatter from "@/components/ui/text-scatter"
@@ -223,13 +224,18 @@ export default function LandingPage() {
         </div>
       </header>
       <main id="main">
-        <section className="hero page-width" aria-labelledby="hero-title">
+        <OrbitDeliveryHero />
+        <section
+          id="introduction"
+          className="hero page-width"
+          aria-labelledby="hero-title"
+        >
           <div className="hero-eyebrow">
             <Badge variant="outline">
               <span className="tiny-dot" /> AI 简历分析，为招聘而设计
             </Badge>
           </div>
-          <h1 id="hero-title">
+          <h2 id="hero-title">
             <TextScatter as="span" text="少一点翻阅。" />
             <br />
             <TextScatter
@@ -237,7 +243,7 @@ export default function LandingPage() {
               text="多一点，知人善任。"
               className="hero-title-accent"
             />
-          </h1>
+          </h2>
           <p className="hero-description">
             让 AI 读懂简历里的经历，找到
             <mark className="text-highlight">与岗位的连接</mark>。

@@ -58,9 +58,7 @@ test("背景明显移动，可用键盘暂停和恢复，减少动态时静止�
     )
     .toBe(0)
   await expect(movingSpark).toBeVisible()
-  await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    "知人善任"
-  )
+  await expect(page.locator("#hero-title")).toContainText("知人善任")
   await page.getByRole("link", { name: "体验简历分析", exact: true }).click()
   await expect(page).toHaveURL(/#demo$/)
   await expect(

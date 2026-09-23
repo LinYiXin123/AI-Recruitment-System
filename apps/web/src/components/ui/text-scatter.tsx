@@ -1,10 +1,10 @@
-import { useEffect, useRef, type ElementType } from "react"
+import { useEffect, useRef } from "react"
 import { cn } from "@/lib/utils"
 
 export interface TextScatterProps {
   text?: string
   className?: string
-  as?: ElementType
+  as?: "h1" | "h2" | "h3" | "p" | "span" | "div"
   velocity?: number
   rotation?: number
   scale?: number
@@ -115,7 +115,12 @@ export default function TextScatter({
   }, [text, velocity, rotation, scale, returnAfter, duration])
 
   return (
-    <Tag ref={root} className={cn("text-scatter", className)}>
+    <Tag
+      ref={(element) => {
+        root.current = element
+      }}
+      className={cn("text-scatter", className)}
+    >
       <span className="sr-only">{text}</span>
       <span aria-hidden="true">
         {Array.from(text).map((char, index) => (
