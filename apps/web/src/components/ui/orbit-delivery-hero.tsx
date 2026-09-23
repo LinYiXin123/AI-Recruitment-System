@@ -18,10 +18,12 @@ import {
   RotateCcw,
 } from "lucide-react"
 import { Button, buttonVariants } from "@/components/ui/button"
+import TextScatter from "@/components/ui/text-scatter"
 import { cn } from "@/lib/utils"
 import "./orbit-delivery-hero.css"
 
-const OrbitScene = lazy(() => import("./orbit-delivery/scene"))
+const orbitScene = import("./orbit-delivery/scene")
+const OrbitScene = lazy(() => orbitScene)
 
 export interface OrbitSceneProps {
   assetBaseUrl: string
@@ -94,8 +96,7 @@ export default function OrbitDeliveryHero({
   })
   const drag = useRef<{ id: number; x: number; y: number } | null>(null)
   const reduced = useReducedMotion()
-  const [mounted, setMounted] = useState(false)
-  const [visible, setVisible] = useState(false)
+  const [visible, setVisible] = useState(true)
   const [tabVisible, setTabVisible] = useState(true)
   const [paused, setPaused] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -107,7 +108,6 @@ export default function OrbitDeliveryHero({
     const observer = new IntersectionObserver(
       ([entry]) => {
         setVisible(entry.isIntersecting)
-        if (entry.isIntersecting) setMounted(true)
       },
       { threshold: 0.01 }
     )
@@ -173,11 +173,15 @@ export default function OrbitDeliveryHero({
           让人才与机会，双向奔赴
         </p>
         <h1 id="orbit-title">
-          每一次相遇，
+          <TextScatter as="span" text="每一次相遇，" />
           <br />
-          都值得
+          <TextScatter as="span" text="都值得" />
           <br />
-          <em>认真以待。</em>
+          <TextScatter
+            as="span"
+            text="认真以待。"
+            className="orbit-title-accent"
+          />
         </h1>
         <p className="orbit-description">
           世界很大，对的人值得被看见。
@@ -280,25 +284,17 @@ export default function OrbitDeliveryHero({
               fallback={fallback}
               onFailure={() => setFailed(true)}
             >
-              {mounted && (
-                <Suspense fallback={null}>
-                  <OrbitScene
-                    assetBaseUrl={assetBaseUrl}
-                    motion={motion}
-                    active={visible && tabVisible}
-                    auto={!paused}
-                    reduced={!!reduced}
-                    onReady={setReady}
-                    onFailure={() => setFailed(true)}
-                  />
-                </Suspense>
-              )}
-              {!ready && (
-                <div className="orbit-feedback" role="status">
-                  <span className="orbit-loader" />
-                  小小星球正在准备中…
-                </div>
-              )}
+              <Suspense fallback={null}>
+                <OrbitScene
+                  assetBaseUrl={assetBaseUrl}
+                  motion={motion}
+                  active={visible && tabVisible}
+                  auto={!paused}
+                  reduced={!!reduced}
+                  onReady={setReady}
+                  onFailure={() => setFailed(true)}
+                />
+              </Suspense>
             </SceneBoundary>
           )}
         </div>

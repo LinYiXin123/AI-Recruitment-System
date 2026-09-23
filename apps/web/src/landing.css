@@ -248,16 +248,6 @@
     transform: translateY(calc(100cqh - var(--size)));
   }
 }
-[data-background-paused="true"]
-  :is(.background-particle, .background-particle-y) {
-  animation-play-state: paused;
-}
-.background-motion-toggle {
-  position: fixed;
-  right: max(16px, env(safe-area-inset-right));
-  bottom: max(16px, env(safe-area-inset-bottom));
-  z-index: 10;
-}
 .hero-description {
   color: var(--muted-foreground);
   font-size: 16px;
@@ -1351,9 +1341,6 @@
   .background-particle,
   .background-particle-y {
     animation: none;
-  }
-  .background-motion-toggle {
-    display: none;
   }
   .section-scroll-fade {
     opacity: 1 !important;

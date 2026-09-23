@@ -1,13 +1,11 @@
 import { expect, test } from "@playwright/test"
 
-test("背景明显移动，可用键盘暂停和恢复，减少动态时静止且入口可用", async ({
+test("背景持续移动，不提供暂停入口；减少动态时静止", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await page.goto("/")
-  const decorations = page.locator(
-    ".background-particle, .background-particle-y"
-  )
+  const decorations = page.locator(".background-particle, .background-particle-y")
   const movingSpark = page.locator(".background-glyph").first()
   const position = () =>
     movingSpark.evaluate((el) => el.getBoundingClientRect().x)
@@ -16,40 +14,10 @@ test("背景明显移动，可用键盘暂停和恢复，减少动态时静止�
     .poll(async () => Math.abs((await position()) - initialPosition))
     .toBeGreaterThan(12)
 
-  const toggle = page.getByRole("button", { name: "暂停背景动效" })
-  await toggle.focus()
-  await page.keyboard.press("Enter")
-  const resume = page.getByRole("button", { name: "播放背景动效" })
-  await expect(resume).toBeFocused()
-  await expect
-    .poll(() =>
-      decorations.evaluateAll((elements) => [
-        ...new Set(
-          elements.flatMap((el) =>
-            el.getAnimations().map((animation) => animation.playState)
-          )
-        ),
-      ])
-    )
-    .toEqual(["paused"])
-  // 验证真正停在当前帧，不能只有按钮名称改变或元素被藏起来。
-  const frozen = await decorations.evaluateAll(async (elements) => {
-    const animations = elements.flatMap((el) => el.getAnimations())
-    const times = animations.map((animation) => animation.currentTime)
-    await new Promise((resolve) => setTimeout(resolve, 150))
-    return animations.every(
-      (animation, index) => animation.currentTime === times[index]
-    )
-  })
-  expect(frozen).toBe(true)
+  await expect(page.getByRole("button", { name: /背景动效/ })).toHaveCount(0)
   await expect(movingSpark).toBeVisible()
-  const pausedPosition = await position()
-  await page.keyboard.press("Space")
-  await expect(toggle).toBeFocused()
-  await expect.poll(position).not.toBe(pausedPosition)
 
   await page.emulateMedia({ reducedMotion: "reduce" })
-  await expect(toggle).toBeHidden()
   await expect
     .poll(() =>
       decorations.evaluateAll(
@@ -138,9 +106,7 @@ test("背景在窗口四边反弹，缩放和滚动后不越界也不遮挡点�
   expect(await page.locator(".background-glyph").first().boundingBox()).toEqual(
     beforeScroll
   )
-  await expect(
-    page.getByRole("button", { name: "暂停背景动效" })
-  ).toBeInViewport()
+  await expect(page.getByRole("button", { name: /背景动效/ })).toHaveCount(0)
   expect(
     await field.evaluate((el) => {
       const rect = el

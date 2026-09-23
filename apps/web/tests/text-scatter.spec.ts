@@ -45,6 +45,21 @@ test("标题文字可散开并自动归位，布局和标题语义保持完整",
   await expect(page).toHaveURL(/#demo$/)
 })
 
+test("星球开场标题也可逐字散开并自动归位", async ({
+  page,
+  isMobile,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" })
+  await page.goto("/")
+  const heading = page.locator("#orbit-title")
+  await expect(heading).toHaveAccessibleName(/每一次相遇，\s*都值得\s*认真以待。/)
+  const character = heading.locator(".text-scatter-character").last()
+  const glyph = character.locator(".text-scatter-glyph")
+  await scatter(page, character, isMobile)
+  await expect.poll(() => displacement(glyph)).toBeGreaterThan(5)
+  await expect(glyph).toHaveCSS("transform", "none", { timeout: 8000 })
+})
+
 test("减少动态效果时标题静止，切换偏好立即停止并复位", async ({
   page,
   isMobile,
