@@ -1,11 +1,15 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from recruitment import auth, views
+from recruitment import auth, intake, views
 
 router = DefaultRouter()
 router.register("jobs", views.JobViewSet, basename="jobs")
 router.register("tasks", views.TaskViewSet, basename="tasks")
+router.register("imports", intake.ImportViewSet, basename="imports")
+router.register("candidates", intake.CandidateViewSet, basename="candidates")
+router.register("applications", intake.ApplicationViewSet, basename="applications")
+router.register("documents", intake.DocumentViewSet, basename="documents")
 urlpatterns = [
     path("api/v1/auth/csrf/", auth.csrf),
     path("api/v1/auth/login/", auth.sign_in),

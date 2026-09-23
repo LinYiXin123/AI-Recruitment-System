@@ -54,3 +54,10 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
     "EXCEPTION_HANDLER": "recruitment.errors.exception_handler",
 }
+
+# 不注册 MEDIA_URL；原件仅可经重新鉴权的附件接口读取。
+PRIVATE_RESUME_ROOT = Path(
+    os.environ.get("PRIVATE_RESUME_ROOT", BASE_DIR.parent.parent / ".local" / "resumes")
+)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 22 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024

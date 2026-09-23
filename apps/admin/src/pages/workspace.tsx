@@ -13,13 +13,24 @@ type WorkspaceProps = {
   openJob: (id: number, tab?: string) => void;
   canCreate: boolean;
   create: () => void;
+  openApplication?: (id: number) => void;
 };
-export function Today({ revision, openJob, canCreate, create }: WorkspaceProps) {
+export function Today({ revision, openJob, canCreate, create, openApplication }: WorkspaceProps) {
   return (
     <div className="today-grid">
       <div className="flex flex-col gap-6">
-        <TaskQueue scope="mine" revision={revision} openJob={openJob} />
-        <TaskQueue scope="waiting" revision={revision} openJob={openJob} />
+        <TaskQueue
+          scope="mine"
+          revision={revision}
+          openJob={openJob}
+          openApplication={openApplication}
+        />
+        <TaskQueue
+          scope="waiting"
+          revision={revision}
+          openJob={openJob}
+          openApplication={openApplication}
+        />
       </div>
       <aside className="flex flex-col gap-6">
         <section className="panel">
@@ -56,10 +67,12 @@ function TaskQueue({
   scope,
   revision,
   openJob,
+  openApplication,
 }: {
   scope: string;
   revision: number;
   openJob: (id: number, tab?: string) => void;
+  openApplication?: (id: number) => void;
 }) {
   const [data, setData] = useState<Page<Task> | null>(null);
   const [error, setError] = useState('');
@@ -112,19 +125,23 @@ function TaskQueue({
                 <div className="task-body">
                   <strong>{t.job_title}</strong>
                   <p>
-                    招人要求 v{t.profile_number} ·{' '}
+                    {t.application ? t.candidate_name : `招人要求 v${t.profile_number}`} ·{' '}
                     {scope === 'mine' ? t.kind_label : `等待 ${t.assignee_name} · ${t.kind_label}`}
                   </p>
-                  <small>{dateTime(t.created_at)} 提交</small>
+                  <small>
+                    {dateTime(t.created_at)} 提交{t.due_at && ` · 截止 ${dateTime(t.due_at)}`}
+                  </small>
                 </div>
                 <Button
                   variant={scope === 'mine' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() =>
-                    openJob(
-                      t.job_id,
-                      t.kind.startsWith('clarify') ? 'clarifications' : 'requirements',
-                    )
+                    t.application
+                      ? openApplication?.(t.application)
+                      : openJob(
+                          t.job_id,
+                          t.kind.startsWith('clarify') ? 'clarifications' : 'requirements',
+                        )
                   }
                 >
                   {scope === 'mine' ? (t.kind === 'review' ? '查看并确认' : '去处理') : '查看进展'}

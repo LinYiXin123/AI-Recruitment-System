@@ -193,10 +193,21 @@ class StatusSerializer(VersionSerializer):
 
 class TaskSerializer(serializers.ModelSerializer):
     kind_label = serializers.CharField(source="get_kind_display")
-    job_id = serializers.IntegerField(source="profile.job_id")
-    job_title = serializers.CharField(source="profile.job.title")
-    profile_number = serializers.IntegerField(source="profile.number")
+    job_id = serializers.SerializerMethodField()
+    job_title = serializers.SerializerMethodField()
+    profile_number = serializers.IntegerField(
+        source="profile.number", allow_null=True, default=None
+    )
+    candidate_name = serializers.CharField(
+        source="application.candidate.display_name", allow_null=True, default=None
+    )
     assignee_name = serializers.SerializerMethodField()
+
+    def get_job_id(self, obj):
+        return obj.application.job_id if obj.application_id else obj.profile.job_id
+
+    def get_job_title(self, obj):
+        return obj.application.job.title if obj.application_id else obj.profile.job.title
 
     def get_assignee_name(self, obj):
         return display_name(obj.assignee)
@@ -210,6 +221,9 @@ class TaskSerializer(serializers.ModelSerializer):
             "kind",
             "kind_label",
             "profile_number",
+            "application",
+            "candidate_name",
+            "due_at",
             "assignee_name",
             "created_at",
             "status",

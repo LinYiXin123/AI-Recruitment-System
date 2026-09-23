@@ -7,6 +7,7 @@ const uv = process.env.UV_BIN || `${process.env.HOME}/.local/bin/uv`;
 const env = {
   ...process.env,
   PGDATABASE: 'recruitment_e2e',
+  PRIVATE_RESUME_ROOT: new URL('../../.local/e2e-resumes', import.meta.url).pathname,
   DJANGO_DEBUG: '1',
   LOCAL_ACCOUNT_PASSWORD: 'only-e2e-password-123',
   DJANGO_SECRET_KEY: 'e2e-only-key-not-for-deployment',

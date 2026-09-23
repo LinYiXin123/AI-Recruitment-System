@@ -6,6 +6,7 @@ import {
   LogOut,
   Plus,
   ShieldCheck,
+  Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ErrorNotice, Loading } from '@/components/feedback';
@@ -14,15 +15,22 @@ import { Button } from '@/components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { ApiError, api, type Me } from '@/lib/api';
+import { ApplicationDetail, Candidates } from '@/pages/intake';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
 import { Jobs, Today } from '@/pages/workspace';
+
+const routeFromHash = () =>
+  ['jobs', 'candidates'].includes(window.location.hash.slice(1))
+    ? window.location.hash.slice(1)
+    : 'today';
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const [local, setLocal] = useState(false);
-  const [route, setRoute] = useState(window.location.hash === '#jobs' ? 'jobs' : 'today');
+  const [route, setRoute] = useState(routeFromHash);
+  const [applicationId, setApplicationId] = useState<number | null>(null);
   const [jobId, setJobId] = useState<number | null>(null);
   const [jobTab, setJobTab] = useState('requirements');
   function openJob(id: number, tab = 'requirements') {
@@ -52,7 +60,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     void boot();
-    const nav = () => setRoute(window.location.hash === '#jobs' ? 'jobs' : 'today');
+    const nav = () => setRoute(routeFromHash());
     window.addEventListener('hashchange', nav);
     return () => window.removeEventListener('hashchange', nav);
   }, [boot]);
@@ -73,6 +81,7 @@ export default function App() {
     hr: 'HR',
     manager: '用人负责人',
     supervisor: '招聘主管',
+    resume_download: '简历原件下载',
   };
   return (
     <div className="workspace">
@@ -98,6 +107,12 @@ export default function App() {
             <BriefcaseBusiness aria-hidden="true" />
             <span>职位</span>
           </a>
+          {me.roles.includes('hr') && (
+            <a href="#candidates" aria-current={route === 'candidates' ? 'page' : undefined}>
+              <Users aria-hidden="true" />
+              <span>候选人</span>
+            </a>
+          )}
         </nav>
         <div className="sidebar-bottom">
           <ShieldCheck aria-hidden="true" />
@@ -107,7 +122,8 @@ export default function App() {
       <div className="workspace-body">
         <header className="topbar">
           <span>
-            招聘工作台 <ChevronRight aria-hidden="true" /> {route === 'today' ? '今天' : '职位'}
+            招聘工作台 <ChevronRight aria-hidden="true" />{' '}
+            {route === 'today' ? '今天' : route === 'jobs' ? '职位' : '候选人'}
           </span>
           <div className="account">
             {local && <Badge variant="outline">本地体验</Badge>}
@@ -126,6 +142,7 @@ export default function App() {
                   await api('auth/logout/', {});
                   setMe(null);
                   setJobId(null);
+                  setApplicationId(null);
                   window.location.hash = 'today';
                 } catch (e) {
                   setError((e as Error).message);
@@ -149,14 +166,18 @@ export default function App() {
                   weekday: 'long',
                 })}
               </p>
-              <h1>{route === 'today' ? '从今天的重要事项开始' : '职位'}</h1>
+              <h1>
+                {route === 'today' ? '从今天的重要事项开始' : route === 'jobs' ? '职位' : '候选人'}
+              </h1>
               <p>
                 {route === 'today'
                   ? '先处理需要你决定的事，再跟进等待中的工作。'
-                  : '查看你负责、协作或获授权的职位，明确每一次招聘的要求。'}
+                  : route === 'jobs'
+                    ? '查看你负责、协作或获授权的职位，明确每一次招聘的要求。'
+                    : '先核对材料与身份，再处理每一次独立应聘。'}
               </p>
             </div>
-            {me.departments.length > 0 && (
+            {me.departments.length > 0 && route !== 'candidates' && (
               <Button onClick={() => setCreating(true)}>
                 <Plus data-icon="inline-start" />
                 新建职位
@@ -166,10 +187,17 @@ export default function App() {
           {error && <ErrorNotice message={error} retry={() => setError('')} />}
           {route === 'today' ? (
             <Today
+              openApplication={setApplicationId}
               revision={revision}
               openJob={openJob}
               canCreate={me.departments.length > 0}
               create={() => setCreating(true)}
+            />
+          ) : route === 'candidates' ? (
+            <Candidates
+              revision={revision}
+              changed={() => setRevision((r) => r + 1)}
+              openApplication={setApplicationId}
             />
           ) : (
             <Jobs
@@ -181,6 +209,14 @@ export default function App() {
           )}
         </main>
       </div>
+      {applicationId !== null && (
+        <ApplicationDetail
+          key={applicationId}
+          id={applicationId}
+          close={() => setApplicationId(null)}
+          changed={() => setRevision((r) => r + 1)}
+        />
+      )}
       {creating && (
         <CreateJob
           me={me}

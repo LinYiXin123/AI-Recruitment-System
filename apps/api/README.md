@@ -80,6 +80,30 @@ uv run --env-file .env pytest -q
 
 pytest 使用独立 `test_recruitment`，要求本机数据库角色有建库权限；Playwright 使用独立 `recruitment_e2e`。禁止把这些开发角色和权限直接用于生产。
 
-本轮只做本地可运行交付，未执行生产发布。生产环境至少需要独立凭据、非 DEBUG 配置、实际允许域名、HTTPS 同源反向代理、合适的应用服务、数据库备份和访问控制；开发体验账号不能用于真实资料。AI、简历文件、渠道、飞书和 Flutter 尚未接入，本工程没有模拟其成功状态。
+本轮只做本地可运行交付，未执行生产发布。生产环境至少需要独立凭据、非 DEBUG 配置、实际允许域名、HTTPS 同源反向代理、合适的应用服务、数据库备份和访问控制；开发体验账号不能用于真实资料。AI、渠道、飞书和 Flutter 尚未接入；受控简历文件与本地文字提取已在 D02 增量实现，本工程没有模拟其成功状态。
 
 实现依据：[Django 会话](https://docs.djangoproject.com/en/5.2/topics/http/sessions/)、[数据库约束](https://docs.djangoproject.com/en/5.2/ref/models/constraints/)、[DRF 权限](https://www.django-rest-framework.org/api-guide/permissions/)。完整产品关系以 `docs/产品设计/04–07` 详细规格为基线，已实现映射与验收边界见 [08 交付记录](../../docs/产品设计/08_第一步实施交付记录.md)。
+
+## D02 受控导入与人工处理
+
+业务契约见 [09](../../docs/产品设计/09_D02进人与复核实施契约.md)，已验证范围见 [08 最新 D02 记录](../../docs/产品设计/08_第一步实施交付记录.md)。当前调用者须有目标职位 HR 操作权；用人负责人、配置管理员不因原有角色获得候选人材料权限。
+
+| 路径（同上前缀） | 方法与输入 | 结果 |
+|---|---|---|
+| `imports/` | GET 分页；POST `request_key,job,source,total(1–20)` | 目标职位必须招聘中且有正式画像；请求原样重试返回同批次 |
+| `imports/{id}/` | GET | 实际接收／核对数量及逐份状态、当前文字版本 |
+| `imports/{id}/upload/` | POST multipart `request_key,file`，单份不超过 20MB | 文件魔数、后缀及大小验证；成功接收与文字提取成功分开。重复请求比较 SHA256，不重存文件 |
+| `imports/{id}/items/{item}/parse/` | POST `request_key`；人工摘录另传 `text`（1–100000 字） | 追加不可覆盖的解析版本。已关联应聘后须另行导入补充材料 |
+| `imports/{id}/items/{item}/matches/` | POST `display_name,phone?,email?,contact_note?` | 在 HR 当前可读范围返回前 20 条疑似主档和总数。同名、同联系方式不自动合并 |
+| `imports/{id}/items/{item}/confirm/` | POST 同上，另必传当前 `parse` ID，可传 `candidate` 选用既有主档、`identity_note` 解释核对；联系方式缺失须说明 | 建／选主档，复用进行中应聘或新建次数，固定本次材料版本；同一导入项只能确认一次 |
+| `candidates/`、`candidates/{id}/` | GET，列表 `search,page` | 仅已获授权职位关联的人；其他职位应聘历史被过滤 |
+| `candidates/{id}/apply/` | POST `request_key,job,source` | 返回已有进行中应聘或新次数；原请求重试始终指向原应聘。不会自动共享其他职位简历 |
+| `applications/`、`applications/{id}/` | GET，列表 `search,stage,page` | 本次阶段、版本；详情含材料、要求、人工历史和有效接手 HR |
+| `applications/{id}/review/` | POST `version,profile,request_key,action,reason` | `profile` 为读取时的正式画像 ID，与应聘版本共同检查冲突 |
+| `documents/{id}/download/` | GET | 对象 HR 权限 + 本部门独立 `resume_download` 能力；active 文件才可附件下载；保存下载审计 |
+
+人工 `action=advance/need_info/reject/supplement/withdraw` 分别表示通过／补充／不通过／补齐交回复核／撤回或招聘取消。`need_info` 必填本岗有效 `followup_owner` 和未来带时区 `due_at`，其他动作不能夹带它们。理由必填；通过仅生成待安排任务。`supplement` 只接受待补充阶段，`withdraw` 可结束当前三个未终结阶段，暂停时亦可处理撤回；其余处理需职位招聘中。没有任意勾掉来源任务或修改阶段的接口。
+
+私有原件默认位于项目 `.local/resumes`，可用 `PRIVATE_RESUME_ROOT` 指定持久私有目录；不配置静态媒体路由、不把路径返回前端。文件使用随机键和 0600 权限，目录 0700；数据库与文件必须一起备份。存储和事务不能跨系统原子提交：普通异常会删除未提交文件，进程突然终止可能留下未关联文件，需维护时核对清理，不能对已关联资料擅自删除。原件下载权限由维护者配置 DepartmentRole，迁移不会向所有 HR 默认发放。
+
+解析只提取实际文字：[pypdf 官方说明](https://pypdf.readthedocs.io/en/6.18.1/user/extract-text.html) 明确区分文字提取与扫描图片识别，并说明复杂 PDF 可能大量消耗内存。因此以隔离子进程运行，CPU／时间／页数／文字量限额，Linux 有地址空间限额；macOS 本地环境没有同等内存强限额。生产文件安全扫描、解析容器隔离、队列吞吐及资料保留策略仍需单独验收；当前同步处理每份最多等待 15 秒，不声称后台任务队列已接通。

@@ -43,6 +43,7 @@ class DepartmentRole(Timestamped):
         HR = "hr", "HR"
         MANAGER = "manager", "用人负责人"
         SUPERVISOR = "supervisor", "招聘主管"
+        RESUME_DOWNLOAD = "resume_download", "简历原件下载"
 
     membership = models.ForeignKey(Membership, on_delete=models.PROTECT, related_name="roles")
     department = models.ForeignKey(Department, on_delete=models.PROTECT)
@@ -203,13 +204,18 @@ class Task(Timestamped):
         CANCELLED = "cancelled", "已撤回"
 
     class Kind(models.TextChoices):
+        APPLICANT_REVIEW = "app_review", "复核应聘材料"
+        NEED_INFO = "need_info", "补充应聘材料"
+        SCHEDULE = "schedule", "安排面试"
         REVIEW = "review", "确认招人要求"
         REVISE = "revise", "补充招人要求"
         START = "start", "确认后开始招聘"
         CLARIFY = "clarify", "回答招人要求问题"
         CLARIFICATION_FOLLOWUP = "clarify_followup", "整理澄清答复"
 
-    profile = models.ForeignKey(ProfileVersion, on_delete=models.PROTECT)
+    application = models.ForeignKey("Application", on_delete=models.PROTECT, null=True)
+    due_at = models.DateTimeField(null=True)
+    profile = models.ForeignKey(ProfileVersion, on_delete=models.PROTECT, null=True)
     clarification = models.ForeignKey(
         ProfileClarification, on_delete=models.PROTECT, null=True, blank=True
     )
@@ -220,7 +226,12 @@ class Task(Timestamped):
 
     class Meta:
         ordering = ["created_at", "id"]
+        indexes = [models.Index(fields=["assignee", "status", "due_at"], name="task_work_queue")]
         constraints = [
+            models.CheckConstraint(
+                condition=~Q(kind="need_info") | Q(due_at__isnull=False),
+                name="followup_has_deadline",
+            ),
             models.CheckConstraint(
                 condition=Q(status="pending", completed_at__isnull=True)
                 | (~Q(status="pending") & Q(completed_at__isnull=False)),
@@ -237,14 +248,31 @@ class Task(Timestamped):
                 name="one_clarification_task_kind",
             ),
             models.CheckConstraint(
-                condition=Q(kind__in=["clarify", "clarify_followup"], clarification__isnull=False)
-                | Q(kind__in=["review", "revise", "start"], clarification__isnull=True),
+                condition=(
+                    Q(profile__isnull=False, application__isnull=True)
+                    & (
+                        Q(kind__in=["clarify", "clarify_followup"], clarification__isnull=False)
+                        | Q(kind__in=["review", "revise", "start"], clarification__isnull=True)
+                    )
+                )
+                | Q(
+                    profile__isnull=True,
+                    application__isnull=False,
+                    clarification__isnull=True,
+                    kind__in=["app_review", "need_info", "schedule"],
+                ),
                 name="task_has_expected_source",
+            ),
+            models.UniqueConstraint(
+                fields=["application", "kind"],
+                condition=Q(status="pending", application__isnull=False),
+                name="one_pending_application_task",
             ),
         ]
 
 
 class AuditEvent(models.Model):
+    application = models.ForeignKey("Application", on_delete=models.PROTECT, null=True)
     job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="events")
     actor = models.ForeignKey(Membership, on_delete=models.PROTECT)
     action = models.CharField(max_length=80)
@@ -261,3 +289,214 @@ class LoginRate(models.Model):
     key = models.CharField(max_length=64, primary_key=True)
     started_at = models.DateTimeField()
     attempts = models.PositiveIntegerField(default=0)
+
+
+class Candidate(Timestamped):
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    display_name = models.CharField(max_length=100, db_index=True)
+    phone = models.CharField(max_length=32, blank=True, db_index=True)
+    email = models.EmailField(blank=True, db_index=True)
+    contact_note = models.CharField(max_length=500, blank=True)
+    created_by = models.ForeignKey(Membership, on_delete=models.PROTECT)
+
+    class Meta:
+        indexes = [models.Index(fields=["organization", "display_name"], name="candidate_org_name")]
+
+
+class Application(Timestamped):
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    candidate = models.ForeignKey(Candidate, on_delete=models.PROTECT, related_name="applications")
+    job = models.ForeignKey(Job, on_delete=models.PROTECT)
+    owner = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    attempt_no = models.PositiveIntegerField()
+    source = models.CharField(max_length=200)
+    stage = models.CharField(max_length=24, default="pending_review")
+    version = models.PositiveIntegerField(default=1)
+    closed_at = models.DateTimeField(null=True)
+    close_reason = models.CharField(max_length=2000, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
+        indexes = [
+            models.Index(fields=["organization", "stage", "job"], name="application_work_queue")
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["candidate", "job", "attempt_no"], name="application_attempt"
+            ),
+            models.UniqueConstraint(
+                fields=["candidate", "job"],
+                condition=Q(closed_at__isnull=True),
+                name="one_active_application",
+            ),
+            models.CheckConstraint(condition=Q(attempt_no__gte=1), name="positive_attempt"),
+            models.CheckConstraint(
+                condition=(Q(stage="closed", closed_at__isnull=False) & ~Q(close_reason=""))
+                | Q(
+                    stage__in=["pending_review", "needs_information", "ready_to_schedule"],
+                    closed_at__isnull=True,
+                    close_reason="",
+                ),
+                name="application_closure",
+            ),
+        ]
+
+
+class ApplicationEntry(models.Model):
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    request_key = models.UUIDField()
+    actor = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    application = models.ForeignKey(Application, on_delete=models.PROTECT)
+    source = models.CharField(max_length=200)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "request_key"], name="one_entry_request"
+            )
+        ]
+
+
+class ImportBatch(Timestamped):
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    job = models.ForeignKey(Job, on_delete=models.PROTECT)
+    actor = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    source = models.CharField(max_length=200)
+    request_key = models.UUIDField()
+    total = models.PositiveSmallIntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "request_key"], name="one_import_request"
+            ),
+            models.CheckConstraint(condition=Q(total__gte=1, total__lte=20), name="batch_size"),
+        ]
+
+
+class ResumeDocument(Timestamped):
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    candidate = models.ForeignKey(Candidate, on_delete=models.PROTECT, null=True)
+    file_key = models.UUIDField(default=uuid.uuid4, unique=True)
+    original_name = models.CharField(max_length=255)
+    file_type = models.CharField(max_length=10)
+    size = models.PositiveIntegerField()
+    sha256 = models.CharField(max_length=64)
+    uploaded_by = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    access_state = models.CharField(max_length=20, default="active")
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(size__gt=0, size__lte=20 * 1024 * 1024), name="resume_file_size"
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    file_type__in=["pdf", "docx"],
+                    access_state__in=["active", "quarantine", "deleted"],
+                ),
+                name="resume_file_state",
+            ),
+        ]
+
+
+class ResumeParse(Timestamped):
+    document = models.ForeignKey(ResumeDocument, on_delete=models.PROTECT, related_name="parses")
+    version = models.PositiveIntegerField()
+    parser_version = models.CharField(max_length=100)
+    status = models.CharField(max_length=20)
+    text = models.TextField(blank=True)
+    error = models.CharField(max_length=500, blank=True)
+    actor = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    request_key = models.UUIDField()
+
+    class Meta:
+        ordering = ["-version"]
+        constraints = [
+            models.CheckConstraint(condition=Q(version__gte=1), name="positive_parse_version"),
+            models.CheckConstraint(
+                condition=(Q(status="succeeded", error="") & ~Q(text=""))
+                | (Q(status="failed", text="") & ~Q(error="")),
+                name="parse_has_result",
+            ),
+            models.UniqueConstraint(fields=["document", "version"], name="parse_version"),
+            models.UniqueConstraint(fields=["document", "request_key"], name="parse_request"),
+        ]
+
+
+class ImportItem(Timestamped):
+    batch = models.ForeignKey(ImportBatch, on_delete=models.PROTECT, related_name="items")
+    request_key = models.UUIDField()
+    document = models.OneToOneField(ResumeDocument, on_delete=models.PROTECT)
+    application = models.ForeignKey(Application, on_delete=models.PROTECT, null=True)
+    identity_note = models.CharField(max_length=1000, blank=True)
+    identity_payload = models.JSONField(default=dict)
+    confirmed_by = models.ForeignKey(Membership, on_delete=models.PROTECT, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["batch", "request_key"], name="one_import_item")
+        ]
+
+
+class ApplicationResume(models.Model):
+    application = models.ForeignKey(Application, on_delete=models.PROTECT, related_name="resumes")
+    parse = models.ForeignKey(ResumeParse, on_delete=models.PROTECT)
+    assigned_by = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["application", "parse"], name="application_resume_input"
+            )
+        ]
+
+
+class ReviewDecision(models.Model):
+    application = models.ForeignKey(Application, on_delete=models.PROTECT, related_name="reviews")
+    reviewer = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    request_key = models.UUIDField()
+    action = models.CharField(max_length=20)
+    reason = models.CharField(max_length=2000)
+    followup_owner = models.ForeignKey(
+        Membership, on_delete=models.PROTECT, null=True, related_name="+"
+    )
+    due_at = models.DateTimeField(null=True)
+    previous_stage = models.CharField(max_length=24)
+    result_stage = models.CharField(max_length=24)
+    profile = models.ForeignKey(ProfileVersion, on_delete=models.PROTECT, null=True)
+    input_parses = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(action="need_info", followup_owner__isnull=False, due_at__isnull=False)
+                | Q(
+                    action__in=["advance", "reject", "supplement", "withdraw"],
+                    followup_owner__isnull=True,
+                    due_at__isnull=True,
+                ),
+                name="review_followup_complete",
+            ),
+            models.UniqueConstraint(
+                fields=["application", "request_key"], name="one_review_request"
+            ),
+        ]
+
+
+class StageEvent(models.Model):
+    application = models.ForeignKey(
+        Application, on_delete=models.PROTECT, related_name="stage_events"
+    )
+    actor = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    from_stage = models.CharField(max_length=24, blank=True)
+    to_stage = models.CharField(max_length=24)
+    request_key = models.UUIDField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["application", "request_key"], name="one_stage_event")
+        ]

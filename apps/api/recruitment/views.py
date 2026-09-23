@@ -313,6 +313,13 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             "reason"
         ]:
             raise ValidationError("请填写调整原因，方便团队了解后续安排。")
+        if (
+            data["status"] == "closed"
+            and job.application_set.filter(closed_at__isnull=True).exists()
+        ):
+            raise ValidationError(
+                "该职位仍有进行中的应聘。请先逐一记录结束原因，再关闭职位；暂停可暂缓招聘。"
+            )
         job.status = data["status"]
         if job.status == "closed":
             ProfileClarification.objects.filter(profile__job=job, status="pending").update(
@@ -452,9 +459,25 @@ class TaskViewSet(ListModelMixin, GenericViewSet):
     def get_queryset(self):
         m = member(self.request)
         qs = (
-            Task.objects.filter(status="pending", profile__job__in=visible_jobs(m))
+            Task.objects.filter(status="pending")
             .filter(
-                Q(kind="review", profile__status="pending")
+                Q(profile__job__in=visible_jobs(m))
+                | Q(
+                    application__job__in=visible_jobs(m),
+                    application__job__department_id__in=department_ids(m, ["hr"]),
+                )
+            )
+            .filter(
+                Q(application__isnull=True)
+                | Q(application__job__owner=m)
+                | Q(application__job__collaborators__membership=m)
+            )
+            .distinct()
+            .filter(
+                Q(kind="app_review", application__stage="pending_review")
+                | Q(kind="need_info", application__stage="needs_information")
+                | Q(kind="schedule", application__stage="ready_to_schedule")
+                | Q(kind="review", profile__status="pending")
                 | Q(kind="clarify", profile__status="draft", clarification__status="pending")
                 | Q(
                     kind="clarify_followup",
@@ -468,17 +491,28 @@ class TaskViewSet(ListModelMixin, GenericViewSet):
                     profile__job__status__in=["draft", "paused"],
                 )
             )
-            .select_related("profile__job", "assignee__user")
+            .select_related(
+                "profile__job", "application__job", "application__candidate", "assignee__user"
+            )
         )
         if self.request.query_params.get("scope") == "waiting":
             return (
                 qs.exclude(assignee=m)
-                .filter(Q(profile__job__owner=m) | Q(profile__job__collaborators__membership=m))
+                .filter(
+                    Q(profile__job__owner=m)
+                    | Q(profile__job__collaborators__membership=m)
+                    | Q(application__job__owner=m)
+                    | Q(application__job__collaborators__membership=m)
+                )
                 .distinct()
             )
         # 角色被撤销后，旧任务不可继续成为操作入口。
         return qs.filter(assignee=m).filter(
             Q(
+                kind__in=["app_review", "need_info", "schedule"],
+                application__job__department_id__in=department_ids(m, ["hr"]),
+            )
+            | Q(
                 kind__in=["review", "clarify"],
                 profile__job__department_id__in=department_ids(m, ["manager"]),
             )

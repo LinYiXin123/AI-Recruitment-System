@@ -42,7 +42,10 @@ export type Task = {
   id: number;
   job_id: number;
   job_title: string;
-  profile_number: number;
+  profile_number: number | null;
+  application: number | null;
+  candidate_name: string | null;
+  due_at: string | null;
   assignee_name: string;
   created_at: string;
   status: string;
@@ -101,8 +104,12 @@ export async function api<T>(path: string, data?: unknown, signal?: AbortSignal)
       credentials: 'same-origin',
       signal,
       headers:
-        data === undefined ? {} : { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-      body: data === undefined ? undefined : JSON.stringify(data),
+        data === undefined
+          ? {}
+          : data instanceof FormData
+            ? { 'X-CSRFToken': csrfToken }
+            : { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      body: data === undefined ? undefined : data instanceof FormData ? data : JSON.stringify(data),
     });
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') throw e;
