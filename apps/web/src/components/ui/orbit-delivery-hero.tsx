@@ -24,6 +24,16 @@ import "./orbit-delivery-hero.css"
 
 const orbitScene = import("./orbit-delivery/scene")
 const OrbitScene = lazy(() => orbitScene)
+const orbitMascotViewer = import("./orbit-mascot-viewer")
+const OrbitMascotViewer = lazy(() => orbitMascotViewer)
+
+function supportsWebGL() {
+  const canvas = document.createElement("canvas")
+  const supported = Boolean(
+    canvas.getContext("webgl2") || canvas.getContext("webgl")
+  )
+  return supported
+}
 
 export interface OrbitSceneProps {
   assetBaseUrl: string
@@ -45,7 +55,6 @@ export interface OrbitSceneProps {
     pitchTarget: number
     heading?: number
     cameraHeading?: number
-    mascotHeading?: number
   }>
   active: boolean
   auto: boolean
@@ -77,6 +86,7 @@ export default function OrbitDeliveryHero({
 }: {
   assetBaseUrl?: string
 }) {
+  const webglSupported = supportsWebGL()
   const stage = useRef<HTMLDivElement>(null)
   const motion = useRef({
     planetAngle: 0,
@@ -102,7 +112,7 @@ export default function OrbitDeliveryHero({
   const [paused, setPaused] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [ready, setReady] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState(() => !webglSupported)
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
@@ -184,6 +194,11 @@ export default function OrbitDeliveryHero({
             className="orbit-title-accent"
           />
         </h1>
+        {webglSupported && (
+          <Suspense fallback={null}>
+            <OrbitMascotViewer assetBaseUrl={assetBaseUrl} paused={paused} />
+          </Suspense>
+        )}
         <p className="orbit-description">
           世界很大，对的人值得被看见。
           <br />
@@ -277,7 +292,7 @@ export default function OrbitDeliveryHero({
             }
           }}
         >
-          {failed ? (
+          {!webglSupported || failed ? (
             fallback
           ) : (
             <SceneBoundary

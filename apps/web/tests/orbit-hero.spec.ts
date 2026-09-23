@@ -19,8 +19,23 @@ async function globeImage(page: Page) {
   })
 }
 
+async function mascotImage(page: Page) {
+  const rect = await page
+    .getByRole("group", { name: "旋转知遇信封" })
+    .boundingBox()
+  return page.screenshot({
+    clip: {
+      x: rect!.x,
+      y: rect!.y,
+      width: rect!.width,
+      height: rect!.height,
+    },
+  })
+}
+
 test("中文星球开场位于原首页之前，真实模型可旋转、暂停并继续", async ({
   page,
+  isMobile,
 }, testInfo) => {
   test.setTimeout(60000)
   const errors: string[] = []
@@ -32,6 +47,7 @@ test("中文星球开场位于原首页之前，真实模型可旋转、暂停�
   await page.goto("/")
   const hero = page.locator(".orbit-delivery")
   const stage = page.getByRole("group", { name: "旋转知遇星球" })
+  const mascot = page.getByRole("group", { name: "旋转知遇信封" })
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "每一次相遇，都值得认真以待。"
   )
@@ -39,7 +55,31 @@ test("中文星球开场位于原首页之前，真实模型可旋转、暂停�
     "introduction"
   )
   await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 30000 })
+  await expect(mascot).toHaveAttribute("data-ready", "true", { timeout: 30000 })
   expect(requestedAssets).toContain("/orbit/models/zhiyu-mascot.glb")
+  if (!isMobile) {
+    const mascotBefore = await mascotImage(page)
+    const mascotRect = await mascot.boundingBox()
+    await page.mouse.move(
+      mascotRect!.x + mascotRect!.width / 2,
+      mascotRect!.y + mascotRect!.height / 2
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      mascotRect!.x + mascotRect!.width / 2 + 45,
+      mascotRect!.y + mascotRect!.height / 2 - 12,
+      { steps: 8 }
+    )
+    await expect(mascot).toHaveClass(/is-dragging/)
+    await expect
+      .poll(() => mascot.evaluate((element) => getComputedStyle(element).position))
+      .toBe("absolute")
+    await page.mouse.up()
+    await expect(mascot).not.toHaveClass(/is-dragging/)
+    await expect
+      .poll(async () => (await mascotImage(page)).equals(mascotBefore))
+      .toBe(false)
+  }
   await expect(stage.locator("canvas")).toBeVisible()
   await stage.scrollIntoViewIfNeeded()
   await stage.focus()
