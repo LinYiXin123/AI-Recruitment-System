@@ -47,6 +47,22 @@ test("首页展示完整，体验入口可用且无横向溢出", async ({ page 
   expect(errors).toEqual([])
 })
 
+test("开始体验先选择内部职责，不把候选人端伪装成已开通", async ({ page }) => {
+  await page.goto("/")
+  await page.getByRole("button", { name: "开始体验" }).first().click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog).toContainText("选择体验身份")
+  await expect(
+    dialog.getByRole("button", { name: "以 HR 身份进入" })
+  ).toBeVisible()
+  await expect(
+    dialog.getByRole("button", { name: "以负责人身份进入" })
+  ).toBeVisible()
+  await expect(dialog).toContainText("不会显示为可用入口")
+  await page.keyboard.press("Escape")
+  await expect(dialog).not.toBeVisible()
+})
+
 test("工作台随滚动展平，正常动画下仍可操作且无横向溢出", async ({
   page,
   isMobile,

@@ -13,6 +13,12 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .models import LoginRate, Membership
 
+EXPERIENCE_ACCOUNTS = {
+    "hr": ("local_hr", "hr"),
+    "manager": ("local_manager", "manager"),
+}
+EXPERIENCE_ORGANIZATION = "知遇体验团队（虚构）"
+
 
 @require_GET
 def csrf(request):
@@ -62,6 +68,43 @@ def sign_in(request):
     login(request, user)
     request.session["membership_id"] = membership.id
     return JsonResponse({"csrfToken": get_token(request)})
+
+
+@require_POST
+@csrf_protect
+def start_local_experience(request):
+    """仅为本机产品演示建立固定虚构成员的会话。
+
+    客户端选择的是体验身份，而不是可任意写入会话的权限；正式环境没有这个入口。
+    """
+    if not settings.DEBUG:
+        return JsonResponse({"errors": {"detail": "未找到此服务。"}}, status=404)
+    try:
+        role = json.loads(request.body)["role"]
+        username, required_role = EXPERIENCE_ACCOUNTS[role]
+    except (KeyError, TypeError, ValueError):
+        return JsonResponse({"errors": {"detail": "请选择可用的体验身份。"}}, status=400)
+
+    membership = (
+        Membership.objects.select_related("user")
+        .filter(
+            user__username=username,
+            user__is_active=True,
+            active=True,
+            organization__name=EXPERIENCE_ORGANIZATION,
+            roles__role=required_role,
+        )
+        .order_by("id")
+        .first()
+    )
+    if not membership:
+        return JsonResponse(
+            {"errors": {"detail": "本地体验账号尚未准备，请先启动体验服务后重试。"}},
+            status=503,
+        )
+    login(request, membership.user)
+    request.session["membership_id"] = membership.id
+    return JsonResponse({"csrfToken": get_token(request), "role": role})
 
 
 @require_POST

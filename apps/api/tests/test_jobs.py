@@ -5,7 +5,7 @@ from threading import Barrier
 import pytest
 from django.contrib.auth import get_user_model
 from django.db import close_old_connections, connection
-from django.test import Client
+from django.test import Client, override_settings
 from rest_framework.test import APIClient
 
 from recruitment.models import (
@@ -247,6 +247,70 @@ def test_csrf_login_logout_and_session(team):
     assert c.post("/api/v1/jobs/", {}, content_type="application/json").status_code == 403
     assert c.post("/api/v1/auth/logout/", HTTP_X_CSRFTOKEN=token).status_code == 200
     assert c.get("/api/v1/me/").status_code == 403
+
+
+@override_settings(DEBUG=True)
+def test_local_experience_uses_only_fixed_active_demo_members(team):
+    org, dept, _, _, _ = team
+    org.name = "知遇体验团队（虚构）"
+    org.save(update_fields=["name"])
+    local_hr = actor(org, dept, "hr", "local_hr")
+    local_manager = actor(org, dept, "manager", "local_manager")
+    c = Client(enforce_csrf_checks=True)
+
+    assert (
+        c.post(
+            "/api/v1/auth/experience/", {"role": "hr"}, content_type="application/json"
+        ).status_code
+        == 403
+    )
+    token = c.get("/api/v1/auth/csrf/").json()["csrfToken"]
+    response = c.post(
+        "/api/v1/auth/experience/",
+        {"role": "hr"},
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=token,
+    )
+    assert response.status_code == 200
+    assert response.json()["role"] == "hr"
+    assert c.session["membership_id"] == local_hr.id
+    assert c.get("/api/v1/me/").data["roles"] == ["hr"]
+
+    token = response.json()["csrfToken"]
+    response = c.post(
+        "/api/v1/auth/experience/",
+        {"role": "manager"},
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=token,
+    )
+    assert response.status_code == 200
+    assert c.session["membership_id"] == local_manager.id
+
+    token = response.json()["csrfToken"]
+    assert (
+        c.post(
+            "/api/v1/auth/experience/",
+            {"role": "supervisor"},
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=token,
+        ).status_code
+        == 400
+    )
+
+
+def test_local_experience_is_not_available_outside_debug():
+    c = Client(enforce_csrf_checks=True)
+    token = c.get("/api/v1/auth/csrf/").json()["csrfToken"]
+    with override_settings(DEBUG=False):
+        assert (
+            c.post(
+                "/api/v1/auth/experience/",
+                {"role": "hr"},
+                content_type="application/json",
+                HTTP_X_CSRFTOKEN=token,
+            ).status_code
+            == 404
+        )
 
 
 @pytest.mark.django_db(transaction=True)

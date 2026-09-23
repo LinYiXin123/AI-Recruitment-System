@@ -11,4 +11,12 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
+  server: {
+    proxy: {
+      "/api": {
+        target: process.env.API_TARGET || "http://127.0.0.1:8100",
+        changeOrigin: false,
+      },
+    },
+  },
 })
