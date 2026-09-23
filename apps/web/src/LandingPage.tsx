@@ -28,6 +28,7 @@ import OrbitDeliveryHero from "@/components/ui/orbit-delivery-hero"
 import { samples } from "./resume-samples"
 import { ScrollFade } from "@/components/ui/scroll-fade"
 import TextScatter from "@/components/ui/text-scatter"
+import { GlowCard } from "@/components/ui/spotlight-card"
 import {
   Dialog,
   DialogContent,
@@ -314,7 +315,8 @@ export default function LandingPage() {
                 </div>
                 <h3>{feature.title}</h3>
                 <p>{feature.description}</p>
-                <div
+                <GlowCard
+                  customSize
                   className={cn("feature-visual", feature.visual)}
                   aria-hidden="true"
                 >
@@ -347,7 +349,7 @@ export default function LandingPage() {
                       </span>
                     </div>
                   )}
-                </div>
+                </GlowCard>
                 <div className="feature-note">
                   <span className="tiny-dot" />
                   {feature.note}

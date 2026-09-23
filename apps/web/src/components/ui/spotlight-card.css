@@ -1,0 +1,81 @@
+.spotlight-card {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  --spotlight-size: 220px;
+}
+.spotlight-card::before,
+.spotlight-card::after,
+.spotlight-card__glow::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.spotlight-card::before {
+  background: radial-gradient(
+    circle var(--spotlight-size) at var(--spotlight-x, 50%)
+      var(--spotlight-y, 50%),
+    color-mix(in srgb, var(--spotlight-color) 16%, transparent),
+    transparent 75%
+  );
+}
+.spotlight-card::after,
+.spotlight-card__glow::before {
+  border: 2px solid transparent;
+  background: radial-gradient(
+      circle calc(var(--spotlight-size) * 0.75) at var(--spotlight-x, 50%)
+        var(--spotlight-y, 50%),
+      var(--decoration) 0%,
+      var(--spotlight-color) 25%,
+      transparent 100%
+    )
+    border-box;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) padding-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) padding-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+.spotlight-card__glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  filter: blur(9px);
+  pointer-events: none;
+}
+.spotlight-card::before,
+.spotlight-card::after,
+.spotlight-card__glow {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.spotlight-card[data-glow-active]::before,
+.spotlight-card[data-glow-active]::after,
+.spotlight-card[data-glow-active] > .spotlight-card__glow,
+.spotlight-card:focus-within::before,
+.spotlight-card:focus-within::after,
+.spotlight-card:focus-within > .spotlight-card__glow {
+  opacity: 1;
+}
+.spotlight-card > :not(.spotlight-card__glow) {
+  position: relative;
+  z-index: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spotlight-card {
+    --spotlight-x: 50% !important;
+    --spotlight-y: 50% !important;
+  }
+  .spotlight-card::before,
+  .spotlight-card::after,
+  .spotlight-card__glow {
+    transition: none;
+  }
+}
