@@ -86,7 +86,7 @@
   background: currentColor;
   flex-shrink: 0;
 }
-.hero h1 {
+.hero #hero-title {
   position: relative;
   width: fit-content;
   margin: 25px auto 22px;
@@ -1168,7 +1168,7 @@
     padding-top: 50px;
     padding-bottom: 38px;
   }
-  .hero h1 {
+  .hero #hero-title {
     font-size: clamp(32px, 8.5vw, 49px);
     letter-spacing: -1.7px;
     margin-top: 25px;
