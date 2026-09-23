@@ -149,7 +149,28 @@ export default function LandingPage() {
     },
   })
   return (
-    <div id="top" data-background-paused={backgroundPaused}>
+    <div
+      id="top"
+      className="landing-page"
+      data-background-paused={backgroundPaused}
+    >
+      <div
+        id="background-motion"
+        className="background-motion"
+        aria-hidden="true"
+      >
+        {["spark", "ring", "arc", "spark", "dots", "spark", "ring"].map(
+          (shape, index) => (
+            <span className="background-particle" key={index}>
+              <span className="background-particle-y">
+                <span className={cn("background-glyph", `shape-${shape}`)}>
+                  {shape === "spark" ? "✳" : null}
+                </span>
+              </span>
+            </span>
+          )
+        )}
+      </div>
       <a className="skip-link" href="#main">
         跳转到主要内容
       </a>
@@ -203,30 +224,6 @@ export default function LandingPage() {
       </header>
       <main id="main">
         <section className="hero page-width" aria-labelledby="hero-title">
-          <span className="background-spark hero-spark-top" aria-hidden="true">
-            ✳
-          </span>
-          <span className="background-spark hero-spark-left" aria-hidden="true">
-            ✳
-          </span>
-          <span
-            className="background-spark hero-spark-bottom"
-            aria-hidden="true"
-          >
-            ✳
-          </span>
-          <span
-            className="background-shape shape-ring hero-ring"
-            aria-hidden="true"
-          />
-          <span
-            className="background-shape shape-arc hero-arc"
-            aria-hidden="true"
-          />
-          <span
-            className="background-shape shape-dots hero-dots"
-            aria-hidden="true"
-          />
           <div className="hero-eyebrow">
             <Badge variant="outline">
               <span className="tiny-dot" /> AI 简历分析，为招聘而设计
@@ -240,9 +237,6 @@ export default function LandingPage() {
               text="多一点，知人善任。"
               className="hero-title-accent"
             />
-            <span className="hero-spark" aria-hidden="true">
-              ✳
-            </span>
           </h1>
           <p className="hero-description">
             让 AI 读懂简历里的经历，找到
@@ -280,19 +274,6 @@ export default function LandingPage() {
             <br />
             多一些彼此理解。
           </div>
-          <Button
-            variant="ghost"
-            size="xs"
-            className="background-motion-toggle"
-            onClick={() => setBackgroundPaused((paused) => !paused)}
-          >
-            {backgroundPaused ? (
-              <Play data-icon="inline-start" aria-hidden="true" />
-            ) : (
-              <Pause data-icon="inline-start" aria-hidden="true" />
-            )}
-            {backgroundPaused ? "播放背景动效" : "暂停背景动效"}
-          </Button>
         </section>
         <ResumeDemo />
         <section
@@ -300,17 +281,6 @@ export default function LandingPage() {
           className="features-section page-width"
           aria-labelledby="features-title"
         >
-          <span className="background-spark features-spark" aria-hidden="true">
-            ✳
-          </span>
-          <span
-            className="background-shape shape-ring features-ring"
-            aria-hidden="true"
-          />
-          <span
-            className="background-shape shape-dots features-dots"
-            aria-hidden="true"
-          />
           <ScrollFade className="section-heading">
             <div>
               <span className="eyebrow">看见简历背后的人</span>
@@ -385,13 +355,6 @@ export default function LandingPage() {
           className="workflow-section"
           aria-labelledby="workflow-title"
         >
-          <span className="background-spark workflow-spark" aria-hidden="true">
-            ✳
-          </span>
-          <span
-            className="background-shape shape-arc workflow-arc"
-            aria-hidden="true"
-          />
           <div className="page-width workflow-inner">
             <div className="workflow-intro">
               <motion.span
@@ -461,13 +424,6 @@ export default function LandingPage() {
           className="faq-section page-width"
           aria-labelledby="faq-title"
         >
-          <span className="background-spark faq-spark" aria-hidden="true">
-            ✳
-          </span>
-          <span
-            className="background-shape shape-dots faq-dots"
-            aria-hidden="true"
-          />
           <motion.div
             className="faq-orbit faq-reveal"
             data-direction="left"
@@ -581,6 +537,20 @@ export default function LandingPage() {
           </Dialog>
         </div>
       </ScrollFade>
+      <Button
+        variant="outline"
+        size="sm"
+        className="background-motion-toggle"
+        aria-controls="background-motion"
+        onClick={() => setBackgroundPaused((paused) => !paused)}
+      >
+        {backgroundPaused ? (
+          <Play data-icon="inline-start" aria-hidden="true" />
+        ) : (
+          <Pause data-icon="inline-start" aria-hidden="true" />
+        )}
+        {backgroundPaused ? "播放背景动效" : "暂停背景动效"}
+      </Button>
     </div>
   )
 }

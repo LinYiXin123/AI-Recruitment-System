@@ -32,9 +32,14 @@ test("工作方式七项内容分左右依次入场，离开时淡出并能再�
     await page.evaluate(() => scrollTo(0, 0))
     const group = page.locator(selector)
     const children = group.locator(".workflow-reveal")
+    // 手机端上一组入场时可能同时露出前两个步骤，需等整组退出后再重播。
     await expect
-      .poll(() => appearance(children.last()))
-      .toMatchObject({ opacity: 0 })
+      .poll(() =>
+        children.evaluateAll((elements) =>
+          elements.every((el) => Number(getComputedStyle(el).opacity) === 0)
+        )
+      )
+      .toBe(true)
     const frames = await group.evaluate(async (el) => {
       const states: { opacity: number; x: number }[][] = []
       el.scrollIntoView({ block: "center" })
