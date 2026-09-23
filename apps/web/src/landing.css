@@ -109,172 +109,154 @@
 .text-scatter-glyph {
   pointer-events: none;
 }
-.hero-spark {
-  --float-duration: 18s;
-  --float-delay: -4s;
-  right: -65px;
-  top: 2px;
-  font-size: 42px;
-  transform: rotate(15deg);
-  font-weight: 400;
+.landing-page {
+  isolation: isolate;
 }
-/* 装饰放在区块留白处；漂移使用独立属性，保留原有旋转角度。 */
 .hero,
 .features-section,
 .workflow-section,
 .faq-section {
   position: relative;
-  isolation: isolate;
 }
-.hero-spark,
-.background-spark,
-.background-shape {
-  position: absolute;
+/* 两个轴独立匀速往返，碰到窗口边缘时仅反转对应方向。 */
+.background-motion {
+  position: fixed;
+  inset: 0;
   z-index: -1;
+  container-type: size;
+  overflow: hidden;
   color: var(--decoration);
   pointer-events: none;
   user-select: none;
-  animation: background-drift var(--float-duration, 16s) ease-in-out
-    var(--float-delay, 0s) infinite;
 }
-.background-spark {
-  font-size: 32px;
+.background-particle {
+  --size: 34px;
+  --travel-x: 22s;
+  --travel-y: 17s;
+  --delay-x: -4s;
+  --delay-y: -2s;
+  --rest-x: 0.18;
+  --rest-y: 0.14;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--size);
+  height: var(--size);
+  opacity: 0.65;
+  transform: translateX(calc((100cqw - var(--size)) * var(--rest-x)));
+  animation: background-bounce-x var(--travel-x) linear var(--delay-x) infinite
+    alternate;
+}
+.background-particle-y {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: translateY(calc((100cqh - var(--size)) * var(--rest-y)));
+  animation: background-bounce-y var(--travel-y) linear var(--delay-y) infinite
+    alternate;
+}
+.background-glyph {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  font-size: var(--size);
   font-weight: 400;
   line-height: 1;
 }
-.hero-spark-top {
-  --float-delay: -6s;
-  top: 34px;
-  left: 16%;
-  font-size: 26px;
-  opacity: 0.65;
-  transform: rotate(-12deg);
+.background-particle:nth-child(2) {
+  --size: 32px;
+  --travel-x: 27s;
+  --travel-y: 19s;
+  --delay-x: -30s;
+  --delay-y: -3s;
+  --rest-x: 0.88;
+  --rest-y: 0.2;
 }
-.hero-spark-left {
-  --float-duration: 22s;
-  --float-delay: -11s;
-  --float-x: -10px;
-  top: 54%;
-  left: 3%;
-  font-size: 50px;
-  opacity: 0.5;
-  transform: rotate(18deg);
+.background-particle:nth-child(3) {
+  --size: 54px;
+  --travel-x: 25s;
+  --travel-y: 21s;
+  --delay-x: -2s;
+  --delay-y: -34s;
+  --rest-x: 0.08;
+  --rest-y: 0.48;
 }
-.hero-spark-bottom {
-  --float-delay: -9s;
-  right: 9%;
-  bottom: 62px;
-  font-size: 24px;
-  opacity: 0.8;
-  transform: rotate(-8deg);
+.background-particle:nth-child(4) {
+  --size: 46px;
+  --travel-x: 19s;
+  --travel-y: 16s;
+  --delay-x: -23s;
+  --delay-y: -6s;
+  --rest-x: 0.8;
+  --rest-y: 0.38;
 }
-.features-spark {
-  --float-duration: 20s;
-  --float-delay: -3s;
-  top: 34px;
-  right: 17%;
-  font-size: 40px;
-  opacity: 0.65;
-  transform: rotate(12deg);
+.background-particle:nth-child(5) {
+  --size: 36px;
+  --travel-x: 24s;
+  --travel-y: 18s;
+  --delay-x: -22s;
+  --delay-y: -26s;
+  --rest-x: 0.92;
+  --rest-y: 0.7;
 }
-.workflow-spark {
-  --float-delay: -7s;
-  bottom: 20px;
-  left: 38%;
-  font-size: 36px;
-  opacity: 0.8;
-  transform: rotate(-15deg);
+.background-particle:nth-child(6) {
+  --size: 28px;
+  --travel-x: 21s;
+  --travel-y: 15s;
+  --delay-x: -7s;
+  --delay-y: -17s;
+  --rest-x: 0.12;
+  --rest-y: 0.84;
 }
-.faq-spark {
-  --float-duration: 18s;
-  --float-delay: -12s;
-  top: 28px;
-  right: 22%;
-  font-size: 30px;
-  opacity: 0.7;
-  transform: rotate(20deg);
-}
-.background-shape {
-  opacity: 0.65;
-  --float-duration: 22s;
-  --float-x: -12px;
-  --float-y: 12px;
+.background-particle:nth-child(7) {
+  --size: 22px;
+  --travel-x: 18s;
+  --travel-y: 20s;
+  --delay-x: -27s;
+  --delay-y: -18s;
+  --rest-x: 0.86;
+  --rest-y: 0.9;
 }
 .shape-ring {
-  width: 30px;
-  height: 30px;
   border: 2px solid currentColor;
   border-radius: 50%;
 }
 .shape-arc {
-  width: 54px;
-  height: 54px;
   border: 3px solid currentColor;
   border-right-color: transparent;
   border-bottom-color: transparent;
   border-radius: 50%;
-  transform: rotate(35deg);
 }
 .shape-dots {
-  width: 36px;
-  height: 36px;
   background: radial-gradient(circle, currentColor 1.8px, transparent 2px)
     0 0 / 12px 12px;
 }
-.hero-ring {
-  top: 44px;
-  right: 9%;
-  --float-delay: -5s;
-}
-.hero-arc {
-  top: 31%;
-  left: 7%;
-  --float-delay: -14s;
-}
-.hero-dots {
-  top: 62%;
-  right: 4%;
-  --float-delay: -8s;
-}
-.features-ring {
-  top: 38px;
-  left: 5%;
-  --float-delay: -10s;
-}
-.features-dots {
-  bottom: 28px;
-  right: 32%;
-  --float-delay: -16s;
-}
-.workflow-arc {
-  right: 10%;
-  bottom: 24px;
-  --float-delay: -4s;
-}
-.faq-dots {
-  top: 42px;
-  left: 30%;
-  --float-delay: -13s;
-}
-@keyframes background-drift {
-  0%,
-  100% {
-    translate: 0 0;
-    rotate: -6deg;
+@keyframes background-bounce-x {
+  from {
+    transform: translateX(0);
   }
-  50% {
-    translate: var(--float-x, 10px) var(--float-y, -14px);
-    rotate: 8deg;
+  to {
+    transform: translateX(calc(100cqw - var(--size)));
+  }
+}
+@keyframes background-bounce-y {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(calc(100cqh - var(--size)));
   }
 }
 [data-background-paused="true"]
-  :is(.hero-spark, .background-spark, .background-shape) {
+  :is(.background-particle, .background-particle-y) {
   animation-play-state: paused;
 }
 .background-motion-toggle {
-  position: absolute;
-  right: 0;
-  bottom: 8px;
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 10;
 }
 .hero-description {
   color: var(--muted-foreground);
@@ -901,10 +883,16 @@
   height: 4px;
 }
 .workflow-section {
-  background: var(--secondary);
   overflow: clip;
   padding-block: 74px;
   scroll-margin-top: 0;
+}
+.workflow-section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: var(--secondary);
 }
 .workflow-inner {
   display: grid;
@@ -1186,62 +1174,11 @@
     margin-top: 25px;
     line-height: 1.45;
   }
-  .hero-spark,
-  .hero-spark-left {
+  .background-particle:nth-child(n + 5) {
     display: none;
   }
-  .hero-spark-top {
-    top: 14px;
-    left: 6%;
-    font-size: 22px;
-  }
-  .hero-spark-bottom {
-    right: 8%;
-    bottom: 12px;
-    font-size: 20px;
-  }
-  .hero-ring {
-    top: 14px;
-    right: 16%;
-    width: 18px;
-    height: 18px;
-  }
-  .hero-arc,
-  .hero-dots,
-  .features-dots,
-  .faq-dots {
-    display: none;
-  }
-  .features-ring {
-    top: 18px;
-    width: 18px;
-    height: 18px;
-  }
-  .workflow-arc {
-    bottom: 8px;
-    width: 30px;
-    height: 30px;
-    border-width: 2px;
-  }
-  .background-motion-toggle {
-    position: relative;
-    bottom: auto;
-    margin-top: 20px;
-  }
-  .features-spark {
-    top: 18px;
-    right: 12%;
-    font-size: 28px;
-  }
-  .workflow-spark {
-    bottom: 12px;
-    left: 14%;
-    font-size: 24px;
-  }
-  .faq-spark {
-    top: 18px;
-    right: 15%;
-    font-size: 24px;
+  .background-particle:nth-child(n) {
+    --size: 28px;
   }
   .hero-description {
     font-size: 13px;
@@ -1406,9 +1343,8 @@
   transform: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  .hero-spark,
-  .background-spark,
-  .background-shape {
+  .background-particle,
+  .background-particle-y {
     animation: none;
   }
   .background-motion-toggle {
