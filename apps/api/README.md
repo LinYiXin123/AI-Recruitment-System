@@ -91,7 +91,7 @@ uv run --env-file .env pytest -q
 
 pytest 使用独立 `test_recruitment`，要求本机数据库角色有建库权限；Playwright 使用独立 `recruitment_e2e`。禁止把这些开发角色和权限直接用于生产。
 
-本轮只做本地可运行交付，未执行生产发布。生产环境至少需要独立凭据、非 DEBUG 配置、实际允许域名、HTTPS 同源反向代理、合适的应用服务、数据库备份和访问控制；开发体验账号不能用于真实资料。AI、渠道、飞书和 Flutter 尚未接入；受控简历文件与本地文字提取已在 D02 增量实现，本工程没有模拟其成功状态。
+本轮只做本地可运行交付，未执行生产发布。生产环境至少需要独立凭据、非 DEBUG 配置、实际允许域名、HTTPS 同源反向代理、合适的应用服务、数据库备份和访问控制；开发体验账号不能用于真实资料。飞书私聊模型问答已完成本地联调；渠道、Flutter 与招聘业务数据问答尚未接入。受控简历文件与本地文字提取已在 D02 增量实现，本工程没有模拟其成功状态。
 
 实现依据：[Django 会话](https://docs.djangoproject.com/en/5.2/topics/http/sessions/)、[数据库约束](https://docs.djangoproject.com/en/5.2/ref/models/constraints/)、[DRF 权限](https://www.django-rest-framework.org/api-guide/permissions/)。完整产品关系以 `docs/产品设计/04–07` 详细规格为基线，已实现映射与验收边界见 [08 交付记录](../../docs/产品设计/08_第一步实施交付记录.md)。
 

@@ -51,6 +51,9 @@ FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID", "")
 FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "")
 FEISHU_REDIRECT_URI = os.environ.get("FEISHU_REDIRECT_URI", "")
 FEISHU_LOGIN_SUCCESS_URL = os.environ.get("FEISHU_LOGIN_SUCCESS_URL", "")
+LLM_API_BASE_URL = os.environ.get("LLM_API_BASE_URL", "")
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+LLM_MODEL = os.environ.get("LLM_MODEL", "")
 FEISHU_AUTHORIZE_URL = os.environ.get(
     "FEISHU_AUTHORIZE_URL", "https://accounts.feishu.cn/open-apis/authen/v1/authorize"
 )
