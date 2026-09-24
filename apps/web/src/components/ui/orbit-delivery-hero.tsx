@@ -221,7 +221,7 @@ export default function OrbitDeliveryHero({
           让知遇陪你，发现简历背后的可能。
         </p>
         <a
-          href="#introduction"
+          href="/api/v1/auth/login/"
           className={cn(buttonVariants({ size: "lg" }), "orbit-explore")}
         >
           开启知遇之旅

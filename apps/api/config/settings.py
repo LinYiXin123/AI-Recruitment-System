@@ -10,6 +10,7 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "rest_framework",
+    "identity",
     "recruitment",
 ]
 MIDDLEWARE = [
@@ -46,6 +47,15 @@ CSRF_COOKIE_NAME = "recruitment_csrf"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_SSL_REDIRECT = not DEBUG
 CSRF_FAILURE_VIEW = "recruitment.auth.csrf_failure"
+FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID", "")
+FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "")
+FEISHU_REDIRECT_URI = os.environ.get("FEISHU_REDIRECT_URI", "")
+FEISHU_LOGIN_SUCCESS_URL = os.environ.get("FEISHU_LOGIN_SUCCESS_URL", "")
+FEISHU_AUTHORIZE_URL = os.environ.get(
+    "FEISHU_AUTHORIZE_URL", "https://accounts.feishu.cn/open-apis/authen/v1/authorize"
+)
+FEISHU_TOKEN_URL = "https://open.feishu.cn/open-apis/authen/v1/oidc/access_token"
+FEISHU_USER_INFO_URL = "https://open.feishu.cn/open-apis/authen/v1/user_info"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],

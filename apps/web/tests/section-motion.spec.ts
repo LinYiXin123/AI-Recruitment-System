@@ -93,11 +93,11 @@ test("三项能力从左、下、右反复滑入退场，页底完整可见且�
   await page.getByRole("button", { name: "隐私说明" }).click()
   await expect(page.getByRole("dialog")).toContainText("不保存你的演示操作")
   await page.keyboard.press("Escape")
-  await page
-    .locator(".closing-panel")
-    .getByRole("link", { name: "开始体验", exact: true })
-    .click()
-  await expect(page).toHaveURL(/#demo$/)
+  await expect(
+    page
+      .locator(".closing-panel")
+      .getByRole("link", { name: "开始体验", exact: true })
+  ).toHaveAttribute("href", "/api/v1/auth/login/")
 })
 
 test("头像无外框和控制栏，悬停、点击及聚焦时仍保持正立旋转", async ({

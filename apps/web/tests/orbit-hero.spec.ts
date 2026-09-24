@@ -125,10 +125,9 @@ test("中文星球开场位于原首页之前，真实模型可旋转、暂停�
     .poll(async () => (await globeImage(page)).equals(stopped))
     .toBe(false)
   await page.screenshot({ path: testInfo.outputPath("星球开场.png") })
-  await hero.getByRole("link", { name: "开启知遇之旅" }).click()
-  await expect(page).toHaveURL(/#introduction$/)
-  await expect(page.locator("#hero-title")).toBeInViewport()
-  await expect(stage).toHaveAttribute("data-active", "false")
+  await expect(
+    hero.getByRole("link", { name: "开启知遇之旅" })
+  ).toHaveAttribute("href", "/api/v1/auth/login/")
   await page.getByRole("link", { name: "体验简历分析", exact: true }).click()
   await expect(
     page.getByRole("combobox", { name: "选择演示岗位" })
@@ -184,8 +183,10 @@ test("三维渲染不可用时显示中文降级，首页导航继续可用", as
   await expect(page.getByText("小小星球暂时未能呈现")).toBeVisible({
     timeout: 15000,
   })
-  await page.getByRole("link", { name: "开启知遇之旅" }).click()
-  await expect(page.locator("#hero-title")).toBeInViewport()
+  await expect(page.getByRole("link", { name: "开启知遇之旅" })).toHaveAttribute(
+    "href",
+    "/api/v1/auth/login/"
+  )
 })
 
 test("星球首轮资源失败后会自动恢复", async ({ page, isMobile }) => {

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useRef } from "react"
 import { motion, useReducedMotion, type MotionProps } from "framer-motion"
 import {
   ArrowDown,
@@ -51,21 +51,6 @@ const navigation = [
   ["常见问题", "#faq"],
 ]
 
-type ExperienceRole = "hr" | "manager"
-
-function workbenchUrl() {
-  const configuredUrl = import.meta.env.VITE_ADMIN_URL
-  const baseUrl =
-    configuredUrl ||
-    `${window.location.protocol}//${window.location.hostname}:49682`
-  return `${baseUrl.replace(/\/$/, "")}/#today`
-}
-
-function responseError(body: unknown, fallback: string) {
-  if (!body || typeof body !== "object") return fallback
-  const detail = (body as { errors?: { detail?: unknown } }).errors?.detail
-  return typeof detail === "string" ? detail : fallback
-}
 const features = [
   {
     icon: FileSearch,
@@ -144,47 +129,7 @@ function Brand() {
 
 export default function LandingPage() {
   const mobileMenu = useRef<HTMLDetailsElement>(null)
-  const [experienceOpen, setExperienceOpen] = useState(false)
-  const [enteringRole, setEnteringRole] = useState<ExperienceRole | null>(null)
-  const [experienceError, setExperienceError] = useState("")
   const reducedMotion = useReducedMotion()
-  const startLocalExperience = async (role: ExperienceRole) => {
-    setEnteringRole(role)
-    setExperienceError("")
-    try {
-      const csrfResponse = await fetch("/api/v1/auth/csrf/", {
-        credentials: "same-origin",
-      })
-      const csrfBody = await csrfResponse.json().catch(() => ({}))
-      if (!csrfResponse.ok)
-        throw new Error(
-          responseError(csrfBody, "暂时无法开始体验，请稍后重试。")
-        )
-      const csrfToken = (csrfBody as { csrfToken?: unknown }).csrfToken
-      if (typeof csrfToken !== "string")
-        throw new Error("暂时无法开始体验，请稍后重试。")
-      const response = await fetch("/api/v1/auth/experience/", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": csrfToken,
-        },
-        body: JSON.stringify({ role }),
-      })
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok)
-        throw new Error(responseError(body, "暂时无法进入工作台，请稍后重试。"))
-      window.location.assign(workbenchUrl())
-    } catch (error) {
-      setExperienceError(
-        error instanceof Error
-          ? error.message
-          : "暂时无法进入工作台，请稍后重试。"
-      )
-      setEnteringRole(null)
-    }
-  }
   const workflowMotion = (x: number, order: number): MotionProps => ({
     initial: "hidden",
     whileInView: "visible",
@@ -239,14 +184,13 @@ export default function LandingPage() {
             ))}
           </nav>
           <div className="flex items-center gap-3">
-            <Button
-              className="header-cta"
-              size="sm"
-              onClick={() => setExperienceOpen(true)}
+            <a
+              className={cn(buttonVariants({ size: "sm" }), "header-cta")}
+              href="/api/v1/auth/login/"
             >
               开始体验{" "}
               <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
-            </Button>
+            </a>
             <details
               ref={mobileMenu}
               className="mobile-menu"
@@ -557,14 +501,13 @@ export default function LandingPage() {
               </h2>
               <p>从一份示例简历，体验有依据的判断。</p>
             </div>
-            <Button
-              variant="secondary"
-              size="lg"
-              onClick={() => setExperienceOpen(true)}
+            <a
+              className={buttonVariants({ variant: "secondary", size: "lg" })}
+              href="/api/v1/auth/login/"
             >
               开始体验{" "}
               <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
-            </Button>
+            </a>
           </ScrollFade>
         </section>
       </main>
@@ -600,61 +543,6 @@ export default function LandingPage() {
           </Dialog>
         </div>
       </ScrollFade>
-      <Dialog
-        open={experienceOpen}
-        onOpenChange={(open) => {
-          setExperienceOpen(open)
-          if (open) setExperienceError("")
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>选择体验身份</DialogTitle>
-            <DialogDescription>
-              进入工作台前，请选择要查看的内部职责。这里使用的是本地虚构体验账号。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-col gap-1">
-                <strong>招聘 HR</strong>
-                <p className="text-sm text-muted-foreground">
-                  创建职位、整理招人要求，复核每一次独立应聘。
-                </p>
-              </div>
-              <Button
-                disabled={enteringRole !== null}
-                onClick={() => void startLocalExperience("hr")}
-              >
-                {enteringRole === "hr" ? "正在进入…" : "以 HR 身份进入"}
-              </Button>
-            </div>
-            <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-col gap-1">
-                <strong>用人负责人</strong>
-                <p className="text-sm text-muted-foreground">
-                  查看待我确认的招人要求，并在职责范围内处理事项。
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                disabled={enteringRole !== null}
-                onClick={() => void startLocalExperience("manager")}
-              >
-                {enteringRole === "manager" ? "正在进入…" : "以负责人身份进入"}
-              </Button>
-            </div>
-          </div>
-          {experienceError && (
-            <p role="alert" className="text-sm text-destructive">
-              {experienceError}
-            </p>
-          )}
-          <p className="text-xs leading-5 text-muted-foreground">
-            候选人会通过面试邀请进入自己的确认页面；该端尚未建立，因此不会显示为可用入口。
-          </p>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
