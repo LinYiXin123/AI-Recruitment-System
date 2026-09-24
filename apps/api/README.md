@@ -1,6 +1,6 @@
 # 招聘业务后端
 
-已实现第一段建岗确认流程，数据使用 PostgreSQL 持久化。认证使用 Django 会话与 CSRF，权限在后端按组织成员、部门职责及职位协作关系校验。浏览器不保存业务状态副本。
+已实现 D01 建岗确认、D02 受控进人与人工复核，以及 D03 的系统内面试排期核心。数据使用 PostgreSQL 持久化。认证使用 Django 会话与 CSRF，权限在后端按组织成员、部门职责及职位协作关系校验。浏览器不保存业务状态副本。
 
 ## 环境和启动
 
@@ -18,13 +18,13 @@ uv run --env-file .env python manage.py runserver 127.0.0.1:8100
 
 ## 飞书机器人本地联调
 
-在飞书开放平台启用“长连接接收事件”、订阅 `im.message.receive_v1`，并在权限管理中开通 `im:message` 和 `im:message:send_as_bot` 后，创建并发布新版本。保持数据库服务可用，再另开一个终端运行：
+在飞书开放平台启用“长连接接收事件”、订阅 `im.message.receive_v1`，并在权限管理中开通 `im:message` 和 `im:message:send_as_bot` 后，创建并发布新版本。本机 `.env` 还需要配置不入库的 `LLM_API_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`。保持数据库服务可用，再另开一个终端运行：
 
 ```sh
 uv run --env-file .env python manage.py run_feishu_bot
 ```
 
-该命令只处理用户发来的私聊文字，并回复“本地消息服务已连接”的联调提示；不读取候选人、简历或招聘待办。正式招聘问答接入后仍须按成员权限查询后端数据，不能把飞书消息视为授权凭据。
+该命令只处理用户发来的私聊文字并调用模型回复；不读取候选人、简历或招聘待办。模型暂时不能执行招聘操作，也不会因飞书消息直接获得业务数据权限；正式招聘问答接入后仍须按成员权限查询后端数据。
 
 本轮实测使用 PostgreSQL **18.4** 独立实例。系统已有 5432 数据库未被修改。本机 Docker 客户端存在，但 Compose 和 Docker 服务不可用，因此没有把 Docker 方案说成已启动。
 
@@ -65,6 +65,7 @@ docker compose --env-file apps/api/.env up -d postgres
 | `jobs/{id}/change-status/` | POST | 开始、暂停、关闭或重新开启；暂停／关闭／重开需 reason |
 | `jobs/{id}/history/` | GET | 分页读取操作记录 |
 | `tasks/` | GET | 当前本人待办；`scope=waiting` 查看我负责或协作职位的等待事项 |
+| `interviews/` | GET／POST | 读取本人可见的场次；为“待安排面试”的应聘保存首个排期 |
 
 建岗必填 `request_id`（浏览器为一次表单生成并保留 UUID）、`title`、`department`、`location`、`headcount`、`approver`；`jd` 和 `collaborators` 可选。相同 HR、相同 request_id 的原样重试返回已创建职位；修改过内容的重试返回 409，避免重复建岗。
 
@@ -117,3 +118,11 @@ pytest 使用独立 `test_recruitment`，要求本机数据库角色有建库权
 私有原件默认位于项目 `.local/resumes`，可用 `PRIVATE_RESUME_ROOT` 指定持久私有目录；不配置静态媒体路由、不把路径返回前端。文件使用随机键和 0600 权限，目录 0700；数据库与文件必须一起备份。存储和事务不能跨系统原子提交：普通异常会删除未提交文件，进程突然终止可能留下未关联文件，需维护时核对清理，不能对已关联资料擅自删除。原件下载权限由维护者配置 DepartmentRole，迁移不会向所有 HR 默认发放。
 
 解析只提取实际文字：[pypdf 官方说明](https://pypdf.readthedocs.io/en/6.18.1/user/extract-text.html) 明确区分文字提取与扫描图片识别，并说明复杂 PDF 可能大量消耗内存。因此以隔离子进程运行，CPU／时间／页数／文字量限额，Linux 有地址空间限额；macOS 本地环境没有同等内存强限额。生产文件安全扫描、解析容器隔离、队列吞吐及资料保留策略仍需单独验收；当前同步处理每份最多等待 15 秒，不声称后台任务队列已接通。
+
+## D03 系统内排期核心
+
+这是 F15 的首个可用切片，而不是 F15–F20 的完整交付。获授权 HR 在应聘详情填写轮次、目标、带时区的起止时间、方式、地点或视频链接，并至少选择一名本部门当前有效的面试官。`POST interviews/` 传 `application, version, request_key, round_no, purpose, starts_at, ends_at, timezone, mode, location, meeting_url, participants`；原样重试返回原场次，改动过内容的同一请求键返回 409。
+
+服务端在同一事务中锁定应聘、职位、候选人和按编号排序的面试官，使用 `[start,end)` 检查候选人与任一参与人的系统内重叠场次；跨职位同一候选人同样拦截。成功后创建 `Interview`、首个 `InterviewRevision` 和参与人，完成原“待安排”任务，将应聘推进为“面试中”，并保存阶段记录和审计。列表仅返回 HR 负责安排或本人参与的场次。
+
+当前只核验系统内日程，页面明确显示“邀请尚未发送”。尚未实现可用时段维护、外部日历、邀请送达、候选人或面试官确认、改期／取消、面试提纲、面评、提醒和业务决定；这些必须在后续版本化流程中分别接入，不能把本排期状态当作已确认或已通知。

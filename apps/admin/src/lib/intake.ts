@@ -3,6 +3,7 @@ export const stages: Record<string, string> = {
   pending_review: '待人工复核',
   needs_information: '待补充',
   ready_to_schedule: '待安排面试',
+  interviewing: '面试中',
   closed: '已结束',
 };
 export const reviewActions: Record<string, string> = {
@@ -71,6 +72,7 @@ export type Application = {
   contact_note: string;
   job_status: string;
   handlers: Person[];
+  interviewers: Person[];
   requirements: Requirement[];
   resumes: { document: number; name: string; download: boolean; parse: ResumeParse | null }[];
   reviews: {

@@ -42,8 +42,8 @@ export function Today({ revision, openJob, canCreate, create, openApplication }:
             <Badge variant="outline">北京时间</Badge>
           </div>
           <Blank
-            title="面试排期尚未开放"
-            description="当前可先创建职位、确认招人要求。面试日程将在排期流程接通后呈现。"
+            title="面试日程在“面试”中查看"
+            description="排期已接通。保存排期后可在面试入口查看系统内时间与参与人；邀请和确认仍会单独展示。"
           />
         </section>
         <section className="guide-panel">

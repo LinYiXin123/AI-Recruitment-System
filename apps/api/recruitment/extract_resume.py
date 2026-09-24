@@ -1,13 +1,18 @@
 """受限子进程，只提取文字，不执行文档脚本或外部链接。"""
 
 import json
-import resource
 import sys
 import zipfile
 from xml.etree import ElementTree
 
-resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
-if sys.platform == "linux":
+try:
+    import resource
+except ImportError:
+    resource = None
+
+if resource:
+    resource.setrlimit(resource.RLIMIT_CPU, (10, 10))
+if resource and sys.platform == "linux":
     resource.setrlimit(resource.RLIMIT_AS, (768 * 1024 * 1024, 768 * 1024 * 1024))
 
 
@@ -52,15 +57,14 @@ def extract(path, kind):
     return result
 
 
+def write_result(result):
+    sys.stdout.buffer.write(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+
+
 if __name__ == "__main__":
     try:
-        print(json.dumps({"text": extract(sys.argv[1], sys.argv[2])}, ensure_ascii=False))
+        write_result({"text": extract(sys.argv[1], sys.argv[2])})
     except ValueError as e:
-        print(json.dumps({"error": str(e)}, ensure_ascii=False))
+        write_result({"error": str(e)})
     except Exception:
-        print(
-            json.dumps(
-                {"error": "文件损坏或格式不受支持。请重传有效文件，或人工摘录。"},
-                ensure_ascii=False,
-            )
-        )
+        write_result({"error": "文件损坏或格式不受支持。请重传有效文件，或人工摘录。"})

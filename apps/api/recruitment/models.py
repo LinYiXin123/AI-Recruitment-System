@@ -42,6 +42,7 @@ class DepartmentRole(Timestamped):
     class Role(models.TextChoices):
         HR = "hr", "HR"
         MANAGER = "manager", "用人负责人"
+        INTERVIEWER = "interviewer", "面试官"
         SUPERVISOR = "supervisor", "招聘主管"
         RESUME_DOWNLOAD = "resume_download", "简历原件下载"
 
@@ -333,12 +334,123 @@ class Application(Timestamped):
             models.CheckConstraint(
                 condition=(Q(stage="closed", closed_at__isnull=False) & ~Q(close_reason=""))
                 | Q(
-                    stage__in=["pending_review", "needs_information", "ready_to_schedule"],
+                    stage__in=[
+                        "pending_review",
+                        "needs_information",
+                        "ready_to_schedule",
+                        "interviewing",
+                    ],
                     closed_at__isnull=True,
                     close_reason="",
                 ),
                 name="application_closure",
             ),
+        ]
+
+
+class Interview(Timestamped):
+    class Status(models.TextChoices):
+        UNSCHEDULED = "unscheduled", "未排期"
+        PENDING_CONFIRMATION = "pending_confirmation", "待确认"
+        CONFIRMED = "confirmed", "已确认"
+        COMPLETED = "completed", "已完成"
+        CANCELLED = "cancelled", "已取消"
+
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    application = models.ForeignKey(
+        Application, on_delete=models.PROTECT, related_name="interviews"
+    )
+    round_no = models.PositiveSmallIntegerField()
+    purpose = models.CharField(max_length=200)
+    request_key = models.UUIDField()
+    current_revision = models.ForeignKey(
+        "InterviewRevision", on_delete=models.PROTECT, null=True, related_name="+"
+    )
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.UNSCHEDULED)
+    organizer = models.ForeignKey(
+        Membership, on_delete=models.PROTECT, related_name="organized_interviews"
+    )
+    completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancellation_reason = models.CharField(max_length=1000, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
+        indexes = [models.Index(fields=["organization", "status"], name="interview_org_status")]
+        constraints = [
+            models.CheckConstraint(condition=Q(round_no__gte=1), name="positive_interview_round"),
+            models.UniqueConstraint(
+                fields=["organization", "request_key"], name="one_interview_schedule_request"
+            ),
+        ]
+
+
+class InterviewRevision(Timestamped):
+    class Status(models.TextChoices):
+        CURRENT = "current", "当前"
+        SUPERSEDED = "superseded", "已替代"
+        CANCELLED = "cancelled", "已取消"
+
+    class Mode(models.TextChoices):
+        ONSITE = "onsite", "现场"
+        VIDEO = "video", "视频"
+        PHONE = "phone", "电话"
+
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    interview = models.ForeignKey(Interview, on_delete=models.PROTECT, related_name="revisions")
+    version = models.PositiveSmallIntegerField()
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    timezone = models.CharField(max_length=64)
+    mode = models.CharField(max_length=16, choices=Mode.choices)
+    location = models.TextField(blank=True)
+    meeting_url = models.URLField(blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.CURRENT)
+    change_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-version"]
+        indexes = [
+            models.Index(
+                fields=["organization", "starts_at", "ends_at"], name="interview_slot_index"
+            )
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["interview", "version"], name="interview_revision_version"
+            ),
+            models.UniqueConstraint(
+                fields=["interview"],
+                condition=Q(status="current"),
+                name="one_current_interview_revision",
+            ),
+            models.CheckConstraint(
+                condition=Q(starts_at__lt=models.F("ends_at")), name="interview_time_order"
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(mode="onsite") & ~Q(location="")
+                    | Q(mode="video") & ~Q(meeting_url="")
+                    | Q(mode="phone")
+                ),
+                name="interview_mode_details",
+            ),
+        ]
+
+
+class InterviewParticipant(models.Model):
+    revision = models.ForeignKey(
+        InterviewRevision, on_delete=models.PROTECT, related_name="participants"
+    )
+    membership = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    required = models.BooleanField(default=True)
+    duty = models.CharField(max_length=32, default="interviewer")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["revision", "membership"], name="one_interview_participant"
+            )
         ]
 
 

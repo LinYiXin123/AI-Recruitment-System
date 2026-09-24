@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from recruitment import auth, intake, views
+from recruitment import auth, intake, interviews, views
 
 router = DefaultRouter()
 router.register("jobs", views.JobViewSet, basename="jobs")
@@ -10,6 +10,7 @@ router.register("imports", intake.ImportViewSet, basename="imports")
 router.register("candidates", intake.CandidateViewSet, basename="candidates")
 router.register("applications", intake.ApplicationViewSet, basename="applications")
 router.register("documents", intake.DocumentViewSet, basename="documents")
+router.register("interviews", interviews.InterviewViewSet, basename="interviews")
 urlpatterns = [
     path("api/v1/auth/csrf/", auth.csrf),
     path("api/v1/auth/login/", auth.sign_in),

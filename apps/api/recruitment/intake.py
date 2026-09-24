@@ -556,6 +556,19 @@ def app_data(a, m, detail=False):
                 .distinct()
                 if can_edit(p, a.job)
             ],
+            interviewers=[
+                {"id": p.id, "name": display_name(p)}
+                for p in Membership.objects.filter(
+                    organization=m.organization,
+                    active=True,
+                    user__is_active=True,
+                    roles__department=a.job.department,
+                    roles__role__in=["manager", "supervisor", "interviewer"],
+                )
+                .select_related("user")
+                .distinct()
+                .order_by("id")
+            ],
             requirements=list(
                 a.job.active_profile.requirements.values("id", "kind", "text", "rationale")
             )

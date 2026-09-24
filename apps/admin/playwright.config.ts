@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { loadEnvFile } from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
 
 if (existsSync('../api/.env')) loadEnvFile('../api/.env');
@@ -7,7 +8,7 @@ const uv = process.env.UV_BIN || `${process.env.HOME}/.local/bin/uv`;
 const env = {
   ...process.env,
   PGDATABASE: 'recruitment_e2e',
-  PRIVATE_RESUME_ROOT: new URL('../../.local/e2e-resumes', import.meta.url).pathname,
+  PRIVATE_RESUME_ROOT: fileURLToPath(new URL('../../.local/e2e-resumes', import.meta.url)),
   DJANGO_DEBUG: '1',
   LOCAL_ACCOUNT_PASSWORD: 'only-e2e-password-123',
   DJANGO_SECRET_KEY: 'e2e-only-key-not-for-deployment',

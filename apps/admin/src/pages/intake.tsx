@@ -25,6 +25,7 @@ import {
   reviewActions,
   stages,
 } from '@/lib/intake';
+import { ScheduleInterview } from '@/pages/interviews';
 
 function Drawer({
   title,
@@ -58,7 +59,7 @@ function Drawer({
           <SheetTitle>{title}</SheetTitle>
           <SheetDescription>只处理你有权限的职位和本次应聘。</SheetDescription>
         </SheetHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">{children}</div>
+        <div className="sheet-scroll flex flex-1 flex-col gap-5 p-5">{children}</div>
       </SheetContent>
     </Sheet>
   );
@@ -1163,12 +1164,16 @@ export function ApplicationDetail({
             </Alert>
           )}
           {data.stage === 'ready_to_schedule' && (
-            <Alert>
-              <AlertTitle>已交给 HR 待安排</AlertTitle>
-              <AlertDescription>
-                后续排期流程尚未开放，目前没有预约、邀请或对方确认记录。
-              </AlertDescription>
-            </Alert>
+            <ScheduleInterview
+              application={data}
+              dirty={dirty}
+              setDirty={setDirty}
+              scheduled={() => {
+                setSuccess('排期已保存，候选人与面试官的系统内时间冲突已检查。邀请尚未发送。');
+                setDirty(false);
+                setReload((old) => old + 1);
+              }}
+            />
           )}
           {data.stage === 'closed' && <p>本次结束原因：{data.close_reason}</p>}
           <section className="flex flex-col gap-3">

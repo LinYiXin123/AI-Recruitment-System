@@ -16,11 +16,12 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { ApiError, api, type Me } from '@/lib/api';
 import { ApplicationDetail, Candidates } from '@/pages/intake';
+import { Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
 import { Jobs, Today } from '@/pages/workspace';
 
 const routeFromHash = () =>
-  ['jobs', 'candidates'].includes(window.location.hash.slice(1))
+  ['jobs', 'candidates', 'interviews'].includes(window.location.hash.slice(1))
     ? window.location.hash.slice(1)
     : 'today';
 
@@ -81,6 +82,7 @@ export default function App() {
     hr: 'HR',
     manager: '用人负责人',
     supervisor: '招聘主管',
+    interviewer: '面试官',
     resume_download: '简历原件下载',
   };
   return (
@@ -113,6 +115,10 @@ export default function App() {
               <span>候选人</span>
             </a>
           )}
+          <a href="#interviews" aria-current={route === 'interviews' ? 'page' : undefined}>
+            <CalendarDays aria-hidden="true" />
+            <span>面试</span>
+          </a>
         </nav>
         <div className="sidebar-bottom">
           <ShieldCheck aria-hidden="true" />
@@ -123,7 +129,13 @@ export default function App() {
         <header className="topbar">
           <span>
             招聘工作台 <ChevronRight aria-hidden="true" />{' '}
-            {route === 'today' ? '今天' : route === 'jobs' ? '职位' : '候选人'}
+            {route === 'today'
+              ? '今天'
+              : route === 'jobs'
+                ? '职位'
+                : route === 'candidates'
+                  ? '候选人'
+                  : '面试'}
           </span>
           <div className="account">
             {local && <Badge variant="outline">本地体验</Badge>}
@@ -167,17 +179,25 @@ export default function App() {
                 })}
               </p>
               <h1>
-                {route === 'today' ? '从今天的重要事项开始' : route === 'jobs' ? '职位' : '候选人'}
+                {route === 'today'
+                  ? '从今天的重要事项开始'
+                  : route === 'jobs'
+                    ? '职位'
+                    : route === 'candidates'
+                      ? '候选人'
+                      : '面试'}
               </h1>
               <p>
                 {route === 'today'
                   ? '先处理需要你决定的事，再跟进等待中的工作。'
                   : route === 'jobs'
                     ? '查看你负责、协作或获授权的职位，明确每一次招聘的要求。'
-                    : '先核对材料与身份，再处理每一次独立应聘。'}
+                    : route === 'candidates'
+                      ? '先核对材料与身份，再处理每一次独立应聘。'
+                      : '查看已保存的系统内排期与当前参与状态。'}
               </p>
             </div>
-            {me.departments.length > 0 && route !== 'candidates' && (
+            {me.departments.length > 0 && !['candidates', 'interviews'].includes(route) && (
               <Button onClick={() => setCreating(true)}>
                 <Plus data-icon="inline-start" />
                 新建职位
@@ -199,6 +219,8 @@ export default function App() {
               changed={() => setRevision((r) => r + 1)}
               openApplication={setApplicationId}
             />
+          ) : route === 'interviews' ? (
+            <Interviews revision={revision} />
           ) : (
             <Jobs
               revision={revision}

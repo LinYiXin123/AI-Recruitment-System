@@ -133,7 +133,9 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
   await page.getByLabel('处理结果').selectOption('advance');
   await page.getByLabel('依据与说明').fill('据第 1 页访谈项目推进面试，具体能力仍需面试验证');
   await page.getByRole('button', { name: '提交人工处理结果' }).click();
-  await expect(page.getByText('已交给 HR 待安排')).toBeVisible();
+  await expect(
+    page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待安排面试' }),
+  ).toBeVisible();
   for (const width of [390, 1024, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(
@@ -148,7 +150,9 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
     .filter({ hasText: '进人闭环验收岗' })
     .filter({ hasText: '安排面试' });
   await task.getByRole('button', { name: '去处理' }).click();
-  await expect(page.getByText('已交给 HR 待安排')).toBeVisible();
+  await expect(
+    page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待安排面试' }),
+  ).toBeVisible();
   await page.getByRole('button', { name: '关闭详情' }).click();
   await page.getByRole('link', { name: '候选人', exact: true }).click();
   await page.getByRole('tab', { name: '人才档案' }).click();
@@ -199,6 +203,36 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
   await expect(page.getByText('另一个窗口已要求补齐材料')).toBeVisible();
   await expect(page.getByLabel('依据与说明')).toHaveValue('冲突后仍保留这段人工核对说明');
   await page.getByRole('button', { name: '提交人工处理结果' }).click();
-  await expect(page.getByText('已交给 HR 待安排')).toBeVisible();
+  await expect(
+    page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待安排面试' }),
+  ).toBeVisible();
+  await page.getByLabel('面试轮次').fill('1');
+  await page
+    .getByLabel('本轮目标')
+    .fill('核实需求分析方法与跨团队协作经历，具体能力留待面试中判断。');
+  await page.getByLabel('开始时间（北京时间）').fill('2099-01-02T10:00');
+  await page.getByLabel('结束时间（北京时间）').fill('2099-01-02T11:00');
+  await page.getByLabel('面试地点').fill('深圳南山区会议室 A');
+  await page
+    .getByRole('dialog')
+    .locator('.sheet-scroll')
+    .evaluate((element) => {
+      element.scrollTo(0, element.scrollHeight);
+    });
+  const interviewer = page.getByRole('checkbox', { name: '体验负责人' });
+  await interviewer.focus();
+  await interviewer.press('Space');
+  await expect(interviewer).toBeChecked();
+  const saveSchedule = page.getByRole('button', { name: '保存排期' });
+  await saveSchedule.focus();
+  await saveSchedule.press('Enter');
+  await expect(
+    page.getByText('排期已保存，候选人与面试官的系统内时间冲突已检查。邀请尚未发送。'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '关闭详情' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('link', { name: '面试', exact: true }).click();
+  await expect(page.getByText('邀请尚未发送', { exact: true })).toBeVisible();
+  await expect(page.locator('table').getByText('虚构林一', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
