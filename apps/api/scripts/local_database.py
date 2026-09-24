@@ -3,6 +3,7 @@
 import secrets
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import psycopg
@@ -34,11 +35,23 @@ else:
     )
 if values.get("PGHOST") != "127.0.0.1" or values.get("PGPORT") != "55432":
     raise SystemExit("已有环境配置指向其他数据库，本脚本不会启动或改动它。")
-bin_dir = Path(shutil.which("pg_ctl")).parent if shutil.which("pg_ctl") else None
+executable_suffix = ".exe" if sys.platform == "win32" else ""
+portable_bin_dir = state / "postgres-bin" / "pgsql" / "bin"
+portable_pg_ctl = portable_bin_dir / f"pg_ctl{executable_suffix}"
+pg_ctl_path = Path(shutil.which("pg_ctl")) if shutil.which("pg_ctl") else None
+bin_dir = portable_bin_dir if portable_pg_ctl.exists() else None
+if not bin_dir and pg_ctl_path:
+    bin_dir = pg_ctl_path.parent
 if not bin_dir and shutil.which("brew"):
     prefix = subprocess.check_output(["brew", "--prefix", "postgresql@18"], text=True).strip()
     bin_dir = Path(prefix) / "bin"
-if not bin_dir or not (bin_dir / "pg_ctl").exists():
+
+
+def postgres_command(name):
+    return str(bin_dir / f"{name}{executable_suffix}")
+
+
+if not bin_dir or not Path(postgres_command("pg_ctl")).exists():
     raise SystemExit("未找到 PostgreSQL 18，可先使用根目录 Compose 数据库方案。")
 pg_data = state / "postgres"
 if not (pg_data / "PG_VERSION").exists():
@@ -48,7 +61,7 @@ if not (pg_data / "PG_VERSION").exists():
     try:
         subprocess.run(
             [
-                str(bin_dir / "initdb"),
+                postgres_command("initdb"),
                 "-D",
                 str(pg_data),
                 "-U",
@@ -61,12 +74,12 @@ if not (pg_data / "PG_VERSION").exists():
     finally:
         password_file.unlink(missing_ok=True)
 status = subprocess.run(
-    [str(bin_dir / "pg_ctl"), "-D", str(pg_data), "status"], capture_output=True
+    [postgres_command("pg_ctl"), "-D", str(pg_data), "status"], capture_output=True
 )
 if status.returncode:
     subprocess.run(
         [
-            str(bin_dir / "pg_ctl"),
+            postgres_command("pg_ctl"),
             "-D",
             str(pg_data),
             "-l",
