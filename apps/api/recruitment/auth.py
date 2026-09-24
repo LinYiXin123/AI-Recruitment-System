@@ -81,6 +81,20 @@ def _begin_feishu_login(request):
     return HttpResponseRedirect(f"{settings.FEISHU_AUTHORIZE_URL}?{query}")
 
 
+def _get_feishu_app_access_token():
+    result = _request_feishu_json(
+        settings.FEISHU_APP_ACCESS_TOKEN_URL,
+        data={
+            "app_id": settings.FEISHU_APP_ID,
+            "app_secret": settings.FEISHU_APP_SECRET,
+        },
+    )
+    if not result or result.get("code") != 0:
+        return None
+    access_token = result.get("app_access_token")
+    return access_token if isinstance(access_token, str) and access_token else None
+
+
 def _finish_feishu_login(request):
     expected_state = request.session.pop("feishu_login_state", None)
     state = request.GET.get("state")
@@ -89,22 +103,23 @@ def _finish_feishu_login(request):
         return _feishu_error("飞书登录已失效，请从首页重新开始。")
     if not code or len(code) > 4096:
         return _feishu_error("飞书未返回有效登录凭证，请重新开始。")
+    app_access_token = _get_feishu_app_access_token()
+    if not app_access_token:
+        return _feishu_error("飞书应用验证失败，请检查本机应用凭证后重试。", status=502)
     token_result = _request_feishu_json(
         settings.FEISHU_TOKEN_URL,
         data={
             "grant_type": "authorization_code",
             "code": code,
-            "app_id": settings.FEISHU_APP_ID,
-            "app_secret": settings.FEISHU_APP_SECRET,
-            "redirect_uri": settings.FEISHU_REDIRECT_URI,
         },
+        headers={"Authorization": f"Bearer {app_access_token}"},
     )
     token_data = (
         token_result.get("data") if token_result and token_result.get("code") == 0 else None
     )
     access_token = token_data.get("access_token") if isinstance(token_data, dict) else None
     if not isinstance(access_token, str) or not access_token:
-        return _feishu_error("飞书登录验证失败，请稍后重试。", status=502)
+        return _feishu_error("飞书授权凭证验证失败，请从首页重新开始。", status=502)
     user_result = _request_feishu_json(
         settings.FEISHU_USER_INFO_URL,
         headers={"Authorization": f"Bearer {access_token}"},

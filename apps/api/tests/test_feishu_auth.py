@@ -16,6 +16,7 @@ FEISHU_SETTINGS = {
     "FEISHU_APP_SECRET": "test-secret-not-a-real-credential",
     "FEISHU_REDIRECT_URI": "http://localhost:5173/api/v1/auth/login/",
     "FEISHU_LOGIN_SUCCESS_URL": "http://localhost:5174/#today",
+    "FEISHU_APP_ACCESS_TOKEN_URL": "https://accounts.example.test/app-access-token",
 }
 
 
@@ -59,6 +60,7 @@ def test_feishu_login_exchanges_code_and_uses_existing_membership():
     client = Client()
     state = login_state(client)
     responses = [
+        FeishuResponse({"code": 0, "app_access_token": "test-app-token"}),
         FeishuResponse({"code": 0, "data": {"access_token": "test-token"}}),
         FeishuResponse(
             {
@@ -77,7 +79,20 @@ def test_feishu_login_exchanges_code_and_uses_existing_membership():
 
     assert response.status_code == 302
     assert response["Location"] == FEISHU_SETTINGS["FEISHU_LOGIN_SUCCESS_URL"]
-    assert request_mock.call_count == 2
+    assert request_mock.call_count == 3
+    app_token_request, user_token_request, _ = [
+        call.args[0] for call in request_mock.call_args_list
+    ]
+    assert app_token_request.full_url == FEISHU_SETTINGS["FEISHU_APP_ACCESS_TOKEN_URL"]
+    assert json.loads(app_token_request.data) == {
+        "app_id": FEISHU_SETTINGS["FEISHU_APP_ID"],
+        "app_secret": FEISHU_SETTINGS["FEISHU_APP_SECRET"],
+    }
+    assert json.loads(user_token_request.data) == {
+        "grant_type": "authorization_code",
+        "code": "authorization-code",
+    }
+    assert user_token_request.headers["Authorization"] == "Bearer test-app-token"
     identity.refresh_from_db()
     assert identity.display_name == "飞书 HR"
     assert identity.union_id == "on_test_user"
@@ -102,6 +117,7 @@ def test_feishu_login_does_not_grant_unbound_account_access():
     client = Client()
     state = login_state(client)
     responses = [
+        FeishuResponse({"code": 0, "app_access_token": "test-app-token"}),
         FeishuResponse({"code": 0, "data": {"access_token": "test-token"}}),
         FeishuResponse({"code": 0, "data": {"open_id": "ou_unbound"}}),
     ]
