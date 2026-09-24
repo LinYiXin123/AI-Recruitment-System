@@ -16,6 +16,16 @@ uv run --env-file .env python manage.py runserver 127.0.0.1:8100
 
 `local_database.py` 复用当前 PostgreSQL 安装，仅为本项目建立独立实例：数据目录在工作副本 `.local/postgres`，只监听 `127.0.0.1:55432`。首次运行生成随机数据库密码、Django 密钥和本地体验密码，写入权限受限且不入库的 `.env` 与 `.local/体验账号.txt`。再次执行不覆盖已有配置。需要 PostgreSQL 可执行文件；macOS 可识别 Homebrew 的 `postgresql@18`。
 
+## 飞书机器人本地联调
+
+在飞书开放平台启用“长连接接收事件”、订阅 `im.message.receive_v1`，并在权限管理中开通 `im:message` 和 `im:message:send_as_bot` 后，创建并发布新版本。保持数据库服务可用，再另开一个终端运行：
+
+```sh
+uv run --env-file .env python manage.py run_feishu_bot
+```
+
+该命令只处理用户发来的私聊文字，并回复“本地消息服务已连接”的联调提示；不读取候选人、简历或招聘待办。正式招聘问答接入后仍须按成员权限查询后端数据，不能把飞书消息视为授权凭据。
+
 本轮实测使用 PostgreSQL **18.4** 独立实例。系统已有 5432 数据库未被修改。本机 Docker 客户端存在，但 Compose 和 Docker 服务不可用，因此没有把 Docker 方案说成已启动。
 
 有可用 Docker Compose 的环境，可以复制 `.env.example` 为 `.env`、替换随机密码和密钥后，在仓库根目录运行：

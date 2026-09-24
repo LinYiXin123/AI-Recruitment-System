@@ -5,6 +5,7 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "Django>=5.2.8,<5.3",
     "djangorestframework>=3.16,<3.17",
+    "lark-oapi>=1.7.3,<2",
     "psycopg[binary]>=3.2,<4",
     "pypdf>=6.18.1,<7",
 ]
