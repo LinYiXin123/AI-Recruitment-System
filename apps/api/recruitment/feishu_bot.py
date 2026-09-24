@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -16,7 +17,9 @@ logger = logging.getLogger(__name__)
 LLM_UNAVAILABLE_REPLY = "抱歉，招聘助手暂时无法连接模型服务，请稍后再试。"
 SYSTEM_PROMPT = """你是知遇 AI 的招聘助手，在飞书私聊中用简洁中文回答问题。
 你目前不能读取候选人、简历、职位、面试或其他招聘系统数据，也不能执行任何业务操作。
-不要编造已查询到的数据、已发送通知或已变更的招聘状态。涉及查看或变更业务数据时，说明当前暂未接通业务数据，并建议用户到招聘后台完成操作。"""
+不要编造已查询到的数据、已发送通知或已变更的招聘状态。涉及查看或变更业务数据时，说明当前暂未接通业务数据，并建议用户到招聘后台完成操作。
+回复必须使用纯文本，不要使用 Markdown 标记，例如星号、反引号、井号或行首连字符。
+需要分项时使用“• ”开头，小标题使用“标题：”。"""
 
 
 def should_reply(event: P2ImMessageReceiveV1) -> bool:
@@ -48,7 +51,9 @@ class FeishuMessageResponder:
                 return
 
             try:
-                reply = self._generate_reply(text)
+                reply = format_for_feishu_text(self._generate_reply(text))
+                if not reply:
+                    raise ValueError("模型未返回可显示的文字")
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 logger.warning("模型生成飞书回复失败：%s", type(exc).__name__)
                 reply = LLM_UNAVAILABLE_REPLY
@@ -66,6 +71,28 @@ def extract_text(content: str | None) -> str:
 
     text = payload.get("text")
     return text.strip() if isinstance(text, str) else ""
+
+
+def format_for_feishu_text(text: str) -> str:
+    """飞书文本消息不渲染 Markdown，发送前转成易读的纯文本。"""
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if lines and lines[-1]:
+                lines.append("")
+            continue
+        if re.fullmatch(r"[-*_]{3,}", line):
+            continue
+
+        line = re.sub(r"^#{1,6}\s*", "", line)
+        line = re.sub(r"^>\s?", "", line)
+        line = re.sub(r"^[-+*]\s+", "• ", line)
+        line = line.replace("**", "").replace("__", "").replace("~~", "").replace("`", "")
+        line = line.replace("*", "")
+        lines.append(line)
+
+    return "\n".join(lines).strip()
 
 
 class OpenAICompatibleChat:
