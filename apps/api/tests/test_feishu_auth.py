@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client, override_settings
 
 from identity.models import FeishuIdentity
-from recruitment.models import Membership, Organization
+from recruitment.models import Department, DepartmentRole, Membership, Organization
 
 pytestmark = pytest.mark.django_db
 
@@ -43,6 +43,15 @@ def create_bound_identity():
         app_id=FEISHU_SETTINGS["FEISHU_APP_ID"],
         open_id="ou_test_user",
     )
+
+
+def create_hr_membership(username="local_hr"):
+    user = get_user_model().objects.create_user(username, password="unused-password")
+    organization = Organization.objects.create(name="飞书 HR 测试组织")
+    department = Department.objects.create(organization=organization, name="招聘部")
+    membership = Membership.objects.create(user=user, organization=organization)
+    DepartmentRole.objects.create(membership=membership, department=department, role="hr")
+    return membership
 
 
 def login_state(client):
@@ -98,6 +107,29 @@ def test_feishu_login_exchanges_code_and_uses_existing_membership():
     assert identity.union_id == "on_test_user"
     assert identity.last_authenticated_at is not None
     assert client.get("/api/v1/me/").status_code == 200
+
+
+@override_settings(
+    **FEISHU_SETTINGS,
+    DEBUG=True,
+    FEISHU_LOCAL_BOOTSTRAP_HR_USERNAME="local_hr",
+)
+def test_local_debug_bootstraps_first_feishu_account_as_hr():
+    membership = create_hr_membership()
+    client = Client()
+    state = login_state(client)
+    responses = [
+        FeishuResponse({"code": 0, "app_access_token": "test-app-token"}),
+        FeishuResponse({"code": 0, "data": {"access_token": "test-token"}}),
+        FeishuResponse({"code": 0, "data": {"open_id": "ou_first_hr"}}),
+    ]
+    with patch("recruitment.auth.urlrequest.urlopen", side_effect=responses):
+        response = client.get("/api/v1/auth/login/", {"code": "authorization-code", "state": state})
+
+    assert response.status_code == 302
+    identity = FeishuIdentity.objects.get(app_id=FEISHU_SETTINGS["FEISHU_APP_ID"])
+    assert identity.open_id == "ou_first_hr"
+    assert identity.user_id == membership.user_id
 
 
 @override_settings(**FEISHU_SETTINGS)

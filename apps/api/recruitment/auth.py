@@ -95,6 +95,33 @@ def _get_feishu_app_access_token():
     return access_token if isinstance(access_token, str) and access_token else None
 
 
+def _bootstrap_local_hr_identity(open_id):
+    """仅允许本机开发环境的首个飞书账号绑定到显式指定的体验 HR。"""
+    username = settings.FEISHU_LOCAL_BOOTSTRAP_HR_USERNAME
+    if not settings.DEBUG or not username:
+        return None
+    with transaction.atomic():
+        membership = (
+            Membership.objects.select_for_update()
+            .select_related("user")
+            .filter(
+                user__username=username,
+                user__is_active=True,
+                active=True,
+                roles__role="hr",
+            )
+            .order_by("id")
+            .first()
+        )
+        if not membership or FeishuIdentity.objects.filter(app_id=settings.FEISHU_APP_ID).exists():
+            return None
+        return FeishuIdentity.objects.create(
+            user=membership.user,
+            app_id=settings.FEISHU_APP_ID,
+            open_id=open_id,
+        )
+
+
 def _finish_feishu_login(request):
     expected_state = request.session.pop("feishu_login_state", None)
     state = request.GET.get("state")
@@ -133,6 +160,8 @@ def _finish_feishu_login(request):
         .filter(app_id=settings.FEISHU_APP_ID, open_id=open_id, user__is_active=True)
         .first()
     )
+    if not identity:
+        identity = _bootstrap_local_hr_identity(open_id)
     membership = (
         Membership.objects.filter(user=identity.user, active=True).order_by("id").first()
         if identity
