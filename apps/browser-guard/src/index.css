@@ -1,0 +1,101 @@
+@layer theme, base, semi, components, utilities;
+@import "tailwindcss";
+@import "@douyinfe/semi-ui/lib/es/_base/base.css" layer(semi);
+@import "tw-animate-css";
+
+:root {
+  --background: #f7f9fe;
+  --foreground: #24334d;
+  --card: #ffffff;
+  --card-foreground: #24334d;
+  --popover: #ffffff;
+  --popover-foreground: #24334d;
+  --primary: #2456b8;
+  --primary-foreground: #ffffff;
+  --secondary: #eaf1fd;
+  --secondary-foreground: #2456b8;
+  --muted: #f1f5fb;
+  --muted-foreground: #64748b;
+  --accent: #eaf1fd;
+  --accent-foreground: #2456b8;
+  --destructive: #b42332;
+  --border: #dce4f1;
+  --input: #cbd6e7;
+  --ring: #2456b8;
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+}
+
+@layer base {
+  * { border-color: var(--border); }
+  body { min-width: 360px; margin: 0; background: var(--background); color: var(--foreground); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1.5; }
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+  h1, h2, p { margin: 0; }
+  h1 { font-size: 19px; font-weight: 650; letter-spacing: -0.25px; }
+  h2 { font-size: 15px; font-weight: 650; }
+  button:focus-visible, a:focus-visible { outline: 3px solid var(--ring); outline-offset: 3px; }
+}
+
+body {
+  --semi-color-primary: var(--primary);
+  --semi-color-text-0: var(--foreground);
+  --semi-color-text-1: var(--foreground);
+  --semi-color-text-2: var(--muted-foreground);
+  --semi-color-border: var(--border);
+  --semi-color-fill-0: var(--muted);
+  --semi-color-bg-0: var(--card);
+  --semi-color-bg-1: var(--card);
+  --semi-font-family-regular: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+
+.popup-shell { display: flex; width: 380px; flex-direction: column; gap: 16px; padding: 18px; }
+.popup-shell header p, .options-header p, .setting-card > p, .section-heading p { margin-top: 3px; color: var(--muted-foreground); font-size: 12px; }
+.icon-surface { display: grid; flex: none; place-items: center; width: 36px; height: 36px; border-radius: 9px; background: var(--secondary); color: var(--primary); }
+.icon-surface svg { width: 20px; height: 20px; }
+.setting-card, .options-section { border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); padding: 16px; }
+.setting-card .setting-help { margin-top: 13px; line-height: 1.65; }
+.status-message { color: #166847; font-size: 12px; }
+.options-shell { width: min(880px, calc(100% - 48px)); margin: 0 auto; padding: 52px 0 72px; display: flex; flex-direction: column; gap: 24px; }
+.options-header { display: flex; align-items: center; gap: 12px; }
+.options-section { display: flex; flex-direction: column; gap: 18px; }
+.section-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.record-list, .event-list { list-style: none; margin: 0; padding: 0; }
+.record-list { border-top: 1px solid var(--border); }
+.record-list li { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--border); }
+.record-list span { overflow-wrap: anywhere; }
+.event-list { display: flex; flex-direction: column; gap: 14px; }
+.event-list li { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border-radius: 8px; background: var(--muted); }
+.event-list svg { width: 17px; height: 17px; flex: none; margin-top: 1px; color: var(--primary); }
+.event-list strong { display: block; font-size: 13px; }
+.event-list p { margin-top: 3px; color: var(--muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
+.empty-state { padding: 22px 0; color: var(--muted-foreground); text-align: center; }
+.empty-state strong { display: block; color: var(--foreground); }
+.empty-state p { margin-top: 4px; font-size: 12px; }
+
+@media (max-width: 600px) {
+  body { min-width: 0; }
+  .options-shell { width: min(100% - 32px, 880px); padding-top: 30px; }
+}
