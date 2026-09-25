@@ -9,6 +9,7 @@ from recruitment.feishu_bot import (
     FeishuMessageResponder,
     ReplyContextStore,
     build_reply_card,
+    build_thinking_card,
     extract_text,
     format_for_feishu_card,
     normalize_card_callback_transport_frame,
@@ -53,25 +54,52 @@ def card_action_event(action, *, source_message_id="om_test_message", operator_o
 
 def test_private_text_from_user_receives_markdown_card_content():
     reply = Mock()
+    send_thinking_reply = Mock(return_value="om_thinking_card")
+    update_reply = Mock(return_value=True)
     generate_reply = Mock(return_value="**可以帮你**\n- 安排面试\n- 整理招聘要求")
     contexts = ReplyContextStore()
+    scheduled_tasks = []
 
-    FeishuMessageResponder(reply, generate_reply, contexts).handle(incoming_event())
+    FeishuMessageResponder(
+        reply,
+        send_thinking_reply,
+        update_reply,
+        generate_reply,
+        contexts,
+        scheduled_tasks.append,
+    ).handle(incoming_event())
 
+    send_thinking_reply.assert_called_once_with("om_test_message")
+    assert len(scheduled_tasks) == 1
+    scheduled_tasks[0]()
     generate_reply.assert_called_once_with("你好")
-    reply.assert_called_once_with("om_test_message", "**可以帮你**\n- 安排面试\n- 整理招聘要求")
+    update_reply.assert_called_once_with(
+        "om_thinking_card", "om_test_message", "**可以帮你**\n- 安排面试\n- 整理招聘要求"
+    )
+    reply.assert_not_called()
 
 
 def test_group_messages_and_non_user_events_do_not_receive_a_reply():
     reply = Mock()
+    send_thinking_reply = Mock()
+    update_reply = Mock()
     generate_reply = Mock()
     contexts = ReplyContextStore()
-    responder = FeishuMessageResponder(reply, generate_reply, contexts)
+    responder = FeishuMessageResponder(
+        reply,
+        send_thinking_reply,
+        update_reply,
+        generate_reply,
+        contexts,
+        Mock(),
+    )
 
     responder.handle(incoming_event(chat_type="group"))
     responder.handle(incoming_event(sender_type="app"))
 
     reply.assert_not_called()
+    send_thinking_reply.assert_not_called()
+    update_reply.assert_not_called()
     generate_reply.assert_not_called()
 
 
@@ -120,6 +148,14 @@ def test_reply_card_contains_three_expected_actions():
         CARD_ACTION_FEEDBACK_DOWN,
         CARD_ACTION_REGENERATE,
     ]
+
+
+def test_thinking_card_has_a_clear_waiting_state():
+    card = build_thinking_card()
+
+    assert card["body"]["elements"][0]["content"] == (
+        "⏳ **正在思考并生成答案…**\n\n正在整理招聘建议，请稍候。"
+    )
 
 
 def test_feedback_is_recorded_once_for_the_original_private_user():

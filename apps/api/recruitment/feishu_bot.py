@@ -14,6 +14,8 @@ from lark_oapi.api.im.v1 import (
     P2ImMessageReceiveV1,
     ReplyMessageRequest,
     ReplyMessageRequestBody,
+    UpdateMessageRequest,
+    UpdateMessageRequestBody,
 )
 from lark_oapi.event.callback.model.p2_card_action_trigger import (
     P2CardActionTrigger,
@@ -28,6 +30,7 @@ SYSTEM_PROMPT = """你是知遇 AI 的招聘助手，在飞书私聊中用简洁
 你目前不能读取候选人、简历、职位、面试或其他招聘系统数据，也不能执行任何业务操作。
 不要编造已查询到的数据、已发送通知或已变更的招聘状态。涉及查看或变更业务数据时，说明当前暂未接通业务数据，并建议用户到招聘后台完成操作。
 回复将显示在飞书卡片中。只使用标题、加粗、无序或有序列表及普通段落这些 Markdown 格式。
+根据语气和内容自然使用 1 至 3 个常见 Emoji；不要在每一行堆叠 Emoji。
 不使用链接、图片、表格、代码块、HTML 标签或按钮。"""
 
 CARD_ACTION_FEEDBACK_UP = "feedback_up"
@@ -125,13 +128,19 @@ def should_reply(event: P2ImMessageReceiveV1) -> bool:
 class FeishuMessageResponder:
     def __init__(
         self,
-        reply: Callable[[str, str], None],
+        reply: Callable[[str, str], str | None],
+        send_thinking_reply: Callable[[str], str | None],
+        update_reply: Callable[[str, str, str], bool],
         generate_reply: Callable[[str], str],
         reply_contexts: ReplyContextStore,
+        schedule: Callable[[Callable[[], None]], None],
     ):
         self._reply = reply
+        self._send_thinking_reply = send_thinking_reply
+        self._update_reply = update_reply
         self._generate_reply = generate_reply
         self._reply_contexts = reply_contexts
+        self._schedule = schedule
 
     def handle(self, event: P2ImMessageReceiveV1) -> None:
         if should_reply(event):
@@ -140,15 +149,25 @@ class FeishuMessageResponder:
                 return
             message_id = event.event.message.message_id
             self._reply_contexts.save(message_id, sender_open_id(event), text)
+            thinking_message_id = self._send_thinking_reply(message_id)
+            self._schedule(lambda: self._generate_and_update(message_id, thinking_message_id, text))
 
-            try:
-                reply = format_for_feishu_card(self._generate_reply(text))
-                if not reply:
-                    raise ValueError("模型未返回可显示的文字")
-            except (OSError, ValueError, KeyError, TypeError) as exc:
-                logger.warning("模型生成飞书回复失败：%s", type(exc).__name__)
-                reply = LLM_UNAVAILABLE_REPLY
-            self._reply(message_id, reply)
+    def _generate_and_update(
+        self, source_message_id: str, thinking_message_id: str | None, text: str
+    ) -> None:
+        try:
+            reply = format_for_feishu_card(self._generate_reply(text))
+            if not reply:
+                raise ValueError("模型未返回可显示的文字")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            logger.warning("模型生成飞书回复失败：%s", type(exc).__name__)
+            reply = LLM_UNAVAILABLE_REPLY
+
+        if thinking_message_id and self._update_reply(
+            thinking_message_id, source_message_id, reply
+        ):
+            return
+        self._reply(source_message_id, reply)
 
 
 def extract_text(content: str | None) -> str:
@@ -214,6 +233,21 @@ def build_reply_card(markdown: str, source_message_id: str) -> dict:
     }
 
 
+def build_thinking_card() -> dict:
+    return {
+        "schema": "2.0",
+        "config": {"wide_screen_mode": True},
+        "body": {
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": "⏳ **正在思考并生成答案…**\n\n正在整理招聘建议，请稍候。",
+                }
+            ]
+        },
+    }
+
+
 class OpenAICompatibleChat:
     def __init__(self, *, base_url: str, api_key: str, model: str):
         self._endpoint = f"{base_url.rstrip('/')}/chat/completions"
@@ -253,14 +287,14 @@ class OpenAICompatibleChat:
         return response_text.strip()
 
 
-def send_card_reply(client: lark.Client, message_id: str, markdown: str) -> None:
+def send_interactive_card_reply(client: lark.Client, message_id: str, card: dict) -> str | None:
     request = (
         ReplyMessageRequest.builder()
         .message_id(message_id)
         .request_body(
             ReplyMessageRequestBody.builder()
             .msg_type("interactive")
-            .content(json.dumps(build_reply_card(markdown, message_id), ensure_ascii=False))
+            .content(json.dumps(card, ensure_ascii=False))
             .build()
         )
         .build()
@@ -268,6 +302,37 @@ def send_card_reply(client: lark.Client, message_id: str, markdown: str) -> None
     response = client.im.v1.message.reply(request)
     if not response.success():
         logger.error("飞书机器人卡片回复失败：code=%s", response.code)
+        return None
+    return getattr(response.data, "message_id", None)
+
+
+def send_card_reply(client: lark.Client, message_id: str, markdown: str) -> str | None:
+    return send_interactive_card_reply(client, message_id, build_reply_card(markdown, message_id))
+
+
+def send_thinking_card_reply(client: lark.Client, message_id: str) -> str | None:
+    return send_interactive_card_reply(client, message_id, build_thinking_card())
+
+
+def update_card_reply(
+    client: lark.Client, card_message_id: str, source_message_id: str, markdown: str
+) -> bool:
+    request = (
+        UpdateMessageRequest.builder()
+        .message_id(card_message_id)
+        .request_body(
+            UpdateMessageRequestBody.builder()
+            .msg_type("interactive")
+            .content(json.dumps(build_reply_card(markdown, source_message_id), ensure_ascii=False))
+            .build()
+        )
+        .build()
+    )
+    response = client.im.v1.message.update(request)
+    if not response.success():
+        logger.error("飞书机器人卡片更新失败：code=%s", response.code)
+        return False
+    return True
 
 
 def card_action_toast(content: str, toast_type: str = "success") -> P2CardActionTriggerResponse:
@@ -363,8 +428,13 @@ def build_long_connection_client(
     reply_contexts = ReplyContextStore()
     responder = FeishuMessageResponder(
         lambda message_id, text: send_card_reply(api_client, message_id, text),
+        lambda message_id: send_thinking_card_reply(api_client, message_id),
+        lambda card_message_id, source_message_id, text: update_card_reply(
+            api_client, card_message_id, source_message_id, text
+        ),
         generate_reply,
         reply_contexts,
+        run_in_background,
     )
     card_action_responder = FeishuCardActionResponder(
         lambda message_id, text: send_card_reply(api_client, message_id, text),
