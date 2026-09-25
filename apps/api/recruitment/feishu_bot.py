@@ -19,6 +19,7 @@ from lark_oapi.event.callback.model.p2_card_action_trigger import (
     P2CardActionTrigger,
     P2CardActionTriggerResponse,
 )
+from lark_oapi.ws.client import HEADER_TYPE, MessageType
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,25 @@ CARD_ACTION_FEEDBACK_UP = "feedback_up"
 CARD_ACTION_FEEDBACK_DOWN = "feedback_down"
 CARD_ACTION_REGENERATE = "regenerate"
 MAX_REPLY_CONTEXTS = 100
+
+
+def normalize_card_callback_transport_frame(frame: object) -> None:
+    """让当前 SDK 将卡片回传沿用已有的事件分派与响应通道。"""
+    for header in getattr(frame, "headers", ()):
+        if (
+            getattr(header, "key", None) == HEADER_TYPE
+            and getattr(header, "value", None) == MessageType.CARD.value
+        ):
+            header.value = MessageType.EVENT.value
+            return
+
+
+class CardCallbackLongConnectionClient(lark.ws.Client):
+    """兼容 lark-oapi 1.7.3 未分派 CARD 帧的问题。"""
+
+    async def _handle_data_frame(self, frame: object) -> None:
+        normalize_card_callback_transport_frame(frame)
+        await super()._handle_data_frame(frame)
 
 
 @dataclass(frozen=True)
@@ -357,7 +377,7 @@ def build_long_connection_client(
         .register_p2_card_action_trigger(card_action_responder.handle)
         .build()
     )
-    return lark.ws.Client(
+    return CardCallbackLongConnectionClient(
         app_id,
         app_secret,
         log_level=lark.LogLevel.WARNING,

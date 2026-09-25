@@ -18,7 +18,7 @@ uv run --env-file .env python manage.py runserver 127.0.0.1:8100
 
 ## 飞书机器人本地联调
 
-在飞书开放平台启用“长连接接收事件”、订阅 `im.message.receive_v1` 与 `card.action.trigger`，并在权限管理中开通 `im:message` 和 `im:message:send_as_bot` 后，创建并发布新版本。本机 `.env` 还需要配置不入库的 `LLM_API_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`。保持数据库服务可用，再另开一个终端运行：
+在飞书开放平台的“事件配置”启用“长连接接收事件”并订阅 `im.message.receive_v1`；再切到“回调配置”，同样使用长连接并添加“卡片回传交互” `card.action.trigger`。开通 `im:message` 和 `im:message:send_as_bot` 权限后，创建并发布新版本。本机 `.env` 还需要配置不入库的 `LLM_API_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`。保持数据库服务可用，再另开一个终端运行：
 
 ```sh
 uv run --env-file .env python manage.py run_feishu_bot

@@ -11,6 +11,7 @@ from recruitment.feishu_bot import (
     build_reply_card,
     extract_text,
     format_for_feishu_card,
+    normalize_card_callback_transport_frame,
     should_reply,
 )
 
@@ -92,6 +93,20 @@ def test_card_markdown_keeps_formatting_and_blocks_links_or_card_tags():
         )
         == "**标题**\n- 确认职位\n官网\n&lt;button&gt;危险&lt;/button&gt;"
     )
+
+
+def test_card_callback_transport_frame_reuses_event_dispatching():
+    frame = SimpleNamespace(
+        headers=[
+            SimpleNamespace(key="type", value="card"),
+            SimpleNamespace(key="message_id", value="msg_123"),
+        ]
+    )
+
+    normalize_card_callback_transport_frame(frame)
+
+    assert frame.headers[0].value == "event"
+    assert frame.headers[1].value == "msg_123"
 
 
 def test_reply_card_contains_three_expected_actions():
