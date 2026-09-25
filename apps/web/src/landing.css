@@ -804,6 +804,49 @@
   border-radius: 8px;
   margin-top: 23px;
 }
+.feature-visual--cycle {
+  animation: feature-card-focus 9s ease-in-out infinite;
+  animation-delay: var(--feature-cycle-delay);
+}
+.feature-visual--cycle-01 {
+  --feature-cycle-delay: 0s;
+}
+.feature-visual--cycle-02 {
+  --feature-cycle-delay: 3s;
+}
+.feature-visual--cycle-03 {
+  --feature-cycle-delay: 6s;
+}
+.feature-visual--cycle:not([data-glow-active])::before,
+.feature-visual--cycle:not([data-glow-active])::after,
+.feature-visual--cycle:not([data-glow-active]) > .spotlight-card__glow {
+  animation: feature-card-spotlight 9s ease-in-out infinite;
+  animation-delay: var(--feature-cycle-delay);
+}
+@keyframes feature-card-focus {
+  0%,
+  25% {
+    border-color: color-mix(in srgb, var(--primary) 72%, white);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--primary) 58%, transparent),
+      0 10px 28px color-mix(in srgb, var(--primary) 16%, transparent);
+  }
+  31%,
+  100% {
+    border-color: var(--border);
+    box-shadow: none;
+  }
+}
+@keyframes feature-card-spotlight {
+  0%,
+  25% {
+    opacity: 1;
+  }
+  31%,
+  100% {
+    opacity: 0;
+  }
+}
 .mini-chip {
   font-size: 10px;
   padding: 9px;
@@ -1350,5 +1393,11 @@
   .workflow-reveal {
     opacity: 1 !important;
     transform: none !important;
+  }
+  .feature-visual--cycle,
+  .feature-visual--cycle:not([data-glow-active])::before,
+  .feature-visual--cycle:not([data-glow-active])::after,
+  .feature-visual--cycle:not([data-glow-active]) > .spotlight-card__glow {
+    animation: none;
   }
 }

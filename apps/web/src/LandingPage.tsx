@@ -315,7 +315,12 @@ export default function LandingPage() {
                 <p>{feature.description}</p>
                 <GlowCard
                   customSize
-                  className={cn("feature-visual", feature.visual)}
+                  className={cn(
+                    "feature-visual",
+                    "feature-visual--cycle",
+                    `feature-visual--cycle-${feature.number}`,
+                    feature.visual
+                  )}
                   aria-hidden="true"
                 >
                   {feature.visual === "match" && (
