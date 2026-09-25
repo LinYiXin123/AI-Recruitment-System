@@ -18,7 +18,7 @@ class Command(BaseCommand):
             api_key=settings.LLM_API_KEY,
             model=settings.LLM_MODEL,
         )
-        self.stdout.write("正在连接飞书机器人；保持此终端运行后，私聊文字会交给模型生成回复。")
+        self.stdout.write("正在连接飞书机器人；私聊文字会以可交互的模型回复卡片发送。")
         build_long_connection_client(
             settings.FEISHU_APP_ID,
             settings.FEISHU_APP_SECRET,
