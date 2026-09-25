@@ -72,7 +72,7 @@ test("三个能力示意区的蓝色光晕跟随鼠标，移开后淡出且不�
   ).toBe(true)
 })
 
-test("三张能力卡片的聚焦光效按一、二、三顺序循环", async ({ page }) => {
+test("一束光从左向右依次流过三张能力卡片", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await page.goto("/#features")
   const cards = page.locator("#features .feature-visual.spotlight-card")
@@ -87,9 +87,20 @@ test("三张能力卡片的聚焦光效按一、二、三顺序循环", async ({
 
   await expect.poll(focusState).toEqual([
     expect.objectContaining({ animationDelay: "0s" }),
-    expect.objectContaining({ animationDelay: "3s" }),
-    expect.objectContaining({ animationDelay: "6s" }),
+    expect.objectContaining({ animationDelay: "2.1s" }),
+    expect.objectContaining({ animationDelay: "4.2s" }),
   ])
+
+  const flowX = () =>
+    cards.first().evaluate((element) =>
+      Number.parseFloat(
+        getComputedStyle(element).getPropertyValue("--feature-flow-x")
+      )
+    )
+  await page.waitForTimeout(240)
+  const firstX = await flowX()
+  await page.waitForTimeout(420)
+  expect(await flowX()).toBeGreaterThan(firstX)
 
   await expect
     .poll(() =>
@@ -101,7 +112,7 @@ test("三张能力卡片的聚焦光效按一、二、三顺序循环", async ({
     )
     .toEqual([1, 0, 0])
 
-  await page.waitForTimeout(3000)
+  await page.waitForTimeout(1900)
   await expect
     .poll(() =>
       cards.evaluateAll((elements) =>
@@ -112,7 +123,7 @@ test("三张能力卡片的聚焦光效按一、二、三顺序循环", async ({
     )
     .toEqual([0, 1, 0])
 
-  await page.waitForTimeout(3000)
+  await page.waitForTimeout(2100)
   await expect
     .poll(() =>
       cards.evaluateAll((elements) =>

@@ -804,45 +804,69 @@
   border-radius: 8px;
   margin-top: 23px;
 }
+@property --feature-flow-x {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: -28%;
+}
 .feature-visual--cycle {
-  animation: feature-card-focus 9s ease-in-out infinite;
+  --feature-flow-x: -28%;
+  animation: feature-card-flow 6.3s linear infinite;
   animation-delay: var(--feature-cycle-delay);
 }
 .feature-visual--cycle-01 {
   --feature-cycle-delay: 0s;
 }
 .feature-visual--cycle-02 {
-  --feature-cycle-delay: 3s;
+  --feature-cycle-delay: 2.1s;
 }
 .feature-visual--cycle-03 {
-  --feature-cycle-delay: 6s;
+  --feature-cycle-delay: 4.2s;
+}
+.feature-visual--cycle:not([data-glow-active])::before {
+  background: radial-gradient(
+    circle var(--spotlight-size) at var(--feature-flow-x) 50%,
+    color-mix(in srgb, var(--spotlight-color) 16%, transparent),
+    transparent 75%
+  );
+}
+.feature-visual--cycle:not([data-glow-active])::after,
+.feature-visual--cycle:not([data-glow-active]) > .spotlight-card__glow::before {
+  background: radial-gradient(
+      circle calc(var(--spotlight-size) * 0.75) at var(--feature-flow-x) 50%,
+      var(--decoration) 0%,
+      var(--spotlight-color) 25%,
+      transparent 100%
+    )
+    border-box;
 }
 .feature-visual--cycle:not([data-glow-active])::before,
 .feature-visual--cycle:not([data-glow-active])::after,
 .feature-visual--cycle:not([data-glow-active]) > .spotlight-card__glow {
-  animation: feature-card-spotlight 9s ease-in-out infinite;
+  animation: feature-card-flow-visibility 6.3s linear infinite;
   animation-delay: var(--feature-cycle-delay);
 }
-@keyframes feature-card-focus {
-  0%,
-  25% {
-    border-color: color-mix(in srgb, var(--primary) 72%, white);
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--primary) 58%, transparent),
-      0 10px 28px color-mix(in srgb, var(--primary) 16%, transparent);
+@keyframes feature-card-flow {
+  0% {
+    --feature-flow-x: -28%;
   }
-  31%,
+  28% {
+    --feature-flow-x: 128%;
+  }
+  34%,
   100% {
-    border-color: var(--border);
-    box-shadow: none;
+    --feature-flow-x: 128%;
   }
 }
-@keyframes feature-card-spotlight {
-  0%,
-  25% {
+@keyframes feature-card-flow-visibility {
+  0% {
+    opacity: 0;
+  }
+  6%,
+  28% {
     opacity: 1;
   }
-  31%,
+  34%,
   100% {
     opacity: 0;
   }
