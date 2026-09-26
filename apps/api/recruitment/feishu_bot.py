@@ -196,11 +196,15 @@ def format_for_feishu_card(text: str) -> str:
 
 
 def build_reply_card(markdown: str, source_message_id: str) -> dict:
-    def button(label: str, action: str) -> dict:
+    def button(icon: str, hint: str, action: str) -> dict:
         return {
             "tag": "button",
-            "text": {"tag": "plain_text", "content": label},
-            "type": "default",
+            # 飞书卡片按钮的 text 为必填字段；空白文本让按钮只展示图标。
+            "text": {"tag": "plain_text", "content": " "},
+            "type": "text",
+            "size": "small",
+            "icon": {"tag": "standard_icon", "token": icon},
+            "hover_tips": {"tag": "plain_text", "content": hint},
             "value": {"action": action, "source_message_id": source_message_id},
         }
 
@@ -210,21 +214,32 @@ def build_reply_card(markdown: str, source_message_id: str) -> dict:
         "body": {
             "elements": [
                 {"tag": "markdown", "content": markdown},
-                {"tag": "hr"},
                 {
                     "tag": "column_set",
+                    "flex_mode": "none",
+                    "horizontal_align": "right",
+                    "horizontal_spacing": "8px",
                     "columns": [
                         {
                             "tag": "column",
-                            "elements": [button("👍 有帮助", CARD_ACTION_FEEDBACK_UP)],
+                            "width": "auto",
+                            "elements": [
+                                button("thumbsup_outlined", "有帮助", CARD_ACTION_FEEDBACK_UP)
+                            ],
                         },
                         {
                             "tag": "column",
-                            "elements": [button("👎 没帮助", CARD_ACTION_FEEDBACK_DOWN)],
+                            "width": "auto",
+                            "elements": [
+                                button("thumbdown_outlined", "没帮助", CARD_ACTION_FEEDBACK_DOWN)
+                            ],
                         },
                         {
                             "tag": "column",
-                            "elements": [button("↻ 重新生成", CARD_ACTION_REGENERATE)],
+                            "width": "auto",
+                            "elements": [
+                                button("refresh_outlined", "重新生成", CARD_ACTION_REGENERATE)
+                            ],
                         },
                     ],
                 },

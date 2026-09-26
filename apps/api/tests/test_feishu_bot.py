@@ -139,17 +139,28 @@ def test_card_callback_transport_frame_reuses_event_dispatching():
     assert frame.headers[1].value == "msg_123"
 
 
-def test_reply_card_contains_three_expected_actions():
+def test_reply_card_contains_three_right_aligned_icon_actions():
     card = build_reply_card("**招聘建议**", "om_test_message")
 
     assert card["schema"] == "2.0"
     assert card["body"]["elements"][0] == {"tag": "markdown", "content": "**招聘建议**"}
-    buttons = card["body"]["elements"][2]["columns"]
+    action_bar = card["body"]["elements"][1]
+    assert action_bar["flex_mode"] == "none"
+    assert action_bar["horizontal_align"] == "right"
+    buttons = action_bar["columns"]
     assert [column["elements"][0]["value"]["action"] for column in buttons] == [
         CARD_ACTION_FEEDBACK_UP,
         CARD_ACTION_FEEDBACK_DOWN,
         CARD_ACTION_REGENERATE,
     ]
+    assert [column["elements"][0]["icon"]["token"] for column in buttons] == [
+        "thumbsup_outlined",
+        "thumbdown_outlined",
+        "refresh_outlined",
+    ]
+    assert all(column["width"] == "auto" for column in buttons)
+    assert all(column["elements"][0]["text"]["content"] == " " for column in buttons)
+    assert all(column["elements"][0]["type"] == "text" for column in buttons)
 
 
 def test_thinking_card_has_a_clear_waiting_state():
