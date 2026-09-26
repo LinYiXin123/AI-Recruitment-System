@@ -12,10 +12,10 @@ from threading import Lock, Thread
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
     P2ImMessageReceiveV1,
+    PatchMessageRequest,
+    PatchMessageRequestBody,
     ReplyMessageRequest,
     ReplyMessageRequestBody,
-    UpdateMessageRequest,
-    UpdateMessageRequestBody,
 )
 from lark_oapi.event.callback.model.p2_card_action_trigger import (
     P2CardActionTrigger,
@@ -318,17 +318,16 @@ def update_card_reply(
     client: lark.Client, card_message_id: str, source_message_id: str, markdown: str
 ) -> bool:
     request = (
-        UpdateMessageRequest.builder()
+        PatchMessageRequest.builder()
         .message_id(card_message_id)
         .request_body(
-            UpdateMessageRequestBody.builder()
-            .msg_type("interactive")
+            PatchMessageRequestBody.builder()
             .content(json.dumps(build_reply_card(markdown, source_message_id), ensure_ascii=False))
             .build()
         )
         .build()
     )
-    response = client.im.v1.message.update(request)
+    response = client.im.v1.message.patch(request)
     if not response.success():
         logger.error("飞书机器人卡片更新失败：code=%s", response.code)
         return False

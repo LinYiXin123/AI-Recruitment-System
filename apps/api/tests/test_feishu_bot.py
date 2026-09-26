@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -14,6 +15,7 @@ from recruitment.feishu_bot import (
     format_for_feishu_card,
     normalize_card_callback_transport_frame,
     should_reply,
+    update_card_reply,
 )
 
 
@@ -156,6 +158,22 @@ def test_thinking_card_has_a_clear_waiting_state():
     assert card["body"]["elements"][0]["content"] == (
         "⏳ **正在思考并生成答案…**\n\n正在整理招聘建议，请稍候。"
     )
+
+
+def test_thinking_card_is_updated_with_the_patch_message_api():
+    client = Mock()
+    client.im.v1.message.patch.return_value = SimpleNamespace(success=lambda: True)
+
+    updated = update_card_reply(client, "om_thinking_card", "om_source", "**招聘建议**")
+
+    assert updated is True
+    request = client.im.v1.message.patch.call_args.args[0]
+    assert request.message_id == "om_thinking_card"
+    assert json.loads(request.request_body.content)["body"]["elements"][0] == {
+        "tag": "markdown",
+        "content": "**招聘建议**",
+    }
+    client.im.v1.message.update.assert_not_called()
 
 
 def test_feedback_is_recorded_once_for_the_original_private_user():
