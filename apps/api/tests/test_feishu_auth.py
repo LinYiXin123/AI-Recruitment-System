@@ -35,11 +35,9 @@ class FeishuResponse:
 
 
 def create_bound_identity():
-    user = get_user_model().objects.create_user("feishu_hr", password="unused-password")
-    organization = Organization.objects.create(name="飞书测试组织")
-    Membership.objects.create(user=user, organization=organization)
+    membership = create_hr_membership("feishu_hr")
     return FeishuIdentity.objects.create(
-        user=user,
+        user=membership.user,
         app_id=FEISHU_SETTINGS["FEISHU_APP_ID"],
         open_id="ou_test_user",
     )
@@ -78,6 +76,7 @@ def test_feishu_login_exchanges_code_and_uses_existing_membership():
                     "open_id": identity.open_id,
                     "union_id": "on_test_user",
                     "name": "飞书 HR",
+                    "avatar_url": "https://avatar.example.test/hr.png",
                     "email": "hr@example.test",
                 },
             }
@@ -106,7 +105,14 @@ def test_feishu_login_exchanges_code_and_uses_existing_membership():
     assert identity.display_name == "飞书 HR"
     assert identity.union_id == "on_test_user"
     assert identity.last_authenticated_at is not None
-    assert client.get("/api/v1/me/").status_code == 200
+    assert identity.avatar_url == "https://avatar.example.test/hr.png"
+    profile = client.get("/api/v1/me/").json()
+    assert profile["name"] == "飞书 HR"
+    assert profile["avatar_url"] == identity.avatar_url
+    assert profile["auth_source"] == "feishu"
+    assert profile["roles"] == ["hr"]
+    assert "open_id" not in profile and "email" not in profile
+    assert client.session["feishu_identity_id"] == identity.id
 
 
 @override_settings(
@@ -159,3 +165,106 @@ def test_feishu_login_does_not_grant_unbound_account_access():
     assert response.status_code == 403
     assert "尚未获得" in response.json()["errors"]["detail"]
     assert "_auth_user_id" not in client.session
+
+
+@pytest.mark.parametrize(
+    "avatar",
+    [
+        None,
+        "",
+        "http://avatar.example.test/hr.png",
+        "javascript:alert(1)",
+        "https://user:secret@avatar.example.test/hr.png",
+        "https://avatar.example.test/" + "a" * 2048,
+    ],
+)
+@override_settings(**FEISHU_SETTINGS)
+def test_missing_or_unsafe_avatar_does_not_block_login(avatar):
+    identity = create_bound_identity()
+    identity.avatar_url = "https://avatar.example.test/old.png"
+    identity.save()
+    client = Client()
+    state = login_state(client)
+    responses = [
+        FeishuResponse({"code": 0, "app_access_token": "test-app-token"}),
+        FeishuResponse({"code": 0, "data": {"access_token": "test-token"}}),
+        FeishuResponse({"code": 0, "data": {"open_id": identity.open_id, "avatar_url": avatar}}),
+    ]
+    with patch("recruitment.auth.urlrequest.urlopen", side_effect=responses):
+        response = client.get("/api/v1/auth/login/", {"code": "test-code", "state": state})
+    assert response.status_code == 302
+    profile = client.get("/api/v1/me/").json()
+    assert profile["avatar_url"] == ""
+    assert profile["name"] == "feishu_hr"
+    assert profile["roles"] == ["hr"]
+
+
+@override_settings(**FEISHU_SETTINGS)
+def test_local_login_does_not_display_bound_feishu_identity():
+    identity = create_bound_identity()
+    identity.display_name = "飞书身份"
+    identity.avatar_url = "https://avatar.example.test/hr.png"
+    identity.save()
+    client = Client()
+    client.force_login(identity.user)
+    session = client.session
+    session["membership_id"] = Membership.objects.get(user=identity.user).id
+    session["feishu_identity_id"] = identity.id
+    session.save()
+    assert client.get("/api/v1/me/").json()["name"] == "飞书身份"
+    response = client.post(
+        "/api/v1/auth/login/",
+        {"username": "feishu_hr", "password": "unused-password"},
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    profile = client.get("/api/v1/me/").json()
+    assert profile["name"] == "feishu_hr"
+    assert profile["avatar_url"] == ""
+    assert profile["auth_source"] == "local"
+    assert "feishu_identity_id" not in client.session
+
+
+@pytest.mark.parametrize("mismatch", ["user", "app"])
+@override_settings(**FEISHU_SETTINGS)
+def test_profile_identity_must_match_current_user_and_app(mismatch):
+    identity = create_bound_identity()
+    membership = Membership.objects.get(user=identity.user)
+    if mismatch == "user":
+        membership = create_hr_membership("different_user")
+    else:
+        identity.app_id = "another_app"
+        identity.save()
+    client = Client()
+    client.force_login(membership.user)
+    session = client.session
+    session["membership_id"] = membership.id
+    session["feishu_identity_id"] = identity.id
+    session.save()
+    profile = client.get("/api/v1/me/").json()
+    assert profile["auth_source"] == "local"
+    assert profile["avatar_url"] == ""
+
+
+@override_settings(PUBLIC_HOME_URL="http://localhost:5173/")
+def test_logout_clears_session_and_returns_configured_home_with_csrf_protection():
+    membership = create_hr_membership()
+    client = Client(enforce_csrf_checks=True)
+    client.force_login(membership.user)
+    session = client.session
+    session["membership_id"] = membership.id
+    session["feishu_identity_id"] = 1
+    session.save()
+    config = client.get("/api/v1/auth/csrf/").json()
+    assert config["home_url"] == "http://localhost:5173/"
+    assert client.post("/api/v1/auth/logout/").status_code == 403
+    assert client.get("/api/v1/me/").status_code == 200
+    response = client.post(
+        "/api/v1/auth/logout/?next=https://other.example.test/",
+        HTTP_X_CSRFTOKEN=config["csrfToken"],
+    )
+    assert response.status_code == 200
+    assert response.json()["redirect_url"] == "http://localhost:5173/"
+    assert "_auth_user_id" not in client.session
+    assert "feishu_identity_id" not in client.session
+    assert client.get("/api/v1/me/").status_code == 403

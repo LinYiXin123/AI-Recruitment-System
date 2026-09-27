@@ -2,7 +2,6 @@ import {
   BriefcaseBusiness,
   CalendarDays,
   ChevronRight,
-  CircleCheck,
   LogOut,
   Plus,
   ShieldCheck,
@@ -10,10 +9,9 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { ErrorNotice, Loading } from '@/components/feedback';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
 import { ApiError, api, type Me } from '@/lib/api';
 import { ApplicationDetail, Candidates } from '@/pages/intake';
 import { Interviews } from '@/pages/interviews';
@@ -30,6 +28,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const [local, setLocal] = useState(false);
+  const [homeUrl, setHomeUrl] = useState('');
   const [route, setRoute] = useState(routeFromHash);
   const [applicationId, setApplicationId] = useState<number | null>(null);
   const [jobId, setJobId] = useState<number | null>(null);
@@ -45,13 +44,15 @@ export default function App() {
     setReady(false);
     setError('');
     try {
-      const config = await api<{ local_environment: boolean }>('auth/csrf/');
+      const config = await api<{ local_environment: boolean; home_url: string }>('auth/csrf/');
       setLocal(config.local_environment);
+      setHomeUrl(config.home_url);
       try {
         setMe(await api<Me>('me/'));
       } catch (e) {
         if (!(e instanceof ApiError && e.status === 403)) throw e;
         setMe(null);
+        window.location.replace(config.home_url);
       }
     } catch (e) {
       setError((e as Error).message);
@@ -62,21 +63,27 @@ export default function App() {
   useEffect(() => {
     void boot();
     const nav = () => setRoute(routeFromHash());
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) void boot();
+    };
     window.addEventListener('hashchange', nav);
-    return () => window.removeEventListener('hashchange', nav);
+    window.addEventListener('pageshow', restore);
+    return () => {
+      window.removeEventListener('hashchange', nav);
+      window.removeEventListener('pageshow', restore);
+    };
   }, [boot]);
-  if (!ready) return <Loading />;
+  if (!ready || (!me && !error)) return <Loading />;
   if (!me)
     return (
-      <Login
-        local={local}
-        error={error}
-        retry={boot}
-        onLogin={async () => {
-          setMe(await api<Me>('me/'));
-          setError('');
-        }}
-      />
+      <main>
+        <ErrorNotice message={error} retry={boot} />
+        {homeUrl && (
+          <a className="text-primary underline underline-offset-4" href={homeUrl}>
+            返回首页
+          </a>
+        )}
+      </main>
     );
   const roleNames: Record<string, string> = {
     hr: 'HR',
@@ -138,11 +145,27 @@ export default function App() {
                   : '面试'}
           </span>
           <div className="account">
-            {local && <Badge variant="outline">本地体验</Badge>}
-            <span>
-              {me.name}
-              <small>{me.roles.map((r) => roleNames[r] || r).join(' / ') || '暂无招聘职责'}</small>
-            </span>
+            {local && me.auth_source !== 'feishu' && <Badge variant="outline">本地体验</Badge>}
+            <div className="account-profile">
+              <Avatar size="lg">
+                {me.avatar_url && (
+                  <AvatarImage
+                    src={me.avatar_url}
+                    alt={`${me.name}的头像`}
+                    referrerPolicy="no-referrer"
+                  />
+                )}
+                <AvatarFallback>{Array.from(me.name.trim())[0] || '我'}</AvatarFallback>
+              </Avatar>
+              <span className="account-details">
+                <span className="account-name" title={me.name}>
+                  {me.name}
+                </span>
+                <small>
+                  {me.roles.map((r) => roleNames[r] || r).join(' / ') || '暂无招聘职责'}
+                </small>
+              </span>
+            </div>
             <Button
               variant="ghost"
               size="icon"
@@ -151,11 +174,10 @@ export default function App() {
               onClick={async () => {
                 setLeaving(true);
                 try {
-                  await api('auth/logout/', {});
+                  const result = await api<{ redirect_url: string }>('auth/logout/', {});
                   setMe(null);
-                  setJobId(null);
-                  setApplicationId(null);
-                  window.location.hash = 'today';
+                  setError('');
+                  window.location.replace(result.redirect_url);
                 } catch (e) {
                   setError((e as Error).message);
                 } finally {
@@ -258,112 +280,6 @@ export default function App() {
           changed={() => setRevision((r) => r + 1)}
         />
       )}
-    </div>
-  );
-}
-
-function Login({
-  local,
-  error,
-  retry,
-  onLogin,
-}: {
-  local: boolean;
-  error: string;
-  retry: () => void;
-  onLogin: () => Promise<void>;
-}) {
-  const [failure, setFailure] = useState('');
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="login-page">
-      <section className="login-story">
-        <div className="brand">
-          <BriefcaseBusiness />
-          <strong>知遇 AI</strong>
-        </div>
-        <p className="eyebrow">让合适的人，遇见合适的机会</p>
-        <h1>
-          招人有方向，
-          <br />
-          协作有回应。
-        </h1>
-        <p>
-          从明确招人要求开始，
-          <br />
-          让每一次判断都有依据，每一步都有接手的人。
-        </p>
-        <div className="login-points">
-          <span>
-            <CircleCheck />
-            明确要求
-          </span>
-          <span>
-            <CircleCheck />
-            共同确认
-          </span>
-          <span>
-            <CircleCheck />
-            保留依据
-          </span>
-        </div>
-      </section>
-      <section className="login-card">
-        <Badge variant="secondary">招聘工作台</Badge>
-        <h2>欢迎回来</h2>
-        <p>使用团队分配的账号登录。</p>
-        {local && <p className="local-note">本地开发体验环境 · 请勿录入真实候选人资料</p>}
-        {error ? <ErrorNotice message={error} retry={retry} /> : null}
-        {failure && <ErrorNotice message={failure} />}
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const data = new FormData(e.currentTarget);
-            setBusy(true);
-            setFailure('');
-            try {
-              await api('auth/csrf/');
-              await api('auth/login/', {
-                username: data.get('username'),
-                password: data.get('password'),
-              });
-              await onLogin();
-            } catch (e) {
-              setFailure((e as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="username">账号</FieldLabel>
-              <Input
-                id="username"
-                name="username"
-                autoComplete="username"
-                required
-                maxLength={150}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="password">密码</FieldLabel>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                maxLength={1024}
-              />
-            </Field>
-            <Button type="submit" disabled={busy || !!error}>
-              {busy ? '正在登录…' : '进入工作台'}
-            </Button>
-          </FieldGroup>
-        </form>
-        <p className="login-help">没有账号或无法登录？请联系团队管理员分配权限。</p>
-      </section>
     </div>
   );
 }

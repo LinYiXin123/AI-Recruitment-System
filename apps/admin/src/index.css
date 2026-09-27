@@ -246,9 +246,24 @@ body {
   display: flex;
   align-items: center;
   gap: 18px;
+  min-width: 0;
 }
-.account > span {
+.account-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.account-details {
   font-size: 13px;
+  min-width: 0;
+  max-width: 220px;
+}
+.account-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .account small {
   display: block;
@@ -609,79 +624,6 @@ main {
   height: 18px;
   flex-shrink: 0;
 }
-.login-page {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  min-height: 100dvh;
-}
-.login-story {
-  background: var(--sidebar);
-  color: white;
-  padding: 55px clamp(35px, 7vw, 110px);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-.login-story .brand {
-  padding: 0;
-  margin-bottom: 80px;
-}
-.login-story .eyebrow {
-  color: #99b3da;
-  margin-bottom: 16px;
-}
-.login-story h1 {
-  font-size: clamp(32px, 3.3vw, 50px);
-  line-height: 1.45;
-}
-.login-story > p:not(.eyebrow) {
-  color: #bacbe6;
-  line-height: 2;
-  margin-top: 22px;
-}
-.login-points {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  margin-top: 70px;
-  font-size: 12px;
-  color: #bacbe6;
-}
-.login-points span {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.login-points svg {
-  width: 16px;
-  height: 16px;
-}
-.login-card {
-  align-self: center;
-  width: min(100% - 64px, 390px);
-  margin: 40px auto;
-}
-.login-card h2 {
-  font-size: 28px;
-  margin-top: 22px;
-}
-.login-card > p {
-  color: var(--muted-foreground);
-  margin: 10px 0 25px;
-}
-.login-card form {
-  margin-top: 28px;
-}
-.login-card .local-note {
-  font-size: 12px;
-  padding: 10px 12px;
-  background: var(--secondary);
-  border-radius: 6px;
-}
-.login-card .login-help {
-  font-size: 12px;
-  margin-top: 24px;
-}
 .skip-link {
   position: fixed;
   left: 230px;
@@ -813,28 +755,6 @@ main {
   }
   .section-heading {
     flex-wrap: wrap;
-  }
-  .login-page {
-    grid-template-columns: 1fr;
-  }
-  .login-story {
-    padding: 28px;
-  }
-  .login-story .brand {
-    margin-bottom: 30px;
-  }
-  .login-story h1 {
-    font-size: 29px;
-  }
-  .login-story > p:not(.eyebrow),
-  .login-points {
-    display: none;
-  }
-  .login-card {
-    margin: 28px auto;
-  }
-  .login-card h2 {
-    font-size: 23px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

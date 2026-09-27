@@ -1,12 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
+import { login } from './helpers';
 
-async function login(page: Page, name = 'local_hr') {
-  await page.goto('/');
-  await page.getByLabel('账号', { exact: true }).fill(name);
-  await page.getByLabel('密码', { exact: true }).fill('only-e2e-password-123');
-  await page.getByRole('button', { name: '进入工作台' }).click();
-  await expect(page.getByRole('heading', { name: '从今天的重要事项开始' })).toBeVisible();
-}
 async function post(page: Page, path: string, body: unknown) {
   const config = await (await page.request.get('/api/v1/auth/csrf/')).json();
   const r = await page.request.post(`/api/v1/${path}`, {

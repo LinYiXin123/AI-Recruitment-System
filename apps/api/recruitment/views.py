@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -7,6 +8,8 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
+
+from identity.models import FeishuIdentity
 
 from .access import can_confirm, can_edit, department_ids, member, visible_jobs
 from .errors import Conflict
@@ -40,6 +43,11 @@ from .serializers import (
 @api_view(["GET"])
 def me(request):
     m = member(request)
+    identity = FeishuIdentity.objects.filter(
+        pk=request.session.get("feishu_identity_id"),
+        user=request.user,
+        app_id=settings.FEISHU_APP_ID,
+    ).first()
     departments = Department.objects.filter(pk__in=department_ids(m, ["hr"]))
     options = []
     for d in departments:
@@ -62,7 +70,9 @@ def me(request):
         )
     return Response(
         {
-            "name": display_name(m),
+            "name": (identity.display_name if identity else "") or display_name(m),
+            "avatar_url": identity.avatar_url if identity else "",
+            "auth_source": "feishu" if identity else "local",
             "organization": m.organization.name,
             "roles": list(m.roles.values_list("role", flat=True).distinct()),
             "departments": options,

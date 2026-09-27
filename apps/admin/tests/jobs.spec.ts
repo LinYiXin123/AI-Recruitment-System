@@ -1,12 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
+import { login } from './helpers';
 
-async function login(page: Page, username = 'local_hr') {
-  await page.goto('/');
-  await page.getByLabel('账号', { exact: true }).fill(username);
-  await page.getByLabel('密码', { exact: true }).fill('only-e2e-password-123');
-  await page.getByRole('button', { name: '进入工作台' }).click();
-  await expect(page.getByRole('heading', { name: '从今天的重要事项开始' })).toBeVisible();
-}
 async function createJob(page: Page, title: string) {
   await page.getByRole('button', { name: '新建职位', exact: true }).click();
   await page.getByLabel('职位名称').fill(title);
@@ -121,15 +115,17 @@ test('失败后保留表单、恢复保存与窄屏操作', async ({ page }) => 
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
-test('未授权 HR 看不到他人职位，退出后恢复登录', async ({ page }) => {
+test('未授权 HR 看不到他人职位，退出后返回公共首页', async ({ page }) => {
   await login(page, 'local_other_hr');
   await page.getByRole('link', { name: '职位', exact: true }).click();
   await expect(page.getByText('从第一个职位开始')).toBeVisible();
   await page.getByLabel('搜索职位或地点').fill('产品经理');
   await expect(page.getByText('没有符合条件的职位')).toBeVisible();
   await page.getByRole('button', { name: '退出登录' }).click();
+  await expect(page).toHaveURL('http://127.0.0.1:5176/');
   await page.reload();
-  await expect(page.getByRole('button', { name: '进入工作台' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '开启知遇之旅' })).toBeVisible();
+  expect((await page.request.get('/api/v1/me/')).status()).toBe(403);
 });
 
 test('负责人要求补充后，HR 待办完成并重新送审', async ({ page, browser }) => {

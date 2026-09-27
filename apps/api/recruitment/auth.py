@@ -7,6 +7,8 @@ from urllib import request as urlrequest
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
+from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import transaction
 from django.http import HttpResponseRedirect, JsonResponse
 from django.middleware.csrf import get_token
@@ -27,7 +29,13 @@ EXPERIENCE_ORGANIZATION = "知遇体验团队（虚构）"
 
 @require_GET
 def csrf(request):
-    return JsonResponse({"csrfToken": get_token(request), "local_environment": settings.DEBUG})
+    return JsonResponse(
+        {
+            "csrfToken": get_token(request),
+            "local_environment": settings.DEBUG,
+            "home_url": settings.PUBLIC_HOME_URL,
+        }
+    )
 
 
 def csrf_failure(request, reason=""):
@@ -171,12 +179,23 @@ def _finish_feishu_login(request):
         return _feishu_error("该飞书账号尚未获得招聘工作台权限，请联系管理员开通。", status=403)
     identity.union_id = str(user_data.get("union_id") or "")[:128]
     identity.display_name = str(user_data.get("name") or "")[:100]
+    avatar_url = user_data.get("avatar_url")
+    try:
+        if not isinstance(avatar_url, str) or len(avatar_url) > 2048:
+            raise ValidationError("无效的头像地址")
+        URLValidator(schemes=["https"])(avatar_url)
+        if parse.urlsplit(avatar_url).username is not None:
+            raise ValidationError("头像地址不应包含凭据")
+    except ValidationError:
+        avatar_url = ""
+    identity.avatar_url = avatar_url
     identity.email = str(user_data.get("email") or "")[:254]
     identity.last_authenticated_at = timezone.now()
     identity.save(
         update_fields=[
             "union_id",
             "display_name",
+            "avatar_url",
             "email",
             "last_authenticated_at",
             "updated_at",
@@ -184,6 +203,7 @@ def _finish_feishu_login(request):
     )
     login(request, identity.user)
     request.session["membership_id"] = membership.id
+    request.session["feishu_identity_id"] = identity.id
     return HttpResponseRedirect(settings.FEISHU_LOGIN_SUCCESS_URL)
 
 
@@ -238,6 +258,7 @@ def _password_sign_in(request):
         )
     login(request, user)
     request.session["membership_id"] = membership.id
+    request.session.pop("feishu_identity_id", None)
     return JsonResponse({"csrfToken": get_token(request)})
 
 
@@ -275,6 +296,7 @@ def start_local_experience(request):
         )
     login(request, membership.user)
     request.session["membership_id"] = membership.id
+    request.session.pop("feishu_identity_id", None)
     return JsonResponse({"csrfToken": get_token(request), "role": role})
 
 
@@ -282,4 +304,4 @@ def start_local_experience(request):
 @csrf_protect
 def sign_out(request):
     logout(request)
-    return JsonResponse({"csrfToken": get_token(request)})
+    return JsonResponse({"csrfToken": get_token(request), "redirect_url": settings.PUBLIC_HOME_URL})

@@ -12,6 +12,7 @@ const env = {
   DJANGO_DEBUG: '1',
   LOCAL_ACCOUNT_PASSWORD: 'only-e2e-password-123',
   DJANGO_SECRET_KEY: 'e2e-only-key-not-for-deployment',
+  PUBLIC_HOME_URL: 'http://127.0.0.1:5176/',
 };
 export default defineConfig({
   testDir: './tests',
@@ -41,6 +42,13 @@ export default defineConfig({
       command: 'npm run dev -- --port 5175',
       env: { API_TARGET: 'http://127.0.0.1:8101' },
       url: 'http://127.0.0.1:5175',
+      reuseExistingServer: false,
+    },
+    {
+      command: 'npm run dev -- --host 127.0.0.1 --port 5176 --strictPort',
+      cwd: '../web',
+      env: { API_TARGET: 'http://127.0.0.1:8101' },
+      url: 'http://127.0.0.1:5176',
       reuseExistingServer: false,
     },
   ],

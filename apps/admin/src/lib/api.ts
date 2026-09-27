@@ -68,6 +68,8 @@ export type Clarification = {
 export type Person = { id: number; name: string };
 export type Me = {
   name: string;
+  avatar_url: string;
+  auth_source: 'feishu' | 'local';
   organization: string;
   roles: string[];
   departments: { id: number; name: string; approvers: Person[]; collaborators: Person[] }[];

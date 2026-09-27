@@ -47,6 +47,7 @@ CSRF_COOKIE_NAME = "recruitment_csrf"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_SSL_REDIRECT = not DEBUG
 CSRF_FAILURE_VIEW = "recruitment.auth.csrf_failure"
+PUBLIC_HOME_URL = os.environ.get("PUBLIC_HOME_URL", "http://localhost:5173/" if DEBUG else "/")
 FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID", "")
 FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "")
 FEISHU_REDIRECT_URI = os.environ.get("FEISHU_REDIRECT_URI", "")

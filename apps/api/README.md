@@ -16,6 +16,14 @@ uv run --env-file .env python manage.py runserver 127.0.0.1:8100
 
 `local_database.py` 复用当前 PostgreSQL 安装，仅为本项目建立独立实例：数据目录在工作副本 `.local/postgres`，只监听 `127.0.0.1:55432`。首次运行生成随机数据库密码、Django 密钥和本地体验密码，写入权限受限且不入库的 `.env` 与 `.local/体验账号.txt`。再次执行不覆盖已有配置。需要 PostgreSQL 可执行文件；macOS 可识别 Homebrew 的 `postgresql@18`。
 
+## 飞书网页登录与退出
+
+公共首页统一发起 `GET /api/v1/auth/login/` 飞书授权，成功后进入 `FEISHU_LOGIN_SUCCESS_URL`。应用凭据只放在服务端 `.env`。`PUBLIC_HOME_URL` 控制未登录访问工作台及退出后的首页地址，本地默认 `http://localhost:5173/`；部署时必须设置为正式公共首页，不能指向工作台本身。
+
+每次成功飞书登录更新已绑定身份的姓名和 HTTPS 头像地址，`me/` 只返回本次登录身份的展示信息，不返回飞书标识、邮箱或令牌。招聘角色仍取自已有组织成员授权；头像缺失不阻断登录。本地密码测试会话不冒用飞书身份，旧会话重新飞书登录后可显示头像。
+
+退出仍使用带 CSRF 校验的 POST，服务端清除会话后返回固定配置的 `redirect_url`，不接受客户端传入跳转地址。账号密码网页已移除；原 POST 登录接口保留用于受控开发测试。
+
 ## 飞书机器人本地联调
 
 在飞书开放平台的“事件配置”启用“长连接接收事件”并订阅 `im.message.receive_v1`；再切到“回调配置”，同样使用长连接并添加“卡片回传交互” `card.action.trigger`。开通 `im:message` 和 `im:message:send_as_bot` 权限后，创建并发布新版本。本机 `.env` 还需要配置不入库的 `LLM_API_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`。保持数据库服务可用，再另开一个终端运行：
@@ -52,9 +60,10 @@ docker compose --env-file apps/api/.env up -d postgres
 
 | 路径 | 方法 | 行为 |
 |---|---|---|
-| `auth/csrf/` | GET | 获取安全凭证及本地环境标记 |
+| `auth/csrf/` | GET | 获取安全凭证、本地环境标记及公共首页地址 |
+| `auth/login/` | GET | 发起飞书登录并处理授权回调 |
 | `auth/login/`、`auth/logout/` | POST | 登录／退出，校验 CSRF；登录按来源及账号限制尝试次数 |
-| `me/` | GET | 当前组织、姓名、职责及建岗可选部门／成员 |
+| `me/` | GET | 当前组织、姓名、头像、登录来源、职责及建岗可选部门／成员 |
 | `jobs/` | GET／POST | 按授权范围分页搜索；创建职位 |
 | `jobs/{id}/` | GET | 职位详情、最新画像及当前可操作权限 |
 | `jobs/{id}/profiles/` | GET／POST | 读取历史；追加 JD 快照和要求版本 |
