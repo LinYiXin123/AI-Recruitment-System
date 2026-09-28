@@ -527,45 +527,67 @@ body {
   border-radius: 12px;
 }
 .candidate-create-modal .semi-modal-body {
-  max-height: min(620px, calc(100dvh - 220px));
+  max-height: min(700px, calc(100dvh - 176px));
   padding: 0 24px 24px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .candidate-create-form {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
+}
+.candidate-resume-field {
+  gap: 6px;
 }
 .candidate-resume-choice {
   width: 100%;
-  min-height: 76px;
-  display: grid;
-  grid-template-columns: 88px 1fr;
-  justify-content: start;
-  gap: 2px 12px;
-  padding: 14px 18px;
+  min-height: 154px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 18px;
   color: var(--foreground);
-  text-align: left;
+  text-align: center;
   white-space: normal;
+  cursor: pointer;
   border-style: dashed;
   border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
   background: color-mix(in srgb, var(--secondary) 68%, var(--card));
 }
-.candidate-resume-choice > span:first-child {
-  grid-row: span 2;
-  font-weight: 600;
+.candidate-resume-choice:hover,
+.candidate-resume-choice.is-dragging {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 11%, var(--card));
 }
-.candidate-resume-choice > span:last-of-type {
-  color: var(--muted-foreground);
+.candidate-resume-choice:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary) 42%, transparent);
+  outline-offset: 2px;
+}
+.candidate-resume-choice:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.candidate-resume-icon {
+  width: 24px;
+  height: 24px;
+  color: color-mix(in srgb, var(--primary) 55%, var(--muted-foreground));
+}
+.candidate-resume-choice > span {
+  color: var(--foreground);
 }
 .candidate-resume-choice strong {
   color: var(--primary);
 }
 .candidate-resume-choice small {
-  grid-column: 2;
   color: var(--muted-foreground);
   font-size: 12px;
   line-height: 1.5;
+}
+.candidate-resume-input {
+  display: none;
 }
 .candidate-create-grid {
   display: grid;
@@ -585,6 +607,19 @@ body {
 .candidate-create-grid input,
 .candidate-create-grid [data-slot="native-select"] {
   height: 42px;
+}
+.candidate-create-grid [data-slot="textarea"] {
+  min-height: 108px;
+  resize: vertical;
+}
+.candidate-create-full {
+  grid-column: 1 / -1;
+}
+.candidate-field-help {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .candidate-create-footer {
   display: flex;

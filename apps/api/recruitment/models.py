@@ -298,6 +298,20 @@ class Candidate(Timestamped):
     phone = models.CharField(max_length=32, blank=True, db_index=True)
     email = models.EmailField(blank=True, db_index=True)
     contact_note = models.CharField(max_length=500, blank=True)
+    gender = models.CharField(max_length=2, blank=True)
+    current_city = models.CharField(max_length=120, blank=True)
+    identity_number = models.CharField(max_length=18, blank=True)
+    birthday = models.CharField(max_length=10, blank=True)
+    intended_role = models.CharField(max_length=200, blank=True)
+    education_level = models.CharField(max_length=20, blank=True)
+    school = models.CharField(max_length=200, blank=True)
+    work_years = models.CharField(max_length=100, blank=True)
+    current_salary = models.CharField(max_length=100, blank=True)
+    expected_salary = models.CharField(max_length=100, blank=True)
+    work_experience = models.TextField(blank=True)
+    education_experience = models.TextField(blank=True)
+    remarks = models.TextField(blank=True)
+    resume_text = models.TextField(blank=True)
     created_by = models.ForeignKey(Membership, on_delete=models.PROTECT)
 
     class Meta:
@@ -312,6 +326,7 @@ class Application(Timestamped):
     attempt_no = models.PositiveIntegerField()
     source = models.CharField(max_length=200)
     stage = models.CharField(max_length=24, default="pending_review")
+    expected_start_date = models.DateField(null=True, blank=True)
     version = models.PositiveIntegerField(default=1)
     closed_at = models.DateTimeField(null=True)
     close_reason = models.CharField(max_length=2000, blank=True)
@@ -339,6 +354,12 @@ class Application(Timestamped):
                         "needs_information",
                         "ready_to_schedule",
                         "interviewing",
+                        "first_interview_passed",
+                        "second_interview",
+                        "second_interview_passed",
+                        "offer_sent",
+                        "hired",
+                        "talent_pool",
                     ],
                     closed_at__isnull=True,
                     close_reason="",
