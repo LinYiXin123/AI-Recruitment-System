@@ -1,7 +1,14 @@
 import Modal from '@douyinfe/semi-ui/lib/es/modal';
 import Table from '@douyinfe/semi-ui/lib/es/table';
-import { BriefcaseBusiness } from 'lucide-react';
-import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useState } from 'react';
+import { BriefcaseBusiness, FileText } from 'lucide-react';
+import {
+  forwardRef,
+  type ReactNode,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -187,7 +194,10 @@ export const Candidates = forwardRef<
   const [notice, setNotice] = useState('');
   const [reload, setReload] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [importing, setImporting] = useState<number | 'new' | null>(null);
+  const [importing, setImporting] = useState<{
+    id: number | 'new';
+    initialFiles?: File[];
+  } | null>(null);
   const [exporting, setExporting] = useState(false);
 
   const query = new URLSearchParams({ page: String(page) });
@@ -421,9 +431,9 @@ export const Candidates = forwardRef<
       {creating && (
         <CreateCandidateDialog
           close={() => setCreating(false)}
-          openImport={() => {
+          openImport={(initialFiles) => {
             setCreating(false);
-            setImporting('new');
+            setImporting({ id: 'new', initialFiles });
           }}
           saved={(application) => {
             setCreating(false);
@@ -434,7 +444,8 @@ export const Candidates = forwardRef<
       )}
       {importing !== null && (
         <ImportDrawer
-          id={importing}
+          id={importing.id}
+          initialFiles={importing.initialFiles}
           close={() => setImporting(null)}
           changed={changed}
           openApplication={(id) => {
@@ -453,19 +464,36 @@ function CreateCandidateDialog({
   saved,
 }: {
   close: () => void;
-  openImport: () => void;
+  openImport: (initialFiles?: File[]) => void;
   saved: (application: number) => void;
 }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [contactNote, setContactNote] = useState('');
+  const [gender, setGender] = useState('');
+  const [currentCity, setCurrentCity] = useState('');
+  const [identityNumber, setIdentityNumber] = useState('');
+  const [birthday, setBirthday] = useState('');
+  const [intendedRole, setIntendedRole] = useState('');
+  const [educationLevel, setEducationLevel] = useState('');
+  const [school, setSchool] = useState('');
+  const [workYears, setWorkYears] = useState('');
+  const [currentSalary, setCurrentSalary] = useState('');
+  const [expectedSalary, setExpectedSalary] = useState('');
+  const [stage, setStage] = useState('pending_review');
+  const [expectedStartDate, setExpectedStartDate] = useState('');
+  const [workExperience, setWorkExperience] = useState('');
+  const [educationExperience, setEducationExperience] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [resumeText, setResumeText] = useState('');
   const [job, setJob] = useState('');
-  const [source, setSource] = useState('人工录入');
+  const [source, setSource] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [draggingResume, setDraggingResume] = useState(false);
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
+  const resumeInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -476,6 +504,20 @@ function CreateCandidateDialog({
       });
     return () => controller.abort();
   }, []);
+
+  function importSelectedResume(list: FileList | File[]) {
+    const files = Array.from(list);
+    if (files.length !== 1) {
+      setError('请一次选择一份简历文件。');
+      return;
+    }
+    if (!files[0].size || files[0].size > 10 * 1024 * 1024) {
+      setError('单份简历须为非空文件，且不超过 10MB。');
+      return;
+    }
+    setError('');
+    openImport(files);
+  }
 
   return (
     <Modal
@@ -492,7 +534,7 @@ function CreateCandidateDialog({
           <Button type="button" variant="outline" disabled={busy} onClick={close}>
             取消
           </Button>
-          <Button type="submit" form="create-candidate-form" disabled={busy || !job}>
+          <Button type="submit" form="create-candidate-form" disabled={busy || !job || !source}>
             {busy ? '正在保存…' : '保存'}
           </Button>
         </div>
@@ -511,7 +553,23 @@ function CreateCandidateDialog({
               display_name: name,
               phone,
               email,
-              contact_note: contactNote,
+              contact_note: '',
+              gender,
+              current_city: currentCity,
+              identity_number: identityNumber,
+              birthday,
+              intended_role: intendedRole,
+              education_level: educationLevel,
+              school,
+              work_years: workYears,
+              current_salary: currentSalary,
+              expected_salary: expectedSalary,
+              stage,
+              expected_start_date: expectedStartDate || null,
+              work_experience: workExperience,
+              education_experience: educationExperience,
+              remarks,
+              resume_text: resumeText,
               job: Number(job),
               source,
             });
@@ -524,19 +582,44 @@ function CreateCandidateDialog({
           }
         }}
       >
-        <Button
-          type="button"
-          variant="outline"
-          className="candidate-resume-choice"
-          onClick={openImport}
-          disabled={busy}
-        >
-          <span>简历文件</span>
-          <span>
-            拖拽简历到此处，或 <strong>点击选择文件</strong>
-          </span>
-          <small>支持 PDF、Word、纯文本和图片；导入后会先进行文字提取与身份核对。</small>
-        </Button>
+        <Field className="candidate-resume-field">
+          <FieldLabel>简历文件</FieldLabel>
+          <button
+            type="button"
+            className={`candidate-resume-choice${draggingResume ? ' is-dragging' : ''}`}
+            disabled={busy}
+            onClick={() => resumeInput.current?.click()}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDraggingResume(true);
+            }}
+            onDragLeave={() => setDraggingResume(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDraggingResume(false);
+              importSelectedResume(event.dataTransfer.files);
+            }}
+          >
+            <FileText aria-hidden="true" className="candidate-resume-icon" />
+            <span>
+              拖拽简历到此处，或 <strong>点击选择文件</strong>
+            </span>
+            <small>可自动识别：PDF（文字型）/ Word(.docx) / 纯文本 / 图片(.jpg/.png，OCR)</small>
+            <small>仅保存附件：旧版 Word(.doc)</small>
+            <small>单文件 ≤ 10MB</small>
+          </button>
+          <Input
+            ref={resumeInput}
+            className="candidate-resume-input"
+            type="file"
+            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
+            onChange={(event) => {
+              if (event.target.files) importSelectedResume(event.target.files);
+              event.target.value = '';
+            }}
+            disabled={busy}
+          />
+        </Field>
         {error && <ErrorNotice message={error} />}
         <FieldGroup className="candidate-create-grid">
           <Field>
@@ -563,15 +646,17 @@ function CreateCandidateDialog({
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="new-candidate-contact-note">联系方式说明</FieldLabel>
-            <Input
-              id="new-candidate-contact-note"
-              value={contactNote}
-              onChange={(event) => setContactNote(event.target.value)}
-              placeholder="没有联系方式时请说明待补充情况"
-              maxLength={500}
+            <FieldLabel htmlFor="new-candidate-gender">性别</FieldLabel>
+            <NativeSelect
+              id="new-candidate-gender"
+              value={gender}
+              onChange={(event) => setGender(event.target.value)}
               disabled={busy}
-            />
+            >
+              <NativeSelectOption value="">请选择</NativeSelectOption>
+              <NativeSelectOption value="男">男</NativeSelectOption>
+              <NativeSelectOption value="女">女</NativeSelectOption>
+            </NativeSelect>
           </Field>
           <Field>
             <FieldLabel htmlFor="new-candidate-email">邮箱</FieldLabel>
@@ -585,7 +670,39 @@ function CreateCandidateDialog({
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="new-candidate-job">应聘职位 *</FieldLabel>
+            <FieldLabel htmlFor="new-candidate-city">现居城市</FieldLabel>
+            <Input
+              id="new-candidate-city"
+              value={currentCity}
+              onChange={(event) => setCurrentCity(event.target.value)}
+              maxLength={120}
+              disabled={busy}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-identity-number">身份证号</FieldLabel>
+            <Input
+              id="new-candidate-identity-number"
+              value={identityNumber}
+              onChange={(event) => setIdentityNumber(event.target.value)}
+              placeholder="18 位，选填"
+              maxLength={18}
+              disabled={busy}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-birthday">生日</FieldLabel>
+            <Input
+              id="new-candidate-birthday"
+              value={birthday}
+              onChange={(event) => setBirthday(event.target.value)}
+              placeholder="如 09-28，或 1998-09-28（留空则按身份证号自动推算）"
+              maxLength={10}
+              disabled={busy}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-job">应聘职位</FieldLabel>
             <NativeSelect
               id="new-candidate-job"
               value={job}
@@ -602,18 +719,175 @@ function CreateCandidateDialog({
             </NativeSelect>
           </Field>
           <Field>
+            <FieldLabel htmlFor="new-candidate-intended-role">意向岗位（简历识别）</FieldLabel>
+            <Input
+              id="new-candidate-intended-role"
+              value={intendedRole}
+              onChange={(event) => setIntendedRole(event.target.value)}
+              placeholder="如：前端工程师（来自简历识别，可改）"
+              maxLength={200}
+              disabled={busy}
+            />
+          </Field>
+          <Field>
             <FieldLabel htmlFor="new-candidate-source">简历来源</FieldLabel>
             <NativeSelect
               id="new-candidate-source"
               value={source}
               onChange={(event) => setSource(event.target.value)}
+              required
               disabled={busy}
             >
-              <NativeSelectOption value="人工录入">人工录入</NativeSelectOption>
-              <NativeSelectOption value="本人投递">本人投递</NativeSelectOption>
-              <NativeSelectOption value="员工推荐">员工推荐</NativeSelectOption>
+              <NativeSelectOption value="">请选择</NativeSelectOption>
+              <NativeSelectOption value="BOSS直聘">BOSS直聘</NativeSelectOption>
+              <NativeSelectOption value="智联招聘">智联招聘</NativeSelectOption>
+              <NativeSelectOption value="前程无忧">前程无忧</NativeSelectOption>
+              <NativeSelectOption value="猎聘">猎聘</NativeSelectOption>
+              <NativeSelectOption value="拉勾">拉勾</NativeSelectOption>
+              <NativeSelectOption value="内推">内推</NativeSelectOption>
               <NativeSelectOption value="猎头推荐">猎头推荐</NativeSelectOption>
+              <NativeSelectOption value="校园招聘">校园招聘</NativeSelectOption>
+              <NativeSelectOption value="官网投递">官网投递</NativeSelectOption>
+              <NativeSelectOption value="其他">其他</NativeSelectOption>
             </NativeSelect>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-education-level">最高学历</FieldLabel>
+            <NativeSelect
+              id="new-candidate-education-level"
+              value={educationLevel}
+              onChange={(event) => setEducationLevel(event.target.value)}
+              disabled={busy}
+            >
+              <NativeSelectOption value="">请选择</NativeSelectOption>
+              <NativeSelectOption value="高中及以下">高中及以下</NativeSelectOption>
+              <NativeSelectOption value="大专">大专</NativeSelectOption>
+              <NativeSelectOption value="本科">本科</NativeSelectOption>
+              <NativeSelectOption value="硕士">硕士</NativeSelectOption>
+              <NativeSelectOption value="博士">博士</NativeSelectOption>
+              <NativeSelectOption value="其他">其他</NativeSelectOption>
+            </NativeSelect>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-school">毕业院校</FieldLabel>
+            <Input
+              id="new-candidate-school"
+              value={school}
+              onChange={(event) => setSchool(event.target.value)}
+              maxLength={200}
+              disabled={busy}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-work-years">工作年限</FieldLabel>
+            <Input
+              id="new-candidate-work-years"
+              value={workYears}
+              onChange={(event) => setWorkYears(event.target.value)}
+              maxLength={100}
+              disabled={busy}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-current-salary">当前薪资</FieldLabel>
+            <Input
+              id="new-candidate-current-salary"
+              value={currentSalary}
+              onChange={(event) => setCurrentSalary(event.target.value)}
+              placeholder="如：9K / 8000-12000元（选填，文本）"
+              maxLength={100}
+              disabled={busy}
+            />
+          </Field>
+          <Field className="candidate-create-full">
+            <FieldLabel htmlFor="new-candidate-expected-salary">期望薪资</FieldLabel>
+            <Input
+              id="new-candidate-expected-salary"
+              value={expectedSalary}
+              onChange={(event) => setExpectedSalary(event.target.value)}
+              placeholder="如：9K / 8-10K（文本，不做数值化）"
+              maxLength={100}
+              disabled={busy}
+            />
+          </Field>
+          <Field className="candidate-create-full">
+            <FieldLabel htmlFor="new-candidate-stage">当前状态</FieldLabel>
+            <NativeSelect
+              id="new-candidate-stage"
+              value={stage}
+              onChange={(event) => setStage(event.target.value)}
+              disabled={busy}
+            >
+              <NativeSelectOption value="pending_review">待筛选</NativeSelectOption>
+              <NativeSelectOption value="ready_to_schedule">待初试</NativeSelectOption>
+              <NativeSelectOption value="first_interview_passed">初试通过</NativeSelectOption>
+              <NativeSelectOption value="second_interview">待复试</NativeSelectOption>
+              <NativeSelectOption value="second_interview_passed">复试通过</NativeSelectOption>
+              <NativeSelectOption value="offer_sent">已发offer</NativeSelectOption>
+              <NativeSelectOption value="hired">已入职</NativeSelectOption>
+              <NativeSelectOption value="closed">已淘汰</NativeSelectOption>
+              <NativeSelectOption value="talent_pool">人才库</NativeSelectOption>
+            </NativeSelect>
+          </Field>
+          <Field className="candidate-create-full">
+            <FieldLabel htmlFor="new-candidate-expected-start">预计入职日期</FieldLabel>
+            <Input
+              id="new-candidate-expected-start"
+              type="date"
+              value={expectedStartDate}
+              onChange={(event) => setExpectedStartDate(event.target.value)}
+              disabled={busy}
+            />
+            <p className="candidate-field-help">
+              选填。待入职阶段的预计日期；为空时「入职管理」列表显示「待定」
+            </p>
+          </Field>
+          <Field className="candidate-create-full">
+            <FieldLabel htmlFor="new-candidate-work-experience">工作经历</FieldLabel>
+            <Textarea
+              id="new-candidate-work-experience"
+              rows={4}
+              value={workExperience}
+              onChange={(event) => setWorkExperience(event.target.value)}
+              placeholder="如：2020.07-2023.06 武汉XX教育 英语教师；2023.07-至今 襄阳XX学校 初中英语教师（选填）"
+              maxLength={4000}
+              disabled={busy}
+            />
+          </Field>
+          <Field className="candidate-create-full">
+            <FieldLabel htmlFor="new-candidate-education-experience">教育经历</FieldLabel>
+            <Textarea
+              id="new-candidate-education-experience"
+              rows={4}
+              value={educationExperience}
+              onChange={(event) => setEducationExperience(event.target.value)}
+              placeholder="如：2016.09-2020.06 湖北XX大学 新闻学 本科；2021.09-2024.06 湖北XX大学 新闻学 硕士（选填）"
+              maxLength={4000}
+              disabled={busy}
+            />
+          </Field>
+          <Field className="candidate-create-full">
+            <FieldLabel htmlFor="new-candidate-remarks">备注</FieldLabel>
+            <Textarea
+              id="new-candidate-remarks"
+              rows={4}
+              value={remarks}
+              onChange={(event) => setRemarks(event.target.value)}
+              maxLength={4000}
+              disabled={busy}
+            />
+          </Field>
+          <Field className="candidate-create-full">
+            <FieldLabel htmlFor="new-candidate-resume-text">简历原文</FieldLabel>
+            <Textarea
+              id="new-candidate-resume-text"
+              rows={5}
+              value={resumeText}
+              onChange={(event) => setResumeText(event.target.value)}
+              placeholder="可直接粘贴整段简历文本"
+              maxLength={100000}
+              disabled={busy}
+            />
           </Field>
         </FieldGroup>
       </form>
@@ -623,11 +897,13 @@ function CreateCandidateDialog({
 
 function ImportDrawer({
   id,
+  initialFiles = [],
   close,
   changed,
   openApplication,
 }: {
   id: number | 'new';
+  initialFiles?: File[];
   close: () => void;
   changed: () => void;
   openApplication: (id: number) => void;
@@ -636,7 +912,7 @@ function ImportDrawer({
   const [job, setJob] = useState('');
   const [source, setSource] = useState('');
   const [files, setFiles] = useState<{ file: File; key: string; error: string; done: boolean }[]>(
-    [],
+    () => initialFiles.map((file) => ({ file, key: crypto.randomUUID(), error: '', done: false })),
   );
   const [key] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);

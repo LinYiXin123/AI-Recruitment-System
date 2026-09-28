@@ -1,10 +1,16 @@
 import type { Person, Requirement } from './api';
 export const stages: Record<string, string> = {
-  pending_review: '待人工复核',
+  pending_review: '待筛选',
   needs_information: '待补充',
-  ready_to_schedule: '待安排面试',
+  ready_to_schedule: '待初试',
   interviewing: '面试中',
-  closed: '已结束',
+  first_interview_passed: '初试通过',
+  second_interview: '待复试',
+  second_interview_passed: '复试通过',
+  offer_sent: '已发offer',
+  hired: '已入职',
+  closed: '已淘汰',
+  talent_pool: '人才库',
 };
 export const reviewActions: Record<string, string> = {
   advance: '通过复核',

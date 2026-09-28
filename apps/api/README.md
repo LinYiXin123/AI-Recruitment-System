@@ -117,7 +117,7 @@ pytest 使用独立 `test_recruitment`，要求本机数据库角色有建库权
 | `imports/{id}/items/{item}/parse/` | POST `request_key`；人工摘录另传 `text`（1–100000 字） | 追加不可覆盖的解析版本。已关联应聘后须另行导入补充材料 |
 | `imports/{id}/items/{item}/matches/` | POST `display_name,phone?,email?,contact_note?` | 在 HR 当前可读范围返回前 20 条疑似主档和总数。同名、同联系方式不自动合并 |
 | `imports/{id}/items/{item}/confirm/` | POST 同上，另必传当前 `parse` ID，可传 `candidate` 选用既有主档、`identity_note` 解释核对；联系方式缺失须说明 | 建／选主档，复用进行中应聘或新建次数，固定本次材料版本；同一导入项只能确认一次 |
-| `candidates/`、`candidates/{id}/` | GET，列表 `search,page`；POST `request_key,display_name,phone?,email?,contact_note?,job,source` | 列表仅含已获授权职位关联的人；新增会同时建立候选人主档与本次应聘。发现同名或同联系方式时要求先核对既有档案，不自动合并 |
+| `candidates/`、`candidates/{id}/` | GET，列表 `search,page`；POST `request_key,display_name,phone?,email?,contact_note?,gender?,current_city?,identity_number?,birthday?,intended_role?,education_level?,school?,work_years?,current_salary?,expected_salary?,work_experience?,education_experience?,remarks?,resume_text?,stage?,expected_start_date?,job,source` | 列表仅含已获授权职位关联的人；新增会同时建立候选人主档与本次应聘。姓名、职位和来源必填；手机、邮箱或联系方式说明至少提供一项。身份证号、薪资和简历原文不会从候选人列表／当前应聘详情返回。发现同名或同联系方式时要求先核对既有档案，不自动合并 |
 | `candidates/{id}/apply/` | POST `request_key,job,source` | 返回已有进行中应聘或新次数；原请求重试始终指向原应聘。不会自动共享其他职位简历 |
 | `applications/`、`applications/{id}/` | GET，列表 `search,stage,job,source,owner,page` | 本次阶段、版本；详情含材料、要求、人工历史和有效接手 HR |
 | `applications/filter-options/` | GET | 仅返回当前 HR 已获授权应聘记录中可用的职位、来源与接手 HR 筛选项 |

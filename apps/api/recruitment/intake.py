@@ -3,6 +3,7 @@ import json
 import re
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 
 from django.conf import settings
@@ -128,7 +129,103 @@ class IdentityInput(serializers.Serializer):
 class CandidateCreateInput(IdentityInput):
     request_key = serializers.UUIDField()
     job = serializers.IntegerField(min_value=1)
-    source = serializers.CharField(max_length=200)
+    source = serializers.ChoiceField(
+        choices=[
+            "BOSS直聘",
+            "智联招聘",
+            "前程无忧",
+            "猎聘",
+            "拉勾",
+            "内推",
+            "猎头推荐",
+            "校园招聘",
+            "官网投递",
+            "其他",
+        ]
+    )
+    gender = serializers.ChoiceField(
+        choices=["男", "女"], required=False, allow_blank=True, default=""
+    )
+    current_city = serializers.CharField(
+        max_length=120, required=False, allow_blank=True, default=""
+    )
+    identity_number = serializers.CharField(
+        max_length=18, required=False, allow_blank=True, default=""
+    )
+    birthday = serializers.CharField(max_length=10, required=False, allow_blank=True, default="")
+    intended_role = serializers.CharField(
+        max_length=200, required=False, allow_blank=True, default=""
+    )
+    education_level = serializers.ChoiceField(
+        choices=["高中及以下", "大专", "本科", "硕士", "博士", "其他"],
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+    school = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
+    work_years = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    current_salary = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default=""
+    )
+    expected_salary = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, default=""
+    )
+    stage = serializers.ChoiceField(
+        choices=[
+            "pending_review",
+            "ready_to_schedule",
+            "first_interview_passed",
+            "second_interview",
+            "second_interview_passed",
+            "offer_sent",
+            "hired",
+            "closed",
+            "talent_pool",
+        ],
+        default="pending_review",
+    )
+    expected_start_date = serializers.DateField(required=False, allow_null=True, default=None)
+    work_experience = serializers.CharField(
+        max_length=4000, required=False, allow_blank=True, default=""
+    )
+    education_experience = serializers.CharField(
+        max_length=4000, required=False, allow_blank=True, default=""
+    )
+    remarks = serializers.CharField(max_length=4000, required=False, allow_blank=True, default="")
+    resume_text = serializers.CharField(
+        max_length=100000, required=False, allow_blank=True, default=""
+    )
+
+    def validate_identity_number(self, value):
+        value = value.strip().upper()
+        if value and not re.fullmatch(r"\d{17}[\dX]", value):
+            raise ValidationError("身份证号应为 18 位数字，最后一位可为 X。")
+        return value
+
+    def validate_birthday(self, value):
+        value = value.strip()
+        if not value:
+            return value
+        try:
+            if re.fullmatch(r"\d{2}-\d{2}", value):
+                date.fromisoformat(f"2000-{value}")
+            else:
+                date.fromisoformat(value)
+        except ValueError:
+            raise ValidationError("生日请填写 09-28 或 1998-09-28。") from None
+        return value
+
+    def validate(self, data):
+        if not data["phone"] and not data["email"] and not data["contact_note"]:
+            raise ValidationError("请至少填写手机号或邮箱。")
+        if data["identity_number"] and not data["birthday"]:
+            raw_birthday = data["identity_number"][6:14]
+            try:
+                date.fromisoformat(f"{raw_birthday[:4]}-{raw_birthday[4:6]}-{raw_birthday[6:]}")
+            except ValueError:
+                raise ValidationError("身份证号中的生日无效，请核对后再保存。") from None
+            data["birthday"] = f"{raw_birthday[:4]}-{raw_birthday[4:6]}-{raw_birthday[6:]}"
+        return data
 
 
 def possible_matches(m, data):
@@ -243,7 +340,15 @@ def create_parse(doc, m, key, manual=None):
     )
 
 
-def enter_application(m, candidate, job, source, key):
+def enter_application(
+    m,
+    candidate,
+    job,
+    source,
+    key,
+    stage="pending_review",
+    expected_start_date=None,
+):
     # 人→职位→应聘的固定加锁次序；数据库条件唯一保证同岗仅一条进行中记录。
     Candidate.objects.select_for_update().get(pk=candidate.pk)
     existing = ApplicationEntry.objects.filter(organization=m.organization, request_key=key).first()
@@ -267,6 +372,10 @@ def enter_application(m, candidate, job, source, key):
             job=job,
             owner=job.owner,
             source=source,
+            stage=stage,
+            expected_start_date=expected_start_date,
+            closed_at=timezone.now() if stage == "closed" else None,
+            close_reason="人工录入时标记为已淘汰" if stage == "closed" else "",
             attempt_no=(
                 Application.objects.filter(candidate=candidate, job=job).aggregate(
                     n=Max("attempt_no")
@@ -276,7 +385,8 @@ def enter_application(m, candidate, job, source, key):
             + 1,
         )
         StageEvent.objects.create(application=a, actor=m, to_stage=a.stage, request_key=key)
-        Task.objects.create(application=a, kind="app_review", assignee=a.owner)
+        if stage == "pending_review":
+            Task.objects.create(application=a, kind="app_review", assignee=a.owner)
         audit(m, job, "建立本次应聘", a)
     try:
         with transaction.atomic():
@@ -502,9 +612,30 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
                 existing.actor_id != m.id
                 or existing.application.job_id != data["job"]
                 or existing.source != data["source"]
+                or existing.application.stage != data["stage"]
+                or existing.application.expected_start_date != data["expected_start_date"]
                 or any(
                     getattr(person, field) != data[field]
-                    for field in ["display_name", "phone", "email", "contact_note"]
+                    for field in [
+                        "display_name",
+                        "phone",
+                        "email",
+                        "contact_note",
+                        "gender",
+                        "current_city",
+                        "identity_number",
+                        "birthday",
+                        "intended_role",
+                        "education_level",
+                        "school",
+                        "work_years",
+                        "current_salary",
+                        "expected_salary",
+                        "work_experience",
+                        "education_experience",
+                        "remarks",
+                        "resume_text",
+                    ]
                 )
             ):
                 raise Conflict("该保存请求已用于另一位候选人，请刷新后再试。")
@@ -516,9 +647,39 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
         person = Candidate.objects.create(
             organization=m.organization,
             created_by=m,
-            **{field: data[field] for field in ["display_name", "phone", "email", "contact_note"]},
+            **{
+                field: data[field]
+                for field in [
+                    "display_name",
+                    "phone",
+                    "email",
+                    "contact_note",
+                    "gender",
+                    "current_city",
+                    "identity_number",
+                    "birthday",
+                    "intended_role",
+                    "education_level",
+                    "school",
+                    "work_years",
+                    "current_salary",
+                    "expected_salary",
+                    "work_experience",
+                    "education_experience",
+                    "remarks",
+                    "resume_text",
+                ]
+            },
         )
-        application = enter_application(m, person, job, data["source"], data["request_key"])
+        application = enter_application(
+            m,
+            person,
+            job,
+            data["source"],
+            data["request_key"],
+            data["stage"],
+            data["expected_start_date"],
+        )
         audit(m, job, "人工新增候选人并建立应聘", application, note=f"候选人 {person.id}")
         return Response({"candidate": person.id, "application": application.id}, status=201)
 
@@ -678,9 +839,7 @@ class ApplicationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         return Response(
             {
                 "jobs": list(
-                    qs.values("job_id", "job__title")
-                    .distinct()
-                    .order_by("job__title", "job_id")
+                    qs.values("job_id", "job__title").distinct().order_by("job__title", "job_id")
                 ),
                 "sources": list(
                     qs.exclude(source="")
