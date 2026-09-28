@@ -1,7 +1,19 @@
 import { expect, type Page, test } from '@playwright/test';
 import { login } from './helpers';
 
+async function openJobs(page: Page) {
+  const menu = page.getByRole('button', { name: '菜单' });
+  if (await menu.isVisible()) await menu.click();
+  await page.getByRole('link', { name: '职位', exact: true }).click();
+}
+
+async function openJob(page: Page, title: string) {
+  await openJobs(page);
+  await page.getByRole('button', { name: title, exact: true }).click();
+}
+
 async function createJob(page: Page, title: string) {
+  await openJobs(page);
   await page.getByRole('button', { name: '新建职位', exact: true }).click();
   await page.getByLabel('职位名称').fill(title);
   await page.getByLabel('工作地点').fill('深圳');
@@ -35,15 +47,19 @@ test('HR 建岗、负责人确认、招聘开启与版本保留', async ({ page,
   await expect(page.getByText('已提交，等待用人负责人确认。')).toBeVisible();
   await page.screenshot({ path: '../../.local/验收-待确认详情.png', fullPage: true });
   await closeDetail(page);
-  await expect(page.getByRole('button', { name: '查看进展' })).toHaveCount(1);
+  await expect(
+    page.getByRole('button', { name: '产品经理（流程验收）', exact: true }),
+  ).toBeVisible();
   const managerContext = await browser.newContext();
   const manager = await managerContext.newPage();
   await login(manager, 'local_manager');
-  await manager.getByRole('button', { name: '查看并确认' }).click();
+  await openJob(manager, '产品经理（流程验收）');
   await manager.getByRole('button', { name: '确认招人要求', exact: true }).click();
   await expect(manager.getByText('招人要求已确认，相关待办已完成。')).toBeVisible();
   await closeDetail(manager);
-  await expect(manager.getByRole('button', { name: '查看并确认' })).toHaveCount(0);
+  await expect(
+    manager.getByRole('button', { name: '产品经理（流程验收）', exact: true }),
+  ).toBeVisible();
   await managerContext.close();
   await page.reload();
   await page.getByRole('link', { name: '职位', exact: true }).click();
@@ -138,7 +154,7 @@ test('负责人要求补充后，HR 待办完成并重新送审', async ({ page,
   const context = await browser.newContext();
   const manager = await context.newPage();
   await login(manager, 'local_manager');
-  await manager.getByRole('button', { name: '查看并确认' }).click();
+  await openJob(manager, '设计师（补充流程验收）');
   await manager.getByLabel('确认备注 / 需补充内容').fill('请写清楚设计协作经验的要求');
   const discardPrompt = manager.waitForEvent('dialog');
   const closeAttempt = manager.getByRole('button', { name: '关闭详情' }).click();
@@ -152,9 +168,8 @@ test('负责人要求补充后，HR 待办完成并重新送审', async ({ page,
   await manager.getByRole('button', { name: '请 HR 补充' }).click();
   await expect(manager.getByText('已记录需要补充的内容，HR 可修改后重新提交。')).toBeVisible();
   await page.reload();
-  await expect(page.getByText('招人要求 v1 · 补充招人要求')).toBeVisible();
-  await page.screenshot({ path: '../../.local/验收-今天待办.png', fullPage: true });
-  await page.getByRole('button', { name: '去处理' }).click();
+  await openJob(page, '设计师（补充流程验收）');
+  await page.screenshot({ path: '../../.local/验收-补充要求.png', fullPage: true });
   await expect(page.getByText('请写清楚设计协作经验的要求')).toBeVisible();
   await page.getByRole('button', { name: '调整要求' }).click();
   await page.getByLabel('具体要求 1').fill('有跨团队设计协作经验，能举出具体项目');
@@ -163,14 +178,16 @@ test('负责人要求补充后，HR 待办完成并重新送审', async ({ page,
   await page.getByRole('button', { name: '提交确认', exact: true }).click();
   await expect(page.getByText('已提交，等待用人负责人确认。')).toBeVisible();
   await closeDetail(page);
-  await expect(page.getByRole('button', { name: '去处理' })).toHaveCount(0);
   await manager.reload();
-  await expect(manager.getByText('招人要求 v2 · 确认招人要求')).toBeVisible();
+  await manager.getByRole('button', { name: '设计师（补充流程验收）', exact: true }).click();
+  await expect(manager.getByText('v2 · 待确认', { exact: true })).toBeVisible();
+  await expect(manager.getByRole('button', { name: '确认招人要求', exact: true })).toBeVisible();
   await context.close();
 });
 
 test('建岗响应丢失后重试，只保留一条职位', async ({ page }) => {
   await login(page);
+  await openJobs(page);
   await page.getByRole('button', { name: '新建职位', exact: true }).click();
   await page.getByLabel('职位名称').fill('幂等建岗（网络验收）');
   await page.getByLabel('工作地点').fill('深圳');
@@ -224,11 +241,8 @@ test('澄清问题经负责人回答后仍需整理与正式确认', async ({ pa
   const context = await browser.newContext();
   const manager = await context.newPage();
   await login(manager, 'local_manager');
-  await manager
-    .getByRole('listitem')
-    .filter({ hasText: '招聘专员（澄清验收）' })
-    .getByRole('button', { name: '去处理' })
-    .click();
+  await openJob(manager, '招聘专员（澄清验收）');
+  await manager.getByRole('tab', { name: '澄清问答', exact: true }).click();
   await expect(manager.getByRole('tab', { name: '澄清问答' })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -246,16 +260,9 @@ test('澄清问题经负责人回答后仍需整理与正式确认', async ({ pa
   );
   await manager.getByRole('button', { name: '保存答复' }).click();
   await expect(manager.getByText('答复已保存，HR 将整理要求后再提交正式确认。')).toBeVisible();
-  await manager.reload();
-  await expect(
-    manager.getByRole('listitem').filter({ hasText: '招聘专员（澄清验收）' }),
-  ).toHaveCount(0);
   await page.reload();
-  await page
-    .getByRole('listitem')
-    .filter({ hasText: '招聘专员（澄清验收）' })
-    .getByRole('button', { name: '去处理' })
-    .click();
+  await page.getByRole('button', { name: '招聘专员（澄清验收）', exact: true }).click();
+  await page.getByRole('tab', { name: '澄清问答', exact: true }).click();
   await expect(page.getByText('能够独立完成技术岗位的需求访谈和岗位分析。')).toBeVisible();
   for (const width of [390, 1024, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -265,7 +272,9 @@ test('澄清问题经负责人回答后仍需整理与正式确认', async ({ pa
     await page.screenshot({ path: `../../.local/验收-澄清问答-${width}.png`, fullPage: true });
   }
   await page.getByRole('tab', { name: '招人要求', exact: true }).click();
-  await expect(page.getByText('v1 · 草稿', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('tabpanel', { name: '招人要求' }).getByText('v1 · 草稿', { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: '开始招聘', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '调整要求' }).click();
   await page.getByLabel('具体要求 1').fill('能够独立完成技术岗位的需求访谈和岗位分析');
@@ -278,6 +287,5 @@ test('澄清问题经负责人回答后仍需整理与正式确认', async ({ pa
   await expect(page.getByText('能够独立完成技术岗位的需求访谈和岗位分析。')).toBeVisible();
   await expect(page.getByText('v1', { exact: true })).toBeVisible();
   await closeDetail(page);
-  await expect(page.getByText('招人要求 v1 · 整理澄清答复')).toHaveCount(0);
   await context.close();
 });

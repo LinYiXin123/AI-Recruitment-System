@@ -74,6 +74,34 @@ export type Me = {
   roles: string[];
   departments: { id: number; name: string; approvers: Person[]; collaborators: Person[] }[];
 };
+export type DashboardData = {
+  period: { week_start: string; week_end: string; today: string };
+  metrics: {
+    talent_pool_total: number;
+    resumes_today: number;
+    interviews_today: number;
+    offers_this_week: number | null;
+    pending_onboarding: number | null;
+    hired_total: number | null;
+  };
+  capabilities: { offer: boolean; onboarding: boolean };
+  daily_resumes: { date: string; count: number }[];
+  candidate_stages: { stage: string; label: string; count: number }[];
+  today_interviews: {
+    id: number;
+    candidate_name: string;
+    job_title: string;
+    starts_at: string;
+    mode: string;
+    status: string;
+  }[];
+  other_totals: {
+    open_jobs: number;
+    jobs: number;
+    interviews: number;
+    question_bank: number | null;
+  };
+};
 export type Page<T> = { count: number; next: string | null; previous: string | null; results: T[] };
 export type Audit = {
   id: number;

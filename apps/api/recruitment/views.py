@@ -1,6 +1,9 @@
+from datetime import datetime, time, timedelta
+
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.decorators import action, api_view
@@ -14,8 +17,12 @@ from identity.models import FeishuIdentity
 from .access import can_confirm, can_edit, department_ids, member, visible_jobs
 from .errors import Conflict
 from .models import (
+    Application,
+    ApplicationResume,
     AuditEvent,
+    Candidate,
     Department,
+    Interview,
     Job,
     JobMember,
     Membership,
@@ -76,6 +83,120 @@ def me(request):
             "organization": m.organization.name,
             "roles": list(m.roles.values_list("role", flat=True).distinct()),
             "departments": options,
+        }
+    )
+
+
+@api_view(["GET"])
+def dashboard(request):
+    """返回当前成员授权范围内、可追溯到业务记录的招聘总览。"""
+
+    m = member(request)
+    jobs = visible_jobs(m)
+    applications = Application.objects.filter(organization=m.organization, job__in=jobs)
+    candidates = Candidate.objects.filter(
+        organization=m.organization, applications__in=applications
+    ).distinct()
+    resumes = ApplicationResume.objects.filter(application__in=applications)
+
+    today = timezone.localdate()
+    current_zone = timezone.get_current_timezone()
+    today_start = timezone.make_aware(datetime.combine(today, time.min), current_zone)
+    tomorrow_start = today_start + timedelta(days=1)
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=6)
+
+    interviews = (
+        Interview.objects.filter(organization=m.organization)
+        .filter(
+            Q(application__job__in=jobs)
+            | Q(current_revision__participants__membership=m)
+        )
+        .distinct()
+    )
+    today_interviews = (
+        interviews.filter(
+            current_revision__starts_at__gte=today_start,
+            current_revision__starts_at__lt=tomorrow_start,
+        )
+        .exclude(status=Interview.Status.CANCELLED)
+        .select_related("application__candidate", "application__job", "current_revision")
+        .order_by("current_revision__starts_at", "id")
+    )
+
+    daily_start = today - timedelta(days=13)
+    resume_counts = {
+        row["day"]: row["count"]
+        for row in resumes.filter(created_at__gte=timezone.make_aware(
+            datetime.combine(daily_start, time.min), current_zone
+        ))
+        .annotate(day=TruncDate("created_at", tzinfo=current_zone))
+        .values("day")
+        .annotate(count=Count("id"))
+        .order_by("day")
+    }
+    daily_resumes = [
+        {
+            "date": (daily_start + timedelta(days=offset)).isoformat(),
+            "count": resume_counts.get(daily_start + timedelta(days=offset), 0),
+        }
+        for offset in range(14)
+    ]
+
+    stage_labels = {
+        "pending_review": "待复核",
+        "needs_information": "待补充",
+        "ready_to_schedule": "待安排面试",
+        "interviewing": "面试中",
+        "closed": "已结束",
+    }
+    stage_counts = {
+        row["stage"]: row["count"]
+        for row in applications.values("stage").annotate(count=Count("id"))
+    }
+    candidate_stages = [
+        {"stage": stage, "label": label, "count": stage_counts.get(stage, 0)}
+        for stage, label in stage_labels.items()
+    ]
+
+    return Response(
+        {
+            "period": {
+                "week_start": week_start.isoformat(),
+                "week_end": week_end.isoformat(),
+                "today": today.isoformat(),
+            },
+            "metrics": {
+                "talent_pool_total": candidates.count(),
+                "resumes_today": resumes.filter(
+                    created_at__gte=today_start, created_at__lt=tomorrow_start
+                ).count(),
+                "interviews_today": today_interviews.count(),
+                # Offer 与入职属于后续业务切片；没有正式记录前不得把其他阶段冒充成这些状态。
+                "offers_this_week": None,
+                "pending_onboarding": None,
+                "hired_total": None,
+            },
+            "capabilities": {"offer": False, "onboarding": False},
+            "daily_resumes": daily_resumes,
+            "candidate_stages": candidate_stages,
+            "today_interviews": [
+                {
+                    "id": interview.id,
+                    "candidate_name": interview.application.candidate.display_name,
+                    "job_title": interview.application.job.title,
+                    "starts_at": interview.current_revision.starts_at,
+                    "mode": interview.current_revision.mode,
+                    "status": interview.status,
+                }
+                for interview in today_interviews
+            ],
+            "other_totals": {
+                "open_jobs": jobs.filter(status=Job.Status.OPEN).count(),
+                "jobs": jobs.count(),
+                "interviews": interviews.count(),
+                "question_bank": None,
+            },
         }
     )
 

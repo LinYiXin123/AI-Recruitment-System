@@ -77,7 +77,7 @@ test('飞书姓名头像与真实角色显示，缺失头像及窄屏长姓名�
   const profile = page.locator('.account-profile');
   await expect(profile).toContainText(name);
   await expect(profile.locator('small')).toContainText('HR');
-  await expect(page.getByAltText(`${name}的头像`)).toBeVisible();
+  await expect(page.getByAltText(`${name}的头像`).first()).toBeVisible();
   await expect(page.getByText('本地体验', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('status', { name: '正在加载' })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/飞书账号展示.png' });
@@ -90,6 +90,7 @@ test('飞书姓名头像与真实角色显示，缺失头像及窄屏长姓名�
   await page.reload();
   await expect(profile.locator('.account-name')).toHaveAttribute('title', name);
   await expect(profile.locator('[data-slot="avatar-fallback"]')).toHaveText('林');
+  await page.getByRole('button', { name: '菜单' }).click();
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible();
   await expect(page.getByRole('status', { name: '正在加载' })).toHaveCount(0);
   expect(

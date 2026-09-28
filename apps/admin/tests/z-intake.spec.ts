@@ -138,17 +138,19 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
     await page.screenshot({ path: `../../.local/验收-D02-应聘详情-${width}.png`, fullPage: true });
   }
   await page.getByRole('button', { name: '关闭详情' }).click();
-  await page.getByRole('link', { name: '今天', exact: true }).click();
-  const task = page
-    .getByRole('listitem')
+  await page.getByRole('link', { name: '候选人', exact: true }).click();
+  await page.getByRole('tab', { name: '应聘记录' }).click();
+  await page.getByLabel('搜索候选人').fill('虚构林一');
+  await page
+    .getByRole('row')
     .filter({ hasText: '进人闭环验收岗' })
-    .filter({ hasText: '安排面试' });
-  await task.getByRole('button', { name: '去处理' }).click();
+    .filter({ hasText: '待安排面试' })
+    .getByRole('button', { name: '虚构林一', exact: true })
+    .click();
   await expect(
     page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待安排面试' }),
   ).toBeVisible();
   await page.getByRole('button', { name: '关闭详情' }).click();
-  await page.getByRole('link', { name: '候选人', exact: true }).click();
   await page.getByRole('tab', { name: '人才档案' }).click();
   await expect(page.getByRole('button', { name: '虚构林一', exact: true })).toHaveCount(2);
   await page.reload();

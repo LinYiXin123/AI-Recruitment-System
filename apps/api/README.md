@@ -64,6 +64,7 @@ docker compose --env-file apps/api/.env up -d postgres
 | `auth/login/` | GET | 发起飞书登录并处理授权回调 |
 | `auth/login/`、`auth/logout/` | POST | 登录／退出，校验 CSRF；登录按来源及账号限制尝试次数 |
 | `me/` | GET | 当前组织、姓名、头像、登录来源、职责及建岗可选部门／成员 |
+| `dashboard/` | GET | 按当前账号授权范围返回招聘总览、近 14 天简历、阶段分布和今日面试；未接通的 Offer／入职指标返回 `null` 及能力标记 |
 | `jobs/` | GET／POST | 按授权范围分页搜索；创建职位 |
 | `jobs/{id}/` | GET | 职位详情、最新画像及当前可操作权限 |
 | `jobs/{id}/profiles/` | GET／POST | 读取历史；追加 JD 快照和要求版本 |

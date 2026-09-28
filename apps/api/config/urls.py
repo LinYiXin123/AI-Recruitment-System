@@ -17,5 +17,6 @@ urlpatterns = [
     path("api/v1/auth/experience/", auth.start_local_experience),
     path("api/v1/auth/logout/", auth.sign_out),
     path("api/v1/me/", views.me),
+    path("api/v1/dashboard/", views.dashboard),
     path("api/v1/", include(router.urls)),
 ]

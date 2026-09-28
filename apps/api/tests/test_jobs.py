@@ -9,7 +9,9 @@ from django.test import Client, override_settings
 from rest_framework.test import APIClient
 
 from recruitment.models import (
+    Application,
     AuditEvent,
+    Candidate,
     Department,
     DepartmentRole,
     Job,
@@ -110,6 +112,40 @@ def test_create_submit_confirm_and_activate_persist(team):
     assert opened.status_code == 200
     assert client_for(hr).get(f"/api/v1/jobs/{job['id']}/").data["status"] == "open"
     assert AuditEvent.objects.count() == 5
+
+
+def test_dashboard_uses_authorized_records_and_keeps_future_metrics_unavailable(team):
+    _, _, hr, manager, outsider = team
+    job = new_job(team)
+    candidate = Candidate.objects.create(
+        organization=hr.organization,
+        display_name="候选人甲",
+        created_by=hr,
+    )
+    Application.objects.create(
+        organization=hr.organization,
+        candidate=candidate,
+        job_id=job["id"],
+        owner=hr,
+        attempt_no=1,
+        source="测试导入",
+    )
+
+    dashboard = client_for(hr).get("/api/v1/dashboard/")
+    assert dashboard.status_code == 200
+    assert dashboard.data["metrics"]["talent_pool_total"] == 1
+    assert dashboard.data["metrics"]["offers_this_week"] is None
+    assert dashboard.data["capabilities"] == {"offer": False, "onboarding": False}
+    assert len(dashboard.data["daily_resumes"]) == 14
+    assert sum(row["count"] for row in dashboard.data["candidate_stages"]) == 1
+
+    # 同部门负责人可读部门内职位；未被分配到该职位的 HR 不会看到汇总数量。
+    assert client_for(manager).get("/api/v1/dashboard/").data["metrics"][
+        "talent_pool_total"
+    ] == 1
+    assert client_for(outsider).get("/api/v1/dashboard/").data["metrics"][
+        "talent_pool_total"
+    ] == 0
 
 
 def test_scope_on_list_search_detail_history_and_tasks(team):
