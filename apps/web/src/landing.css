@@ -804,6 +804,73 @@
   border-radius: 8px;
   margin-top: 23px;
 }
+@property --feature-flow-x {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: -28%;
+}
+.feature-visual--cycle {
+  --feature-flow-x: -28%;
+  animation: feature-card-flow 6.3s linear infinite;
+  animation-delay: var(--feature-cycle-delay);
+}
+.feature-visual--cycle-01 {
+  --feature-cycle-delay: 0s;
+}
+.feature-visual--cycle-02 {
+  --feature-cycle-delay: 2.1s;
+}
+.feature-visual--cycle-03 {
+  --feature-cycle-delay: 4.2s;
+}
+.feature-visual--cycle:not([data-glow-active])::before {
+  background: radial-gradient(
+    circle var(--spotlight-size) at var(--feature-flow-x) 50%,
+    color-mix(in srgb, var(--spotlight-color) 16%, transparent),
+    transparent 75%
+  );
+}
+.feature-visual--cycle:not([data-glow-active])::after,
+.feature-visual--cycle:not([data-glow-active]) > .spotlight-card__glow::before {
+  background: radial-gradient(
+      circle calc(var(--spotlight-size) * 0.75) at var(--feature-flow-x) 50%,
+      var(--decoration) 0%,
+      var(--spotlight-color) 25%,
+      transparent 100%
+    )
+    border-box;
+}
+.feature-visual--cycle:not([data-glow-active])::before,
+.feature-visual--cycle:not([data-glow-active])::after,
+.feature-visual--cycle:not([data-glow-active]) > .spotlight-card__glow {
+  animation: feature-card-flow-visibility 6.3s linear infinite;
+  animation-delay: var(--feature-cycle-delay);
+}
+@keyframes feature-card-flow {
+  0% {
+    --feature-flow-x: -28%;
+  }
+  28% {
+    --feature-flow-x: 128%;
+  }
+  34%,
+  100% {
+    --feature-flow-x: 128%;
+  }
+}
+@keyframes feature-card-flow-visibility {
+  0% {
+    opacity: 0;
+  }
+  6%,
+  28% {
+    opacity: 1;
+  }
+  34%,
+  100% {
+    opacity: 0;
+  }
+}
 .mini-chip {
   font-size: 10px;
   padding: 9px;
@@ -1350,5 +1417,11 @@
   .workflow-reveal {
     opacity: 1 !important;
     transform: none !important;
+  }
+  .feature-visual--cycle,
+  .feature-visual--cycle:not([data-glow-active])::before,
+  .feature-visual--cycle:not([data-glow-active])::after,
+  .feature-visual--cycle:not([data-glow-active]) > .spotlight-card__glow {
+    animation: none;
   }
 }

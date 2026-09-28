@@ -50,6 +50,7 @@ const navigation = [
   ["工作方式", "#workflow"],
   ["常见问题", "#faq"],
 ]
+
 const features = [
   {
     icon: FileSearch,
@@ -184,8 +185,8 @@ export default function LandingPage() {
           </nav>
           <div className="flex items-center gap-3">
             <a
-              href="#demo"
               className={cn(buttonVariants({ size: "sm" }), "header-cta")}
+              href="/api/v1/auth/login/"
             >
               开始体验{" "}
               <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
@@ -314,7 +315,12 @@ export default function LandingPage() {
                 <p>{feature.description}</p>
                 <GlowCard
                   customSize
-                  className={cn("feature-visual", feature.visual)}
+                  className={cn(
+                    "feature-visual",
+                    "feature-visual--cycle",
+                    `feature-visual--cycle-${feature.number}`,
+                    feature.visual
+                  )}
                   aria-hidden="true"
                 >
                   {feature.visual === "match" && (
@@ -501,8 +507,8 @@ export default function LandingPage() {
               <p>从一份示例简历，体验有依据的判断。</p>
             </div>
             <a
-              href="#demo"
               className={buttonVariants({ variant: "secondary", size: "lg" })}
+              href="/api/v1/auth/login/"
             >
               开始体验{" "}
               <ArrowUpRight data-icon="inline-end" aria-hidden="true" />

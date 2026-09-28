@@ -19,15 +19,35 @@ async function globeImage(page: Page) {
   })
 }
 
+async function mascotImage(page: Page) {
+  const rect = await page
+    .getByRole("group", { name: "旋转知遇信封" })
+    .boundingBox()
+  return page.screenshot({
+    clip: {
+      x: rect!.x,
+      y: rect!.y,
+      width: rect!.width,
+      height: rect!.height,
+    },
+  })
+}
+
 test("中文星球开场位于原首页之前，真实模型可旋转、暂停并继续", async ({
   page,
+  isMobile,
 }, testInfo) => {
   test.setTimeout(60000)
   const errors: string[] = []
+  const requestedAssets = new Set<string>()
   page.on("pageerror", (error) => errors.push(error.message))
+  page.on("request", (request) => {
+    requestedAssets.add(new URL(request.url()).pathname)
+  })
   await page.goto("/")
   const hero = page.locator(".orbit-delivery")
   const stage = page.getByRole("group", { name: "旋转知遇星球" })
+  const mascot = page.getByRole("group", { name: "旋转知遇信封" })
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "每一次相遇，都值得认真以待。"
   )
@@ -35,6 +55,38 @@ test("中文星球开场位于原首页之前，真实模型可旋转、暂停�
     "introduction"
   )
   await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 30000 })
+  await expect(stage).toHaveAttribute("data-brand-orbits", "true")
+  await expect(stage).toHaveAttribute("data-orbit-center", "globe")
+  await expect(mascot).toHaveAttribute("data-ready", "true", { timeout: 30000 })
+  expect(requestedAssets).toContain("/orbit/models/zhiyu-mascot.glb")
+  expect(requestedAssets).toContain("/orbit/brands/joincare-logo.webp")
+  expect(requestedAssets).toContain("/orbit/brands/livzon-logo.webp")
+  expect(requestedAssets).toContain("/orbit/brands/third-logo.png")
+  if (!isMobile) {
+    const mascotBefore = await mascotImage(page)
+    const mascotRect = await mascot.boundingBox()
+    await page.mouse.move(
+      mascotRect!.x + mascotRect!.width / 2,
+      mascotRect!.y + mascotRect!.height / 2
+    )
+    await page.mouse.down()
+    await page.mouse.move(
+      mascotRect!.x + mascotRect!.width / 2 + 45,
+      mascotRect!.y + mascotRect!.height / 2 - 12,
+      { steps: 8 }
+    )
+    await expect(mascot).toHaveClass(/is-dragging/)
+    await expect
+      .poll(() =>
+        mascot.evaluate((element) => getComputedStyle(element).position)
+      )
+      .toBe("absolute")
+    await page.mouse.up()
+    await expect(mascot).not.toHaveClass(/is-dragging/)
+    await expect
+      .poll(async () => (await mascotImage(page)).equals(mascotBefore))
+      .toBe(false)
+  }
   await expect(stage.locator("canvas")).toBeVisible()
   await stage.scrollIntoViewIfNeeded()
   await stage.focus()
@@ -78,10 +130,9 @@ test("中文星球开场位于原首页之前，真实模型可旋转、暂停�
     .poll(async () => (await globeImage(page)).equals(stopped))
     .toBe(false)
   await page.screenshot({ path: testInfo.outputPath("星球开场.png") })
-  await hero.getByRole("link", { name: "开启知遇之旅" }).click()
-  await expect(page).toHaveURL(/#introduction$/)
-  await expect(page.locator("#hero-title")).toBeInViewport()
-  await expect(stage).toHaveAttribute("data-active", "false")
+  await expect(
+    hero.getByRole("link", { name: "开启知遇之旅" })
+  ).toHaveAttribute("href", "/api/v1/auth/login/")
   await page.getByRole("link", { name: "体验简历分析", exact: true }).click()
   await expect(
     page.getByRole("combobox", { name: "选择演示岗位" })
@@ -137,8 +188,48 @@ test("三维渲染不可用时显示中文降级，首页导航继续可用", as
   await expect(page.getByText("小小星球暂时未能呈现")).toBeVisible({
     timeout: 15000,
   })
-  await page.getByRole("link", { name: "开启知遇之旅" }).click()
-  await expect(page.locator("#hero-title")).toBeInViewport()
+  await expect(page.getByRole("link", { name: "开启知遇之旅" })).toHaveAttribute(
+    "href",
+    "/api/v1/auth/login/"
+  )
+})
+
+test("星球首轮资源失败后会自动恢复", async ({ page, isMobile }) => {
+  test.skip(isMobile, "手机渲染已在主流程中覆盖")
+  let firstRequest = true
+  await page.route("**/orbit/models/courier.glb", async (route) => {
+    if (firstRequest) {
+      firstRequest = false
+      await route.fulfill({ status: 503, body: "暂时不可用" })
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto("/")
+  await expect(
+    page.getByRole("group", { name: "旋转知遇星球" })
+  ).toHaveAttribute("data-ready", "true", { timeout: 30000 })
+  expect(firstRequest).toBe(false)
+  await expect(page.getByText("小小星球暂时未能呈现")).toHaveCount(0)
+})
+
+test("连续重新打开首页时星球仍能稳定呈现", async ({ page, isMobile }) => {
+  test.skip(isMobile, "手机渲染已在主流程中覆盖")
+  test.setTimeout(75000)
+  const errors: string[] = []
+  page.on("pageerror", (error) => errors.push(error.message))
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.goto("/")
+    const stage = page.getByRole("group", { name: "旋转知遇星球" })
+    await expect(stage).toHaveAttribute("data-ready", "true", {
+      timeout: 30000,
+    })
+    await expect(page.getByText("小小星球暂时未能呈现")).toHaveCount(0)
+  }
+
+  expect(errors).toEqual([])
 })
 
 test("星球默认持续转动，手机在星球上纵向滑动仍能浏览下一屏", async ({

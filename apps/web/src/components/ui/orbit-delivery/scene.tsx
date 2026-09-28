@@ -810,14 +810,11 @@ __export(PlanetScene_exports, {
 import { useEffect as useEffect5, useMemo, useRef as useRef4, useState as useState3 } from "react";
 import { Canvas as Canvas2, useFrame as useFrame4, useThree as useThree3 } from "@react-three/fiber";
 import { MathUtils as MathUtils6, Quaternion as Quaternion8, Vector3 as Vector37 } from "three";
-function sceneZoom(width, height) {
-  return Math.min(width / (width < 700 ? 5.65 : 5.25), height / 6.6);
-}
 function ResponsiveCamera() {
   const { size, camera } = useThree3();
   useEffect5(() => {
     const ortho = camera;
-    ortho.zoom = sceneZoom(size.width, size.height);
+    ortho.zoom = size.width / (size.width < 700 ? 5.65 : 5.25);
     ortho.updateProjectionMatrix();
   }, [size.width, size.height, camera]);
   return null;
@@ -834,8 +831,9 @@ function World2({ motion, auto, reduced, onReady }) {
   const globe = useMemo(createGlobeMotion, []);
   const frame = useMemo(() => ({ screenUp: new Vector37(), localVelocity: new Vector37(), cameraFront: new Vector37(), inverseRunner: new Quaternion8() }), []);
   const size = useThree3((state) => state.size);
-  const zoom = sceneZoom(size.width, size.height);
-  const centerY = size.height / zoom * 0.19 - 2.17;
+  const small = size.width < 700;
+  const zoom = size.width / (small ? 5.65 : 5.25);
+  const centerY = size.height / zoom * (small ? 0.08 : 0.19) - 2.17;
   useFrame4(({ camera }, delta) => {
     if (!asset || !courierReady) return;
     const m = motion.current;

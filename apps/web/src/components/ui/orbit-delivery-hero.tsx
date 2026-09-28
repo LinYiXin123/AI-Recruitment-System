@@ -24,6 +24,19 @@ import "./orbit-delivery-hero.css"
 
 const orbitScene = import("./orbit-delivery/scene")
 const OrbitScene = lazy(() => orbitScene)
+const orbitMascotViewer = import("./orbit-mascot-viewer")
+const OrbitMascotViewer = lazy(() => orbitMascotViewer)
+
+let cachedWebGLSupport: boolean | undefined
+
+function supportsWebGL() {
+  if (cachedWebGLSupport !== undefined) return cachedWebGLSupport
+  const canvas = document.createElement("canvas")
+  const context = canvas.getContext("webgl2") || canvas.getContext("webgl")
+  cachedWebGLSupport = Boolean(context)
+  context?.getExtension("WEBGL_lose_context")?.loseContext()
+  return cachedWebGLSupport
+}
 
 export interface OrbitSceneProps {
   assetBaseUrl: string
@@ -76,6 +89,7 @@ export default function OrbitDeliveryHero({
 }: {
   assetBaseUrl?: string
 }) {
+  const [webglSupported] = useState(supportsWebGL)
   const stage = useRef<HTMLDivElement>(null)
   const motion = useRef({
     planetAngle: 0,
@@ -101,8 +115,9 @@ export default function OrbitDeliveryHero({
   const [paused, setPaused] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [ready, setReady] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState(() => !webglSupported)
   const [attempt, setAttempt] = useState(0)
+  const [recoveryCount, setRecoveryCount] = useState(0)
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -129,6 +144,17 @@ export default function OrbitDeliveryHero({
     }
   }, [])
 
+  useEffect(() => {
+    if (!failed || !webglSupported || recoveryCount >= 2) return
+    const timeout = window.setTimeout(() => {
+      setReady(false)
+      setFailed(false)
+      setRecoveryCount((count) => count + 1)
+      setAttempt((count) => count + 1)
+    }, 350)
+    return () => window.clearTimeout(timeout)
+  }, [failed, recoveryCount, webglSupported])
+
   const release = (id: number) => {
     if (drag.current?.id !== id) return
     drag.current = null
@@ -151,7 +177,8 @@ export default function OrbitDeliveryHero({
   const retry = () => {
     setReady(false)
     setFailed(false)
-    setAttempt(attempt + 1)
+    setRecoveryCount(0)
+    setAttempt((count) => count + 1)
   }
   const fallback = (
     <div className="orbit-feedback orbit-error" role="status">
@@ -183,13 +210,18 @@ export default function OrbitDeliveryHero({
             className="orbit-title-accent"
           />
         </h1>
+        {webglSupported && ready && !failed && (
+          <Suspense fallback={null}>
+            <OrbitMascotViewer assetBaseUrl={assetBaseUrl} paused={paused} />
+          </Suspense>
+        )}
         <p className="orbit-description">
           世界很大，对的人值得被看见。
           <br />
           让知遇陪你，发现简历背后的可能。
         </p>
         <a
-          href="#introduction"
+          href="/api/v1/auth/login/"
           className={cn(buttonVariants({ size: "lg" }), "orbit-explore")}
         >
           开启知遇之旅
@@ -208,6 +240,8 @@ export default function OrbitDeliveryHero({
           data-ready={ready && !failed}
           data-active={visible && tabVisible}
           data-paused={paused}
+          data-brand-orbits={ready && !failed}
+          data-orbit-center="globe"
           onPointerDown={(event) => {
             if (
               paused ||
@@ -276,7 +310,7 @@ export default function OrbitDeliveryHero({
             }
           }}
         >
-          {failed ? (
+          {!webglSupported || failed ? (
             fallback
           ) : (
             <SceneBoundary
@@ -318,7 +352,7 @@ export default function OrbitDeliveryHero({
         </svg>
       </div>
       <p id="orbit-instructions" className="sr-only">
-        拖动星球，或聚焦后用方向键旋转。空格键暂停，让小伙伴向你招手；再次按下继续。暂停时停止旋转。手机上左右拖动星球，上下滑动浏览页面。
+        三枚合作品牌标识沿着以球心为共同中心的粒子轨道环绕地球。拖动星球，或聚焦后用方向键旋转。空格键暂停，让小伙伴向你招手；再次按下继续。暂停时停止旋转。手机上左右拖动星球，上下滑动浏览页面。
       </p>
       <div className="orbit-clouds" aria-hidden="true">
         <i />

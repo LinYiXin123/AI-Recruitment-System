@@ -12,6 +12,11 @@ test("三个能力示意区的蓝色光晕跟随鼠标，移开后淡出且不�
   })
   const cards = page.locator("#features .feature-visual.spotlight-card")
   await expect(cards).toHaveCount(3)
+  for (const [index, order] of ["01", "02", "03"].entries()) {
+    await expect(cards.nth(index)).toHaveClass(
+      new RegExp(`feature-visual--cycle-${order}`)
+    )
+  }
   const labels = ["岗位需求", "来源：工作经历", "你在这个项目中的贡献吗？"]
   for (let index = 0; index < 3; index++) {
     const card = cards.nth(index)
@@ -67,13 +72,81 @@ test("三个能力示意区的蓝色光晕跟随鼠标，移开后淡出且不�
   ).toBe(true)
 })
 
+test("一束光从左向右依次流过三张能力卡片", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" })
+  await page.goto("/#features")
+  const cards = page.locator("#features .feature-visual.spotlight-card")
+  await cards.first().scrollIntoViewIfNeeded()
+
+  const focusState = async () =>
+    cards.evaluateAll((elements) =>
+      elements.map((element) => ({
+        animationDelay: getComputedStyle(element).animationDelay,
+      }))
+    )
+
+  await expect.poll(focusState).toEqual([
+    expect.objectContaining({ animationDelay: "0s" }),
+    expect.objectContaining({ animationDelay: "2.1s" }),
+    expect.objectContaining({ animationDelay: "4.2s" }),
+  ])
+
+  const flowX = () =>
+    cards.first().evaluate((element) =>
+      Number.parseFloat(
+        getComputedStyle(element).getPropertyValue("--feature-flow-x")
+      )
+    )
+  await page.waitForTimeout(240)
+  const firstX = await flowX()
+  await page.waitForTimeout(420)
+  expect(await flowX()).toBeGreaterThan(firstX)
+
+  await expect
+    .poll(() =>
+      cards.evaluateAll((elements) =>
+        elements.map((element) =>
+          Number(getComputedStyle(element, "::after").opacity)
+        )
+      )
+    )
+    .toEqual([1, 0, 0])
+
+  await page.waitForTimeout(1900)
+  await expect
+    .poll(() =>
+      cards.evaluateAll((elements) =>
+        elements.map((element) =>
+          Number(getComputedStyle(element, "::after").opacity)
+        )
+      )
+    )
+    .toEqual([0, 1, 0])
+
+  await page.waitForTimeout(2100)
+  await expect
+    .poll(() =>
+      cards.evaluateAll((elements) =>
+        elements.map((element) =>
+          Number(getComputedStyle(element, "::after").opacity)
+        )
+      )
+    )
+    .toEqual([0, 0, 1])
+})
+
 test("减少动态时保留静止光晕，手机在卡片上滑动仍能向下浏览", async ({
   page,
   isMobile,
 }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto("/#features")
-  const card = page.locator("#features .feature-visual").first()
+  const cards = page.locator("#features .feature-visual")
+  const card = cards.first()
   await card.scrollIntoViewIfNeeded()
+  for (const item of await cards.all()) {
+    await expect(item).toHaveCSS("animation-name", "none")
+  }
   await card.hover({ position: { x: 15, y: 20 } })
   const gradient = await card.evaluate(
     (el) => getComputedStyle(el, "::before").backgroundImage

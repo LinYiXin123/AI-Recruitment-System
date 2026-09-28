@@ -47,6 +47,19 @@ test("首页展示完整，体验入口可用且无横向溢出", async ({ page 
   expect(errors).toEqual([])
 })
 
+test("三个体验入口都统一进入飞书登录", async ({ page }) => {
+  await page.goto("/")
+  const loginPath = "/api/v1/auth/login/"
+  await expect(page.getByRole("link", { name: "开启知遇之旅" })).toHaveAttribute(
+    "href",
+    loginPath
+  )
+  await expect(page.getByRole("link", { name: "开始体验" })).toHaveCount(2)
+  for (const link of await page.getByRole("link", { name: "开始体验" }).all()) {
+    await expect(link).toHaveAttribute("href", loginPath)
+  }
+})
+
 test("工作台随滚动展平，正常动画下仍可操作且无横向溢出", async ({
   page,
   isMobile,

@@ -384,3 +384,52 @@
     inset-block-start: 20%;
   }
 }
+
+.orbit-mascot {
+  position: absolute;
+  z-index: 4;
+  top: calc(clamp(180px, 28vh, 250px) + var(--mascot-offset-y, 0px));
+  left: calc(clamp(280px, 27vw, 370px) + var(--mascot-offset-x, 0px));
+  width: clamp(190px, 22vw, 280px);
+  height: clamp(170px, 19vw, 235px);
+  cursor: grab;
+  touch-action: none;
+  outline: none;
+}
+.orbit-mascot.is-dragging {
+  cursor: grabbing;
+}
+.orbit-mascot:focus-visible {
+  outline: 2px dashed var(--primary);
+  outline-offset: 4px;
+  border-radius: 20px;
+}
+.orbit-mascot canvas {
+  width: 100% !important;
+  height: 100% !important;
+  pointer-events: none;
+}
+.orbit-mascot-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  pointer-events: none;
+}
+@media (max-width: 1000px) and (min-width: 640px) {
+  .orbit-mascot {
+    left: calc(clamp(235px, 27vw, 300px) + var(--mascot-offset-x, 0px));
+    width: clamp(150px, 22vw, 210px);
+    height: clamp(140px, 18vw, 190px);
+  }
+}
+@media (max-width: 639px) {
+  .orbit-mascot {
+    top: calc(118px + var(--mascot-offset-y, 0px));
+    left: calc(100% - min(46vw, 220px) - 8px + var(--mascot-offset-x, 0px));
+    width: min(46vw, 220px);
+    height: min(40vw, 190px);
+  }
+}
