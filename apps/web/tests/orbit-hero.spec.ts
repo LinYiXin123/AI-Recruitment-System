@@ -55,8 +55,13 @@ test("中文星球开场位于原首页之前，真实模型可旋转、暂停�
     "introduction"
   )
   await expect(stage).toHaveAttribute("data-ready", "true", { timeout: 30000 })
+  await expect(stage).toHaveAttribute("data-brand-orbits", "true")
+  await expect(stage).toHaveAttribute("data-orbit-center", "globe")
   await expect(mascot).toHaveAttribute("data-ready", "true", { timeout: 30000 })
   expect(requestedAssets).toContain("/orbit/models/zhiyu-mascot.glb")
+  expect(requestedAssets).toContain("/orbit/brands/joincare-logo.webp")
+  expect(requestedAssets).toContain("/orbit/brands/livzon-logo.webp")
+  expect(requestedAssets).toContain("/orbit/brands/third-logo.png")
   if (!isMobile) {
     const mascotBefore = await mascotImage(page)
     const mascotRect = await mascot.boundingBox()

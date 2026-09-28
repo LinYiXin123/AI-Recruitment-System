@@ -240,6 +240,8 @@ export default function OrbitDeliveryHero({
           data-ready={ready && !failed}
           data-active={visible && tabVisible}
           data-paused={paused}
+          data-brand-orbits={ready && !failed}
+          data-orbit-center="globe"
           onPointerDown={(event) => {
             if (
               paused ||
@@ -350,7 +352,7 @@ export default function OrbitDeliveryHero({
         </svg>
       </div>
       <p id="orbit-instructions" className="sr-only">
-        拖动星球，或聚焦后用方向键旋转。空格键暂停，让小伙伴向你招手；再次按下继续。暂停时停止旋转。手机上左右拖动星球，上下滑动浏览页面。
+        三枚合作品牌标识沿着以球心为共同中心的粒子轨道环绕地球。拖动星球，或聚焦后用方向键旋转。空格键暂停，让小伙伴向你招手；再次按下继续。暂停时停止旋转。手机上左右拖动星球，上下滑动浏览页面。
       </p>
       <div className="orbit-clouds" aria-hidden="true">
         <i />
