@@ -1116,13 +1116,19 @@ body {
   border-radius: 12px;
   box-shadow: 0 1px 3px rgb(36 51 77 / 4%);
   transition:
+    background 160ms ease,
     border-color 160ms ease,
     box-shadow 160ms ease,
     transform 160ms ease;
 }
-.dashboard-kpi.is-clickable:hover {
-  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
-  box-shadow: 0 8px 20px rgb(36 51 77 / 8%);
+.dashboard-kpi:hover,
+.dashboard-kpi.is-clickable:focus-visible {
+  background: color-mix(in srgb, var(--secondary) 42%, var(--card));
+  border-color: color-mix(in srgb, var(--primary) 82%, var(--border));
+  box-shadow:
+    0 0 0 1px rgb(36 86 184 / 66%),
+    0 10px 26px rgb(36 86 184 / 20%),
+    0 0 30px rgb(36 86 184 / 18%);
   transform: translateY(-1px);
 }
 .dashboard-kpi-heading {
