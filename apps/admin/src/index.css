@@ -1380,6 +1380,25 @@ body {
   }
 }
 
+/* 高像素密度桌面在浏览器放大后仍保持招聘工作台的信息密度。 */
+@media (min-width: 1100px) and (max-width: 1399px) and (min-resolution: 1.75dppx) {
+  body {
+    zoom: 0.8;
+  }
+  .workspace {
+    min-height: 125dvh;
+  }
+  .desktop-sidebar {
+    height: 125dvh;
+  }
+  .dashboard-kpi-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .dashboard-trend-grid {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 3fr) minmax(0, 3fr);
+  }
+}
+
 @media (min-width: 901px) and (max-width: 1100px) {
   .workspace {
     grid-template-columns: 236px minmax(0, 1fr);
