@@ -4,8 +4,6 @@
 // 从用户提供的 Orbit Delivery 组件提取的场景引擎，保留球面行走、招手和背包运动。
 // 页面布局与中文交互见 ../orbit-delivery-hero.tsx；资源来源见 public/orbit/来源说明.md。
 
-import BrandOrbitSystem from "./brand-orbits";
-
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __esm = (fn, res) => function __init() {
@@ -861,7 +859,6 @@ function World2({ motion, auto, reduced, onReady }) {
     }
   }, -1);
   return <group position={[0, centerY, 0]}>
-    <BrandOrbitSystem auto={auto} reduced={reduced} compact={small} />
     <group ref={planet} scale={2.25}>{asset && <primitive object={asset.scene} dispose={null} />}</group>
     <group ref={runner} visible={!!asset && courierReady}><Courier motion={motion} paused={!auto} reduced={reduced} onReady={setCourierReady} /></group>
   </group>;
