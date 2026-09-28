@@ -474,6 +474,123 @@ body {
   color: var(--muted-foreground);
   font-size: 12px;
 }
+.candidate-library-notice {
+  margin-bottom: 14px;
+}
+.candidate-library-panel {
+  min-height: 462px;
+}
+.candidate-filterbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.6fr) repeat(4, minmax(116px, 1fr)) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 26px;
+  border-bottom: 1px solid var(--border);
+}
+.candidate-filterbar .candidate-search,
+.candidate-filterbar > [data-slot="native-select-wrapper"] {
+  width: 100%;
+}
+.candidate-filterbar .candidate-search,
+.candidate-filterbar [data-slot="native-select"] {
+  height: 40px;
+  font-size: 14px;
+}
+.candidate-filterbar > button {
+  height: 40px;
+  padding-inline: 14px;
+  white-space: nowrap;
+}
+.candidate-library-empty {
+  min-height: 360px;
+  border: 0;
+  border-radius: 0;
+  background: var(--card);
+}
+.candidate-library-empty-icon {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 4px;
+  color: color-mix(in srgb, var(--primary) 38%, var(--muted-foreground));
+}
+.candidate-library-empty-icon > svg {
+  width: 42px;
+  height: 42px;
+}
+.candidate-library-empty [data-slot="empty-title"] {
+  color: var(--foreground);
+  font-size: 16px;
+}
+.candidate-create-modal .semi-modal-content {
+  overflow: hidden;
+  border-radius: 12px;
+}
+.candidate-create-modal .semi-modal-body {
+  max-height: min(620px, calc(100dvh - 220px));
+  padding: 0 24px 24px;
+  overflow-y: auto;
+}
+.candidate-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.candidate-resume-choice {
+  width: 100%;
+  min-height: 76px;
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  justify-content: start;
+  gap: 2px 12px;
+  padding: 14px 18px;
+  color: var(--foreground);
+  text-align: left;
+  white-space: normal;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
+  background: color-mix(in srgb, var(--secondary) 68%, var(--card));
+}
+.candidate-resume-choice > span:first-child {
+  grid-row: span 2;
+  font-weight: 600;
+}
+.candidate-resume-choice > span:last-of-type {
+  color: var(--muted-foreground);
+}
+.candidate-resume-choice strong {
+  color: var(--primary);
+}
+.candidate-resume-choice small {
+  grid-column: 2;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.candidate-create-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+}
+.candidate-create-grid [data-slot="field"] {
+  gap: 6px;
+}
+.candidate-create-grid [data-slot="field-label"] {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+.candidate-create-grid [data-slot="native-select-wrapper"] {
+  width: 100%;
+}
+.candidate-create-grid input,
+.candidate-create-grid [data-slot="native-select"] {
+  height: 42px;
+}
+.candidate-create-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
 .table-container {
   overflow-x: auto;
 }
@@ -1462,6 +1579,9 @@ body {
   .workspace-main {
     padding: 16px 14px 60px;
   }
+  .candidate-filterbar {
+    grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(132px, 1fr));
+  }
 }
 
 @media (max-width: 768px) {
@@ -1507,5 +1627,28 @@ body {
   }
   .dashboard-card-head > span {
     text-align: left;
+  }
+  .candidate-filterbar {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+  .candidate-filterbar > button {
+    justify-self: start;
+  }
+  .candidate-create-modal .semi-modal-body {
+    max-height: calc(100dvh - 176px);
+    padding-inline: 16px;
+  }
+  .candidate-resume-choice {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+  .candidate-resume-choice > span:first-child,
+  .candidate-resume-choice small {
+    grid-column: auto;
+    grid-row: auto;
+  }
+  .candidate-create-grid {
+    grid-template-columns: 1fr;
   }
 }

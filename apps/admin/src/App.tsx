@@ -14,7 +14,7 @@ import {
   UserRoundCheck,
   UsersRound,
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ErrorNotice, Loading } from '@/components/feedback';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -27,7 +27,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { ApiError, api, type DashboardData, type Me } from '@/lib/api';
-import { ApplicationDetail, Candidates } from '@/pages/intake';
+import { ApplicationDetail, type CandidateLibraryActions, Candidates } from '@/pages/intake';
 import { Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
 import { Jobs, Today } from '@/pages/workspace';
@@ -126,6 +126,7 @@ export default function App() {
   const [revision, setRevision] = useState(0);
   const [leaving, setLeaving] = useState(false);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const candidateLibraryRef = useRef<CandidateLibraryActions>(null);
 
   function openJob(id: number, tab = 'requirements') {
     setJobTab(tab);
@@ -194,7 +195,7 @@ export default function App() {
       title: '职位管理',
       description: '查看你负责、协作或获授权的职位，明确每一次招聘的要求。',
     },
-    candidates: { title: '候选人库', description: '先核对材料与身份，再处理每一次独立应聘。' },
+    candidates: { title: '候选人库', description: '候选人全生命周期与状态流转' },
     interviews: { title: '面试管理', description: '查看已保存的系统内排期与当前参与状态。' },
     'ai-screening': {
       title: 'AI 初面',
@@ -328,6 +329,25 @@ export default function App() {
                   新建职位
                 </Button>
               )}
+              {route === 'candidates' && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => candidateLibraryRef.current?.exportModule()}
+                  >
+                    导出本模块
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => candidateLibraryRef.current?.showMailboxSyncStatus()}
+                  >
+                    从邮箱同步
+                  </Button>
+                  <Button onClick={() => candidateLibraryRef.current?.openCreateCandidate()}>
+                    新增候选人
+                  </Button>
+                </>
+              )}
             </div>
           </div>
           {error && <ErrorNotice message={error} retry={() => setError('')} />}
@@ -335,6 +355,7 @@ export default function App() {
             <Today revision={revision} onLoaded={setDashboardData} />
           ) : route === 'candidates' ? (
             <Candidates
+              ref={candidateLibraryRef}
               revision={revision}
               changed={() => setRevision((value) => value + 1)}
               openApplication={setApplicationId}
@@ -444,8 +465,8 @@ function SidebarPanel({
   const [employeesOpen, setEmployeesOpen] = useState(false);
   const navigation = [
     { route: 'today' as const, label: '招聘总览', legacyLabel: '今天', icon: LayoutDashboard },
-    { route: 'jobs' as const, label: '职位管理', legacyLabel: '职位', icon: BriefcaseBusiness },
     { route: 'candidates' as const, label: '候选人库', legacyLabel: '候选人', icon: UsersRound },
+    { route: 'jobs' as const, label: '职位管理', legacyLabel: '职位', icon: BriefcaseBusiness },
     { route: 'interviews' as const, label: '面试管理', legacyLabel: '面试', icon: CalendarDays },
     { route: 'ai-screening' as const, label: 'AI 初面', icon: Sparkles },
     { route: 'question-bank' as const, label: '面试题库', icon: CircleHelp },

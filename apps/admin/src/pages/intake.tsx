@@ -1,9 +1,18 @@
+import Modal from '@douyinfe/semi-ui/lib/es/modal';
 import Table from '@douyinfe/semi-ui/lib/es/table';
-import { type ReactNode, useEffect, useState } from 'react';
-import { Blank, ErrorNotice, Loading, Pager } from '@/components/feedback';
+import { BriefcaseBusiness } from 'lucide-react';
+import { forwardRef, type ReactNode, useEffect, useImperativeHandle, useState } from 'react';
+import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
@@ -14,7 +23,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { api, dateTime, type Job, kindLabel, type Page } from '@/lib/api';
 import {
@@ -145,196 +153,285 @@ function JobPicker({
   );
 }
 
-export function Candidates({
-  revision,
-  openApplication,
-  changed,
-}: {
-  revision: number;
-  openApplication: (id: number) => void;
-  changed: () => void;
-}) {
-  const [tab, setTab] = useState('applications');
+type CandidateFilterOptions = {
+  jobs: { job_id: number; job__title: string }[];
+  sources: string[];
+  owners: { owner_id: number; owner__user__first_name: string; owner__user__username: string }[];
+};
+
+export type CandidateLibraryActions = {
+  exportModule: () => void;
+  openCreateCandidate: () => void;
+  showMailboxSyncStatus: () => void;
+};
+
+const emptyCandidateFilters: CandidateFilterOptions = { jobs: [], sources: [], owners: [] };
+
+export const Candidates = forwardRef<
+  CandidateLibraryActions,
+  {
+    revision: number;
+    openApplication: (id: number) => void;
+    changed: () => void;
+  }
+>(function Candidates({ revision, openApplication, changed }, ref) {
   const [search, setSearch] = useState('');
   const [stage, setStage] = useState('');
+  const [job, setJob] = useState('');
+  const [source, setSource] = useState('');
+  const [owner, setOwner] = useState('');
   const [page, setPage] = useState(1);
-  const [data, setData] = useState<Page<Application | Candidate | Batch> | null>(null);
+  const [data, setData] = useState<Page<Application> | null>(null);
+  const [filters, setFilters] = useState<CandidateFilterOptions>(emptyCandidateFilters);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [reload, setReload] = useState(0);
+  const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState<number | 'new' | null>(null);
-  const [person, setPerson] = useState<Candidate | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  const query = new URLSearchParams({ page: String(page) });
+  if (search) query.set('search', search);
+  if (stage) query.set('stage', stage);
+  if (job) query.set('job', job);
+  if (source) query.set('source', source);
+  if (owner) query.set('owner', owner);
+  const applicationUrl = `applications/?${query.toString()}`;
+
   useEffect(() => {
-    const c = new AbortController();
+    const controller = new AbortController();
     setData(null);
     setError('');
-    api<Page<Application | Candidate | Batch>>(
-      `${tab}/?search=${encodeURIComponent(search)}&stage=${stage}&page=${page}`,
-      undefined,
-      c.signal,
-    )
+    api<Page<Application>>(applicationUrl, undefined, controller.signal)
       .then(setData)
       .catch((e) => {
         if (e.name !== 'AbortError') setError(e.message);
       });
-    return () => c.abort();
-  }, [tab, search, stage, page, revision, reload]);
+    return () => controller.abort();
+  }, [applicationUrl, revision, reload]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api<CandidateFilterOptions>('applications/filter-options/', undefined, controller.signal)
+      .then(setFilters)
+      .catch(() => setFilters(emptyCandidateFilters));
+    return () => controller.abort();
+  }, [revision, reload]);
+
+  function resetFilters() {
+    setSearch('');
+    setStage('');
+    setJob('');
+    setSource('');
+    setOwner('');
+    setPage(1);
+  }
+
+  async function exportModule() {
+    if (exporting) return;
+    setExporting(true);
+    setNotice('');
+    try {
+      const exportQuery = new URLSearchParams(query);
+      exportQuery.delete('page');
+      const rows: Application[] = [];
+      let currentPage = 1;
+      let total = 0;
+      do {
+        const response = await api<Page<Application>>(
+          `applications/?${exportQuery.toString()}&page=${currentPage}`,
+        );
+        total = response.count;
+        rows.push(...response.results);
+        currentPage += 1;
+      } while (rows.length < total);
+      const csv = [
+        ['候选人', '本次职位', '应聘次数', '应聘阶段', '接手 HR', '来源'],
+        ...rows.map((item) => [
+          item.name,
+          item.job_title,
+          `第 ${item.attempt_no} 次`,
+          stages[item.stage],
+          item.owner_name,
+          item.source,
+        ]),
+      ]
+        .map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(','))
+        .join('\r\n');
+      const url = URL.createObjectURL(
+        new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = '候选人库.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+      setNotice(`已导出当前授权范围内的 ${rows.length} 条应聘记录。`);
+    } catch (e) {
+      setNotice(`导出未完成：${(e as Error).message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  useImperativeHandle(ref, () => ({
+    exportModule: () => void exportModule(),
+    openCreateCandidate: () => setCreating(true),
+    showMailboxSyncStatus: () =>
+      setNotice('邮箱同步尚未接通。当前可通过“新增候选人”中的简历导入流程录入材料。'),
+  }));
+
   return (
     <>
-      <section className="panel jobs-panel">
-        <div className="flex flex-wrap items-center justify-between gap-3 p-5">
-          <Tabs
-            value={tab}
-            onValueChange={(v) => {
-              setTab(String(v));
-              setData(null);
+      {notice && (
+        <Alert className="candidate-library-notice">
+          <AlertTitle>候选人库提示</AlertTitle>
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      )}
+      <section className="panel candidate-library-panel" aria-label="候选人库">
+        <div className="candidate-filterbar">
+          <Input
+            aria-label="搜索候选人"
+            className="candidate-search"
+            placeholder="搜索..."
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
               setPage(1);
-              setSearch('');
-              setStage('');
+            }}
+          />
+          <NativeSelect
+            aria-label="筛选职位"
+            value={job}
+            onChange={(event) => {
+              setJob(event.target.value);
+              setPage(1);
             }}
           >
-            <TabsList>
-              <TabsTrigger value="applications">应聘记录</TabsTrigger>
-              <TabsTrigger value="candidates">人才档案</TabsTrigger>
-              <TabsTrigger value="imports">导入记录</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <Button onClick={() => setImporting('new')}>导入简历</Button>
+            <NativeSelectOption value="">全部</NativeSelectOption>
+            {filters.jobs.map((item) => (
+              <NativeSelectOption key={item.job_id} value={item.job_id}>
+                {item.job__title}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          <NativeSelect
+            aria-label="筛选阶段"
+            value={stage}
+            onChange={(event) => {
+              setStage(event.target.value);
+              setPage(1);
+            }}
+          >
+            <NativeSelectOption value="">全部</NativeSelectOption>
+            {Object.entries(stages).map(([value, label]) => (
+              <NativeSelectOption key={value} value={value}>
+                {label}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          <NativeSelect
+            aria-label="筛选来源"
+            value={source}
+            onChange={(event) => {
+              setSource(event.target.value);
+              setPage(1);
+            }}
+          >
+            <NativeSelectOption value="">全部</NativeSelectOption>
+            {filters.sources.map((item) => (
+              <NativeSelectOption key={item} value={item}>
+                {item}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          <NativeSelect
+            aria-label="筛选接手 HR"
+            value={owner}
+            onChange={(event) => {
+              setOwner(event.target.value);
+              setPage(1);
+            }}
+          >
+            <NativeSelectOption value="">全部</NativeSelectOption>
+            {filters.owners.map((item) => (
+              <NativeSelectOption key={item.owner_id} value={item.owner_id}>
+                {item.owner__user__first_name || item.owner__user__username}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          <Button type="button" variant="outline" size="sm" onClick={resetFilters}>
+            重置
+          </Button>
         </div>
-        {tab !== 'imports' && (
-          <div className="filterbar">
-            <Input
-              aria-label="搜索候选人"
-              placeholder="搜索姓名或职位"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-            />
-            {tab === 'applications' && (
-              <NativeSelect
-                aria-label="应聘阶段"
-                value={stage}
-                onChange={(e) => {
-                  setStage(e.target.value);
-                  setPage(1);
-                }}
-              >
-                <NativeSelectOption value="">全部阶段</NativeSelectOption>
-                {Object.entries(stages).map(([v, l]) => (
-                  <NativeSelectOption key={v} value={v}>
-                    {l}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            )}
-            <span className="scope-note">仅显示有 HR 权限的应聘</span>
-          </div>
-        )}
         {error ? (
-          <ErrorNotice message={error} retry={() => setReload((r) => r + 1)} />
+          <ErrorNotice message={error} retry={() => setReload((value) => value + 1)} />
         ) : !data ? (
           <Loading />
         ) : !data.count ? (
-          <Blank
-            title="暂时没有符合条件的记录"
-            description="为招聘中的职位导入材料并核对身份后，这里会显示真实应聘与人才档案。"
-          />
+          <Empty className="candidate-library-empty">
+            <EmptyHeader>
+              <EmptyMedia className="candidate-library-empty-icon">
+                <BriefcaseBusiness aria-hidden="true" />
+              </EmptyMedia>
+              <EmptyTitle>还没有数据</EmptyTitle>
+              <EmptyDescription>点击右上角「新增候选人」开始录入第一条</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <>
             <div className="table-container">
-              {tab === 'applications' ? (
-                <Table<Application>
-                  rowKey="id"
-                  dataSource={data.results as Application[]}
-                  pagination={false}
-                  columns={[
-                    {
-                      title: '候选人',
-                      width: 180,
-                      render: (_, a) => (
-                        <Button variant="link" onClick={() => openApplication(a.id)}>
-                          {a.name}
-                        </Button>
-                      ),
-                    },
-                    { title: '本次职位', dataIndex: 'job_title', width: 230 },
-                    { title: '次数', width: 90, render: (_, a) => `第 ${a.attempt_no} 次` },
-                    {
-                      title: '应聘阶段',
-                      width: 150,
-                      render: (_, a) => <Badge variant="secondary">{stages[a.stage]}</Badge>,
-                    },
-                    { title: '接手 HR', dataIndex: 'owner_name', width: 130 },
-                    { title: '来源', dataIndex: 'source', width: 180 },
-                  ]}
-                />
-              ) : tab === 'candidates' ? (
-                <Table<Candidate>
-                  rowKey="id"
-                  dataSource={data.results as Candidate[]}
-                  pagination={false}
-                  columns={[
-                    {
-                      title: '人才主档',
-                      width: 180,
-                      render: (_, c) => (
-                        <Button variant="link" onClick={() => setPerson(c)}>
-                          {c.display_name}
-                        </Button>
-                      ),
-                    },
-                    {
-                      title: '联系方式',
-                      width: 200,
-                      render: (_, c) => c.phone || c.email || '待补充',
-                    },
-                    {
-                      title: '授权内的应聘',
-                      width: 400,
-                      render: (_, c) => (
-                        <div className="flex flex-col items-start gap-2">
-                          {c.applications.map((a) => (
-                            <Button key={a.id} variant="link" onClick={() => openApplication(a.id)}>
-                              {a.job__title} · 第 {a.attempt_no} 次 · {stages[a.stage]}
-                            </Button>
-                          ))}
-                        </div>
-                      ),
-                    },
-                  ]}
-                />
-              ) : (
-                <Table<Batch>
-                  rowKey="id"
-                  dataSource={data.results as Batch[]}
-                  pagination={false}
-                  columns={[
-                    {
-                      title: '导入职位',
-                      width: 240,
-                      render: (_, b) => (
-                        <Button variant="link" onClick={() => setImporting(b.id)}>
-                          {b.job_title}
-                        </Button>
-                      ),
-                    },
-                    { title: '来源', dataIndex: 'source', width: 180 },
-                    {
-                      title: '接收 / 计划',
-                      width: 130,
-                      render: (_, b) => `${b.received} / ${b.total}`,
-                    },
-                    { title: '已核对身份', width: 120, render: (_, b) => `${b.completed} 份` },
-                    { title: '建立时间', width: 170, render: (_, b) => dateTime(b.created_at) },
-                  ]}
-                />
-              )}
+              <Table<Application>
+                rowKey="id"
+                dataSource={data.results}
+                pagination={false}
+                columns={[
+                  {
+                    title: '候选人',
+                    width: 180,
+                    render: (_, application) => (
+                      <Button variant="link" onClick={() => openApplication(application.id)}>
+                        {application.name}
+                      </Button>
+                    ),
+                  },
+                  { title: '本次职位', dataIndex: 'job_title', width: 230 },
+                  {
+                    title: '次数',
+                    width: 90,
+                    render: (_, application) => `第 ${application.attempt_no} 次`,
+                  },
+                  {
+                    title: '应聘阶段',
+                    width: 150,
+                    render: (_, application) => (
+                      <Badge variant="secondary">{stages[application.stage]}</Badge>
+                    ),
+                  },
+                  { title: '接手 HR', dataIndex: 'owner_name', width: 130 },
+                  { title: '来源', dataIndex: 'source', width: 180 },
+                ]}
+              />
             </div>
             <Pager count={data.count} page={page} onChange={setPage} />
           </>
         )}
       </section>
+      {creating && (
+        <CreateCandidateDialog
+          close={() => setCreating(false)}
+          openImport={() => {
+            setCreating(false);
+            setImporting('new');
+          }}
+          saved={(application) => {
+            setCreating(false);
+            changed();
+            openApplication(application);
+          }}
+        />
+      )}
       {importing !== null && (
         <ImportDrawer
           id={importing}
@@ -346,98 +443,181 @@ export function Candidates({
           }}
         />
       )}
-      {person && (
-        <CandidateDrawer
-          person={person}
-          close={() => setPerson(null)}
-          added={(id) => {
-            setPerson(null);
-            changed();
-            openApplication(id);
-          }}
-        />
-      )}
     </>
   );
-}
+});
 
-function CandidateDrawer({
-  person,
+function CreateCandidateDialog({
   close,
-  added,
+  openImport,
+  saved,
 }: {
-  person: Candidate;
   close: () => void;
-  added: (id: number) => void;
+  openImport: () => void;
+  saved: (application: number) => void;
 }) {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [contactNote, setContactNote] = useState('');
   const [job, setJob] = useState('');
-  const [source, setSource] = useState('');
+  const [source, setSource] = useState('人工录入');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [key, setKey] = useState(() => crypto.randomUUID());
+  const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api<Page<Job>>('jobs/?status=open&page=1', undefined, controller.signal)
+      .then((response) => setJobs(response.results.filter((item) => item.permissions.edit)))
+      .catch((e) => {
+        if (e.name !== 'AbortError') setError(e.message);
+      });
+    return () => controller.abort();
+  }, []);
+
   return (
-    <Drawer
-      title={`${person.display_name} · 人才主档`}
-      close={close}
-      busy={busy}
-      dirty={!!job || !!source}
+    <Modal
+      visible
+      centered
+      width={940}
+      title="新增候选人"
+      className="candidate-create-modal"
+      maskClosable={!busy}
+      closable={!busy}
+      onCancel={close}
+      footer={
+        <div className="candidate-create-footer">
+          <Button type="button" variant="outline" disabled={busy} onClick={close}>
+            取消
+          </Button>
+          <Button type="submit" form="create-candidate-form" disabled={busy || !job}>
+            {busy ? '正在保存…' : '保存'}
+          </Button>
+        </div>
+      }
     >
-      <p>{person.phone || person.email || person.contact_note}</p>
-      <Alert>
-        <AlertDescription>
-          每次应聘分别记录，不会覆盖其他职位的阶段。已有进行中的同岗应聘会直接打开；历史应聘已结束时建立新次数。本次加入不自动复制其他职位的简历。
-        </AlertDescription>
-      </Alert>
-      <h3>加入职位</h3>
-      {error && <ErrorNotice message={error} />}
       <form
-        className="flex flex-col gap-4"
-        onSubmit={async (e) => {
-          e.preventDefault();
+        id="create-candidate-form"
+        className="candidate-create-form"
+        onSubmit={async (event) => {
+          event.preventDefault();
           setBusy(true);
           setError('');
           try {
-            const r = await api<{ application: number }>(`candidates/${person.id}/apply/`, {
-              request_key: key,
+            const result = await api<{ candidate: number; application: number }>('candidates/', {
+              request_key: requestKey,
+              display_name: name,
+              phone,
+              email,
+              contact_note: contactNote,
               job: Number(job),
               source,
             });
-            added(r.application);
+            saved(result.application);
           } catch (e) {
             setError((e as Error).message);
+            setRequestKey(crypto.randomUUID());
           } finally {
             setBusy(false);
           }
         }}
       >
-        <fieldset disabled={busy} className="flex flex-col gap-4">
-          <JobPicker
-            value={job}
-            onChange={(v) => {
-              setJob(v);
-              setKey(crypto.randomUUID());
-            }}
-            disabled={busy}
-          />
+        <Button
+          type="button"
+          variant="outline"
+          className="candidate-resume-choice"
+          onClick={openImport}
+          disabled={busy}
+        >
+          <span>简历文件</span>
+          <span>
+            拖拽简历到此处，或 <strong>点击选择文件</strong>
+          </span>
+          <small>支持 PDF、Word、纯文本和图片；导入后会先进行文字提取与身份核对。</small>
+        </Button>
+        {error && <ErrorNotice message={error} />}
+        <FieldGroup className="candidate-create-grid">
           <Field>
-            <FieldLabel htmlFor="entry-source">应聘来源</FieldLabel>
+            <FieldLabel htmlFor="new-candidate-name">姓名 *</FieldLabel>
             <Input
-              id="entry-source"
-              value={source}
-              onChange={(e) => {
-                setSource(e.target.value);
-                setKey(crypto.randomUUID());
-              }}
+              id="new-candidate-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
               required
-              maxLength={200}
+              maxLength={100}
+              disabled={busy}
             />
           </Field>
-          <Button type="submit" disabled={busy || !job}>
-            {busy ? '正在保存…' : '建立或打开本次应聘'}
-          </Button>
-        </fieldset>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-phone">联系方式</FieldLabel>
+            <Input
+              id="new-candidate-phone"
+              type="tel"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              placeholder="手机号"
+              maxLength={32}
+              disabled={busy}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-contact-note">联系方式说明</FieldLabel>
+            <Input
+              id="new-candidate-contact-note"
+              value={contactNote}
+              onChange={(event) => setContactNote(event.target.value)}
+              placeholder="没有联系方式时请说明待补充情况"
+              maxLength={500}
+              disabled={busy}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-email">邮箱</FieldLabel>
+            <Input
+              id="new-candidate-email"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              maxLength={254}
+              disabled={busy}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-job">应聘职位 *</FieldLabel>
+            <NativeSelect
+              id="new-candidate-job"
+              value={job}
+              onChange={(event) => setJob(event.target.value)}
+              required
+              disabled={busy}
+            >
+              <NativeSelectOption value="">请选择职位</NativeSelectOption>
+              {jobs.map((item) => (
+                <NativeSelectOption key={item.id} value={item.id}>
+                  {item.title} · {item.department_name}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="new-candidate-source">简历来源</FieldLabel>
+            <NativeSelect
+              id="new-candidate-source"
+              value={source}
+              onChange={(event) => setSource(event.target.value)}
+              disabled={busy}
+            >
+              <NativeSelectOption value="人工录入">人工录入</NativeSelectOption>
+              <NativeSelectOption value="本人投递">本人投递</NativeSelectOption>
+              <NativeSelectOption value="员工推荐">员工推荐</NativeSelectOption>
+              <NativeSelectOption value="猎头推荐">猎头推荐</NativeSelectOption>
+            </NativeSelect>
+          </Field>
+        </FieldGroup>
       </form>
-    </Drawer>
+    </Modal>
   );
 }
 

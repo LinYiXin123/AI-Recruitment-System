@@ -14,7 +14,7 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
+from rest_framework.mixins import CreateModelMixin, ListModelMixin, RetrieveModelMixin
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
@@ -123,6 +123,12 @@ class IdentityInput(serializers.Serializer):
         ):
             raise ValidationError("联系方式缺失时，请说明待补充情况。")
         return data
+
+
+class CandidateCreateInput(IdentityInput):
+    request_key = serializers.UUIDField()
+    job = serializers.IntegerField(min_value=1)
+    source = serializers.CharField(max_length=200)
 
 
 def possible_matches(m, data):
@@ -457,7 +463,7 @@ class ImportViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         return Response(item_data(item))
 
 
-class CandidateViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
+class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
     def get_queryset(self):
         search = self.request.query_params.get("search", "")[:100]
         return (
@@ -480,6 +486,41 @@ class CandidateViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
 
     def retrieve(self, request, pk=None):
         return Response(candidate_data(self.get_object(), member(request)))
+
+    @transaction.atomic
+    def create(self, request):
+        m = member(request)
+        data = validated(CandidateCreateInput, request.data)
+        existing = (
+            ApplicationEntry.objects.select_related("application__candidate")
+            .filter(organization=m.organization, request_key=data["request_key"])
+            .first()
+        )
+        if existing:
+            person = existing.application.candidate
+            if (
+                existing.actor_id != m.id
+                or existing.application.job_id != data["job"]
+                or existing.source != data["source"]
+                or any(
+                    getattr(person, field) != data[field]
+                    for field in ["display_name", "phone", "email", "contact_note"]
+                )
+            ):
+                raise Conflict("该保存请求已用于另一位候选人，请刷新后再试。")
+            return Response({"candidate": person.id, "application": existing.application_id})
+
+        job = open_job(m, data["job"])
+        if possible_matches(m, data).exists():
+            raise Conflict("发现疑似重复候选人，请先从已有档案核对后加入本次应聘。")
+        person = Candidate.objects.create(
+            organization=m.organization,
+            created_by=m,
+            **{field: data[field] for field in ["display_name", "phone", "email", "contact_note"]},
+        )
+        application = enter_application(m, person, job, data["source"], data["request_key"])
+        audit(m, job, "人工新增候选人并建立应聘", application, note=f"候选人 {person.id}")
+        return Response({"candidate": person.id, "application": application.id}, status=201)
 
     @action(detail=True, methods=["post"])
     @transaction.atomic
@@ -602,16 +643,25 @@ class ReviewInput(serializers.Serializer):
 
 
 class ApplicationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
-    def get_queryset(self):
-        qs = Application.objects.filter(
+    def scoped_queryset(self):
+        return Application.objects.filter(
             organization=member(self.request).organization, job__in=hr_jobs(member(self.request))
         ).select_related("candidate", "job__active_profile", "owner__user")
+
+    def get_queryset(self):
+        qs = self.scoped_queryset()
         search = self.request.query_params.get("search", "")[:100]
         qs = qs.filter(
             Q(candidate__display_name__icontains=search) | Q(job__title__icontains=search)
         )
         if self.request.query_params.get("stage"):
             qs = qs.filter(stage=self.request.query_params["stage"])
+        if self.request.query_params.get("job"):
+            qs = qs.filter(job_id=self.request.query_params["job"])
+        if self.request.query_params.get("source"):
+            qs = qs.filter(source=self.request.query_params["source"][:200])
+        if self.request.query_params.get("owner"):
+            qs = qs.filter(owner_id=self.request.query_params["owner"])
         return qs
 
     def list(self, request):
@@ -621,6 +671,30 @@ class ApplicationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
 
     def retrieve(self, request, pk=None):
         return Response(app_data(self.get_object(), member(request), True))
+
+    @action(detail=False, methods=["get"], url_path="filter-options")
+    def filter_options(self, request):
+        qs = self.scoped_queryset()
+        return Response(
+            {
+                "jobs": list(
+                    qs.values("job_id", "job__title")
+                    .distinct()
+                    .order_by("job__title", "job_id")
+                ),
+                "sources": list(
+                    qs.exclude(source="")
+                    .values_list("source", flat=True)
+                    .distinct()
+                    .order_by("source")
+                ),
+                "owners": list(
+                    qs.values("owner_id", "owner__user__first_name", "owner__user__username")
+                    .distinct()
+                    .order_by("owner__user__first_name", "owner__user__username", "owner_id")
+                ),
+            }
+        )
 
     @action(detail=True, methods=["post"])
     @transaction.atomic
