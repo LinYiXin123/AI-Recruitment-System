@@ -4,11 +4,10 @@ import {
   AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
-  LinearMipmapLinearFilter,
-  SRGBColorSpace,
   TextureLoader,
   type Group,
 } from "three"
+import ParticleLogo from "./particle-logo"
 
 type BrandOrbitSystemProps = {
   auto: boolean
@@ -19,7 +18,6 @@ type BrandOrbitSystemProps = {
 type OrbitDefinition = {
   color: string
   logo: string
-  logoHeight: number
   logoWidth: number
   particleCount: number
   phase: number
@@ -32,10 +30,9 @@ const orbitDefinitions: OrbitDefinition[] = [
   {
     color: "#58a8ff",
     logo: "/orbit/brands/livzon-logo.webp",
-    logoHeight: 0.25,
-    logoWidth: 0.76,
+    logoWidth: 0.88,
     particleCount: 76,
-    phase: 0.28,
+    phase: 2.45,
     radius: 2.48,
     speed: 0.16,
     tilt: [0.86, 0.18, -0.22],
@@ -43,8 +40,7 @@ const orbitDefinitions: OrbitDefinition[] = [
   {
     color: "#65c7a0",
     logo: "/orbit/brands/joincare-logo.webp",
-    logoHeight: 0.24,
-    logoWidth: 0.73,
+    logoWidth: 0.86,
     particleCount: 68,
     phase: 2.35,
     radius: 2.62,
@@ -54,10 +50,9 @@ const orbitDefinitions: OrbitDefinition[] = [
   {
     color: "#7dd8ff",
     logo: "/orbit/brands/third-logo.png",
-    logoHeight: 0.24,
-    logoWidth: 0.86,
+    logoWidth: 0.98,
     particleCount: 82,
-    phase: 1.08,
+    phase: 1.65,
     radius: 2.74,
     speed: 0.16,
     tilt: [1.03, 0.7, -0.7],
@@ -134,24 +129,24 @@ function BrandOrbit({
     <group rotation={definition.tilt}>
       <mesh renderOrder={1}>
         <torusGeometry
-          args={[definition.radius, compact ? 0.018 : 0.024, 6, 192]}
+          args={[definition.radius, compact ? 0.006 : 0.009, 6, 192]}
         />
         <meshBasicMaterial
           color={definition.color}
           transparent
-          opacity={compact ? 0.29 : 0.4}
+          opacity={compact ? 0.28 : 0.36}
           depthTest
           depthWrite={false}
         />
       </mesh>
       <mesh renderOrder={0}>
         <torusGeometry
-          args={[definition.radius, compact ? 0.042 : 0.062, 6, 160]}
+          args={[definition.radius, compact ? 0.018 : 0.026, 6, 160]}
         />
         <meshBasicMaterial
           color={definition.color}
           transparent
-          opacity={compact ? 0.04 : 0.07}
+          opacity={compact ? 0.025 : 0.04}
           blending={AdditiveBlending}
           depthTest
           depthWrite={false}
@@ -173,7 +168,7 @@ function BrandOrbit({
       <group ref={traveller} rotation={[0, 0, definition.phase]}>
         <mesh rotation={[0, 0, -0.68]} renderOrder={3}>
           <torusGeometry
-            args={[definition.radius, compact ? 0.028 : 0.042, 6, 48, 0.68]}
+            args={[definition.radius, compact ? 0.012 : 0.018, 6, 48, 0.68]}
           />
           <meshBasicMaterial
             color={definition.color}
@@ -204,57 +199,12 @@ function BrandOrbit({
           </mesh>
         ))}
         <group position={[definition.radius, 0, 0]}>
-          <sprite
-            scale={[
-              definition.logoWidth * logoScale * 1.18,
-              definition.logoHeight * logoScale * 1.32,
-              1,
-            ]}
-            renderOrder={4}
-          >
-            <spriteMaterial
-              color={definition.color}
-              transparent
-              opacity={0.22}
-              blending={AdditiveBlending}
-              depthTest
-              depthWrite={false}
-            />
-          </sprite>
-          <sprite
-            scale={[
-              definition.logoWidth * logoScale * 1.08,
-              definition.logoHeight * logoScale * 1.14,
-              1,
-            ]}
-            renderOrder={5}
-          >
-            <spriteMaterial
-              color="#ffffff"
-              transparent
-              opacity={0.9}
-              depthTest
-              depthWrite={false}
-            />
-          </sprite>
-          <sprite
-            scale={[
-              definition.logoWidth * logoScale,
-              definition.logoHeight * logoScale,
-              1,
-            ]}
-            renderOrder={6}
-          >
-            <spriteMaterial
-              map={logo}
-              color="#ffffff"
-              transparent
-              alphaTest={0.015}
-              toneMapped={false}
-              depthTest
-              depthWrite={false}
-            />
-          </sprite>
+          <ParticleLogo
+            texture={logo}
+            width={definition.logoWidth * logoScale}
+            compact={compact}
+            moving={auto && !reduced}
+          />
         </group>
       </group>
     </group>
@@ -270,26 +220,6 @@ export default function BrandOrbitSystem({
     TextureLoader,
     orbitDefinitions.map((definition) => definition.logo)
   )
-  const preparedLogos = useMemo(
-    () =>
-      logos.map((logo) => {
-        const prepared = logo.clone()
-        prepared.colorSpace = SRGBColorSpace
-        prepared.minFilter = LinearMipmapLinearFilter
-        prepared.anisotropy = 8
-        prepared.needsUpdate = true
-        return prepared
-      }),
-    [logos]
-  )
-
-  useEffect(
-    () => () => {
-      for (const logo of preparedLogos) logo.dispose()
-    },
-    [preparedLogos]
-  )
-
   return (
     // 组件挂在地球的球心父组内，因此每条轨道共用同一个局部原点 [0, 0, 0]。
     <group name="brand-orbits" scale={compact ? 0.96 : 1}>
@@ -297,7 +227,7 @@ export default function BrandOrbitSystem({
         <BrandOrbit
           key={definition.logo}
           definition={definition}
-          logo={preparedLogos[index]}
+          logo={logos[index]}
           auto={auto}
           compact={compact}
           reduced={reduced}
