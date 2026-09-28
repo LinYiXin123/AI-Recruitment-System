@@ -534,7 +534,11 @@ function CreateCandidateDialog({
           <Button type="button" variant="outline" disabled={busy} onClick={close}>
             取消
           </Button>
-          <Button type="submit" form="create-candidate-form" disabled={busy || !job || !source}>
+          <Button
+            type="submit"
+            form="create-candidate-form"
+            disabled={busy || !job || !source || !stage}
+          >
             {busy ? '正在保存…' : '保存'}
           </Button>
         </div>
@@ -818,6 +822,7 @@ function CreateCandidateDialog({
               onChange={(event) => setStage(event.target.value)}
               disabled={busy}
             >
+              <NativeSelectOption value="">请选择</NativeSelectOption>
               <NativeSelectOption value="pending_review">待筛选</NativeSelectOption>
               <NativeSelectOption value="ready_to_schedule">待初试</NativeSelectOption>
               <NativeSelectOption value="first_interview_passed">初试通过</NativeSelectOption>
