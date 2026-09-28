@@ -11,5 +11,5 @@ export async function login(page: Page, username = 'local_hr') {
   });
   expect(response.ok(), await response.text()).toBeTruthy();
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '从今天的重要事项开始' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '招聘总览' })).toBeVisible();
 }

@@ -1,6 +1,14 @@
 import Table from '@douyinfe/semi-ui/lib/es/table';
-import { ArrowRight, CalendarDays, CheckCheck, Clock3, ListChecks, Plus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import {
+  ArrowRight,
+  BriefcaseBusiness,
+  CalendarDays,
+  CheckCheck,
+  Clock3,
+  ListChecks,
+  Plus,
+} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { Blank, ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,63 +24,167 @@ type WorkspaceProps = {
   openApplication?: (id: number) => void;
 };
 export function Today({ revision, openJob, canCreate, create, openApplication }: WorkspaceProps) {
+  const [taskCounts, setTaskCounts] = useState<{ mine: number | null; waiting: number | null }>({
+    mine: null,
+    waiting: null,
+  });
+  const [overview, setOverview] = useState<{ jobs: number | null; interviews: number | null }>({
+    jobs: null,
+    interviews: null,
+  });
+  const setMineCount = useCallback(
+    (count: number) => setTaskCounts((current) => ({ ...current, mine: count })),
+    [],
+  );
+  const setWaitingCount = useCallback(
+    (count: number) => setTaskCounts((current) => ({ ...current, waiting: count })),
+    [],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setOverview({ jobs: null, interviews: null });
+    Promise.all([
+      api<Page<Job>>('jobs/?status=open&page=1', undefined, controller.signal),
+      api<Page<unknown>>('interviews/?status=&page=1', undefined, controller.signal),
+    ])
+      .then(([jobs, interviews]) => setOverview({ jobs: jobs.count, interviews: interviews.count }))
+      .catch((error) => {
+        if (error.name !== 'AbortError') setOverview({ jobs: null, interviews: null });
+      });
+    return () => controller.abort();
+  }, [revision]);
+
   return (
-    <div className="today-grid">
-      <div className="flex flex-col gap-6">
-        <TaskQueue
-          scope="mine"
-          revision={revision}
-          openJob={openJob}
-          openApplication={openApplication}
+    <div className="dashboard-layout">
+      <section className="overview-grid" aria-label="招聘概览">
+        <OverviewCard
+          href="#mine-tasks"
+          label="需要我处理"
+          value={taskCounts.mine}
+          note="当前分配给我的事项"
+          icon={ListChecks}
         />
-        <TaskQueue
-          scope="waiting"
-          revision={revision}
-          openJob={openJob}
-          openApplication={openApplication}
+        <OverviewCard
+          href="#waiting-tasks"
+          label="等待他人"
+          value={taskCounts.waiting}
+          note="已提交、等待协作方处理"
+          icon={Clock3}
         />
-      </div>
-      <aside className="flex flex-col gap-6">
-        <section className="panel">
-          <div className="panel-title">
-            <h2>
-              <CalendarDays />
-              今日日程
-            </h2>
-            <Badge variant="outline">北京时间</Badge>
-          </div>
-          <Blank
-            title="面试日程在“面试”中查看"
-            description="排期已接通。保存排期后可在面试入口查看系统内时间与参与人；邀请和确认仍会单独展示。"
+        <OverviewCard
+          href="#jobs"
+          label="招聘中职位"
+          value={overview.jobs}
+          note="我有权限查看的开放职位"
+          icon={BriefcaseBusiness}
+        />
+        <OverviewCard
+          href="#interviews"
+          label="系统内面试"
+          value={overview.interviews}
+          note="已保存的全部面试记录"
+          icon={CalendarDays}
+        />
+      </section>
+      <div className="today-grid">
+        <div className="dashboard-column">
+          <TaskQueue
+            id="mine-tasks"
+            scope="mine"
+            revision={revision}
+            openJob={openJob}
+            openApplication={openApplication}
+            onCount={setMineCount}
           />
-        </section>
-        <section className="guide-panel">
-          <ListChecks />
-          <h2>先把“要找谁”说清楚</h2>
-          <p>对外职位描述与内部招人要求分开保存。用人负责人确认后，再开始招聘。</p>
-          {canCreate ? (
-            <Button variant="outline" onClick={create}>
-              <Plus data-icon="inline-start" />
-              创建一个职位
-            </Button>
-          ) : (
-            <p>你可以从待办进入已分配的确认事项。</p>
-          )}
-        </section>
-      </aside>
+          <TaskQueue
+            id="waiting-tasks"
+            scope="waiting"
+            revision={revision}
+            openJob={openJob}
+            openApplication={openApplication}
+            onCount={setWaitingCount}
+          />
+        </div>
+        <aside className="dashboard-column">
+          <section className="panel">
+            <div className="panel-title">
+              <h2>
+                <CalendarDays />
+                今日日程
+              </h2>
+              <Badge variant="outline">北京时间</Badge>
+            </div>
+            <Blank
+              title="面试日程在“面试管理”中查看"
+              description="排期已接通。保存排期后可查看系统内时间与参与人；邀请和确认仍会单独展示。"
+            >
+              <Button variant="outline" onClick={() => window.location.assign('#interviews')}>
+                查看面试日程
+                <ArrowRight data-icon="inline-end" />
+              </Button>
+            </Blank>
+          </section>
+          <section className="guide-panel">
+            <ListChecks />
+            <h2>先把“要找谁”说清楚</h2>
+            <p>对外职位描述与内部招人要求分开保存。用人负责人确认后，再开始招聘。</p>
+            {canCreate ? (
+              <Button variant="outline" onClick={create}>
+                <Plus data-icon="inline-start" />
+                创建一个职位
+              </Button>
+            ) : (
+              <p>你可以从待办进入已分配的确认事项。</p>
+            )}
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
+
+function OverviewCard({
+  href,
+  label,
+  value,
+  note,
+  icon: Icon,
+}: {
+  href: string;
+  label: string;
+  value: number | null;
+  note: string;
+  icon: typeof ListChecks;
+}) {
+  return (
+    <a className="overview-card" href={href}>
+      <span className="overview-card-heading">
+        <span>{label}</span>
+        <span className="overview-icon">
+          <Icon aria-hidden="true" />
+        </span>
+      </span>
+      <strong>{value ?? '—'}</strong>
+      <small>{note}</small>
+    </a>
+  );
+}
+
 function TaskQueue({
+  id,
   scope,
   revision,
   openJob,
   openApplication,
+  onCount,
 }: {
+  id: string;
   scope: string;
   revision: number;
   openJob: (id: number, tab?: string) => void;
   openApplication?: (id: number) => void;
+  onCount: (count: number) => void;
 }) {
   const [data, setData] = useState<Page<Task> | null>(null);
   const [error, setError] = useState('');
@@ -83,14 +195,17 @@ function TaskQueue({
     setData(null);
     setError('');
     api<Page<Task>>(`tasks/?scope=${scope}&page=${page}`, undefined, c.signal)
-      .then(setData)
+      .then((result) => {
+        setData(result);
+        onCount(result.count);
+      })
       .catch((e) => {
         if (e.name !== 'AbortError') setError(e.message);
       });
     return () => c.abort();
-  }, [scope, revision, page, reload]);
+  }, [scope, revision, page, reload, onCount]);
   return (
-    <section className="panel">
+    <section className="panel" id={id}>
       <div className="panel-title">
         <h2>
           {scope === 'mine' ? <ListChecks /> : <Clock3 />}

@@ -1,9 +1,9 @@
 import {
   BriefcaseBusiness,
   CalendarDays,
-  ChevronRight,
   LogOut,
   Plus,
+  RefreshCw,
   ShieldCheck,
   Users,
 } from 'lucide-react';
@@ -18,10 +18,28 @@ import { Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
 import { Jobs, Today } from '@/pages/workspace';
 
-const routeFromHash = () =>
-  ['jobs', 'candidates', 'interviews'].includes(window.location.hash.slice(1))
-    ? window.location.hash.slice(1)
-    : 'today';
+type Route = 'today' | 'jobs' | 'candidates' | 'interviews';
+
+const routeFromHash = (): Route => {
+  const route = window.location.hash.slice(1);
+  return route === 'jobs' || route === 'candidates' || route === 'interviews' ? route : 'today';
+};
+
+function currentWeekLabel() {
+  const current = new Date();
+  const monday = new Date(current);
+  monday.setDate(current.getDate() - ((current.getDay() + 6) % 7));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const format = (date: Date) =>
+    date.toLocaleDateString('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+  return `本周 ${format(monday)} 至 ${format(sunday)}`;
+}
 
 export default function App() {
   const [me, setMe] = useState<Me | null>(null);
@@ -76,7 +94,7 @@ export default function App() {
   if (!ready || (!me && !error)) return <Loading />;
   if (!me)
     return (
-      <main>
+      <main className="standalone-main">
         <ErrorNotice message={error} retry={boot} />
         {homeUrl && (
           <a className="text-primary underline underline-offset-4" href={homeUrl}>
@@ -92,139 +110,131 @@ export default function App() {
     interviewer: '面试官',
     resume_download: '简历原件下载',
   };
+  const routeContent = {
+    today: {
+      title: '招聘总览',
+      description: `${currentWeekLabel()} · 先处理需要你决定的事项，再跟进等待中的工作。`,
+    },
+    jobs: {
+      title: '职位管理',
+      description: '查看你负责、协作或获授权的职位，明确每一次招聘的要求。',
+    },
+    candidates: {
+      title: '候选人库',
+      description: '先核对材料与身份，再处理每一次独立应聘。',
+    },
+    interviews: {
+      title: '面试管理',
+      description: '查看已保存的系统内排期与当前参与状态。',
+    },
+  }[route];
   return (
     <div className="workspace">
       <a className="skip-link" href="#main-content">
         跳到主要内容
       </a>
       <aside className="sidebar">
-        <div className="brand">
-          <BriefcaseBusiness aria-hidden="true" />
-          <div>
-            <strong>知遇 AI</strong>
-            <span>招聘工作台</span>
-          </div>
+        <div className="account-profile">
+          <Avatar size="lg">
+            {me.avatar_url && (
+              <AvatarImage
+                src={me.avatar_url}
+                alt={`${me.name}的头像`}
+                referrerPolicy="no-referrer"
+              />
+            )}
+            <AvatarFallback>{Array.from(me.name.trim())[0] || '我'}</AvatarFallback>
+          </Avatar>
+          <span className="account-details">
+            <span className="account-name" title={me.name}>
+              {me.name}
+            </span>
+            <small>{me.roles.map((r) => roleNames[r] || r).join(' / ') || '暂无招聘职责'}</small>
+          </span>
         </div>
-        <div className="organization">{me.organization}</div>
-        <p className="nav-label">招聘工作</p>
+        <div className="organization" title={me.organization}>
+          {me.organization}
+          {local && me.auth_source !== 'feishu' && <Badge variant="outline">本地体验</Badge>}
+        </div>
+        <p className="nav-label">知遇 AI · 招聘工作台</p>
         <nav aria-label="主导航">
-          <a href="#today" aria-current={route === 'today' ? 'page' : undefined}>
+          <a href="#today" aria-label="今天" aria-current={route === 'today' ? 'page' : undefined}>
             <CalendarDays aria-hidden="true" />
-            <span>今天</span>
+            <span>招聘总览</span>
           </a>
-          <a href="#jobs" aria-current={route === 'jobs' ? 'page' : undefined}>
+          <a href="#jobs" aria-label="职位" aria-current={route === 'jobs' ? 'page' : undefined}>
             <BriefcaseBusiness aria-hidden="true" />
-            <span>职位</span>
+            <span>职位管理</span>
           </a>
           {me.roles.includes('hr') && (
-            <a href="#candidates" aria-current={route === 'candidates' ? 'page' : undefined}>
+            <a
+              href="#candidates"
+              aria-label="候选人"
+              aria-current={route === 'candidates' ? 'page' : undefined}
+            >
               <Users aria-hidden="true" />
-              <span>候选人</span>
+              <span>候选人库</span>
             </a>
           )}
-          <a href="#interviews" aria-current={route === 'interviews' ? 'page' : undefined}>
+          <a
+            href="#interviews"
+            aria-label="面试"
+            aria-current={route === 'interviews' ? 'page' : undefined}
+          >
             <CalendarDays aria-hidden="true" />
-            <span>面试</span>
+            <span>面试管理</span>
           </a>
         </nav>
         <div className="sidebar-bottom">
-          <ShieldCheck aria-hidden="true" />
-          <span>只呈现你获授权的工作</span>
+          <div className="connection-status">
+            <ShieldCheck aria-hidden="true" />
+            <span>已连接 · 仅呈现授权工作</span>
+          </div>
+          <Button
+            className="sidebar-logout"
+            variant="ghost"
+            disabled={leaving}
+            aria-label="退出登录"
+            onClick={async () => {
+              setLeaving(true);
+              try {
+                const result = await api<{ redirect_url: string }>('auth/logout/', {});
+                setMe(null);
+                setError('');
+                window.location.replace(result.redirect_url);
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setLeaving(false);
+              }
+            }}
+          >
+            <LogOut data-icon="inline-start" />
+            退出登录
+          </Button>
         </div>
       </aside>
       <div className="workspace-body">
-        <header className="topbar">
-          <span>
-            招聘工作台 <ChevronRight aria-hidden="true" />{' '}
-            {route === 'today'
-              ? '今天'
-              : route === 'jobs'
-                ? '职位'
-                : route === 'candidates'
-                  ? '候选人'
-                  : '面试'}
-          </span>
-          <div className="account">
-            {local && me.auth_source !== 'feishu' && <Badge variant="outline">本地体验</Badge>}
-            <div className="account-profile">
-              <Avatar size="lg">
-                {me.avatar_url && (
-                  <AvatarImage
-                    src={me.avatar_url}
-                    alt={`${me.name}的头像`}
-                    referrerPolicy="no-referrer"
-                  />
-                )}
-                <AvatarFallback>{Array.from(me.name.trim())[0] || '我'}</AvatarFallback>
-              </Avatar>
-              <span className="account-details">
-                <span className="account-name" title={me.name}>
-                  {me.name}
-                </span>
-                <small>
-                  {me.roles.map((r) => roleNames[r] || r).join(' / ') || '暂无招聘职责'}
-                </small>
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              disabled={leaving}
-              aria-label="退出登录"
-              onClick={async () => {
-                setLeaving(true);
-                try {
-                  const result = await api<{ redirect_url: string }>('auth/logout/', {});
-                  setMe(null);
-                  setError('');
-                  window.location.replace(result.redirect_url);
-                } catch (e) {
-                  setError((e as Error).message);
-                } finally {
-                  setLeaving(false);
-                }
-              }}
-            >
-              <LogOut />
-            </Button>
-          </div>
-        </header>
-        <main id="main-content" tabIndex={-1}>
+        <main className="workspace-main" id="main-content" tabIndex={-1}>
           <div className="page-heading">
             <div>
-              <p className="eyebrow">
-                {new Date().toLocaleDateString('zh-CN', {
-                  timeZone: 'Asia/Shanghai',
-                  month: 'long',
-                  day: 'numeric',
-                  weekday: 'long',
-                })}
-              </p>
-              <h1>
-                {route === 'today'
-                  ? '从今天的重要事项开始'
-                  : route === 'jobs'
-                    ? '职位'
-                    : route === 'candidates'
-                      ? '候选人'
-                      : '面试'}
-              </h1>
-              <p>
-                {route === 'today'
-                  ? '先处理需要你决定的事，再跟进等待中的工作。'
-                  : route === 'jobs'
-                    ? '查看你负责、协作或获授权的职位，明确每一次招聘的要求。'
-                    : route === 'candidates'
-                      ? '先核对材料与身份，再处理每一次独立应聘。'
-                      : '查看已保存的系统内排期与当前参与状态。'}
-              </p>
+              <h1>{routeContent.title}</h1>
+              <p>{routeContent.description}</p>
             </div>
-            {me.departments.length > 0 && !['candidates', 'interviews'].includes(route) && (
-              <Button onClick={() => setCreating(true)}>
-                <Plus data-icon="inline-start" />
-                新建职位
-              </Button>
-            )}
+            <div className="page-actions">
+              {route === 'today' && (
+                <Button variant="outline" onClick={() => setRevision((r) => r + 1)}>
+                  <RefreshCw data-icon="inline-start" />
+                  刷新
+                </Button>
+              )}
+              {me.departments.length > 0 && !['candidates', 'interviews'].includes(route) && (
+                <Button onClick={() => setCreating(true)}>
+                  <Plus data-icon="inline-start" />
+                  新建职位
+                </Button>
+              )}
+            </div>
           </div>
           {error && <ErrorNotice message={error} retry={() => setError('')} />}
           {route === 'today' ? (

@@ -49,7 +49,7 @@ test('退出失败保留当前账号并显示错误，重试成功后才返回�
   );
   await page.getByRole('button', { name: '退出登录' }).click();
   await expect(page.getByRole('alert')).toContainText('退出暂未完成');
-  await expect(page.getByRole('heading', { name: '从今天的重要事项开始' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '招聘总览' })).toBeVisible();
   expect((await page.request.get('/api/v1/me/')).status()).toBe(200);
   await page.unroute('**/api/v1/auth/logout/');
   await page.getByRole('button', { name: '退出登录' }).click();
