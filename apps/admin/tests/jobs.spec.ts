@@ -48,6 +48,28 @@ test('新建职位以居中弹窗显示必填标题和固定操作区', async ({
   await footer.getByRole('button', { name: '取消', exact: true }).click();
   await expect(dialog).toHaveCount(0);
 });
+
+test('职位列表展示保存后的建岗字段', async ({ page }) => {
+  const title = '招聘专员（列表字段验收）';
+  await login(page);
+  await createJob(page, title);
+  await closeDetail(page);
+
+  await expect(page.getByText('职位名称', { exact: true })).toBeVisible();
+  await expect(page.getByText('用人部门', { exact: true })).toBeVisible();
+  await expect(page.getByText('计划招聘人数', { exact: true })).toBeVisible();
+  await expect(page.getByText('招人要求确认人', { exact: true })).toBeVisible();
+  await expect(page.getByText('最近更新', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: title, exact: true })).toBeVisible();
+  await expect(page.getByText('工作地点 · 深圳', { exact: true })).toBeVisible();
+  await expect(page.getByText('产品研发部（虚构）', { exact: true })).toBeVisible();
+  await expect(page.getByText('2 人', { exact: true })).toBeVisible();
+  await expect(page.getByText('体验负责人', { exact: true })).toBeVisible();
+  await expect(page.getByText('尚未填写', { exact: true })).toBeVisible();
+  await expect(page.getByRole('grid').getByText('草稿', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/职位列表字段输出.png' });
+});
+
 async function fillRequirements(page: Page) {
   await page.getByRole('button', { name: '填写招人要求', exact: true }).click();
   await page

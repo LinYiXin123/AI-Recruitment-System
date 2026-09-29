@@ -17,7 +17,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
-import { api, type DashboardData, type Job, jobStatus, type Page, profileStatus } from '@/lib/api';
+import {
+  api,
+  type DashboardData,
+  dateTime,
+  type Job,
+  jobStatus,
+  type Page,
+  profileStatus,
+} from '@/lib/api';
 
 type WorkspaceProps = {
   revision: number;
@@ -440,21 +448,26 @@ export function Jobs({ revision, openJob, canCreate, create }: WorkspaceProps) {
               pagination={false}
               columns={[
                 {
-                  title: '职位 / 工作地点',
+                  title: '职位名称',
                   dataIndex: 'title',
-                  width: 280,
+                  width: 240,
                   render: (_text, j) => (
                     <div>
                       <Button variant="link" className="job-link" onClick={() => openJob(j.id)}>
                         {j.title}
                       </Button>
-                      <small className="cell-secondary">{j.location}</small>
+                      <small className="cell-secondary">工作地点 · {j.location}</small>
                     </div>
                   ),
                 },
-                { title: '部门', dataIndex: 'department_name', width: 180 },
-                { title: '计划人数', dataIndex: 'headcount', width: 90, render: (n) => `${n} 人` },
-                { title: 'HR 负责人', dataIndex: 'owner_name', width: 130 },
+                { title: '用人部门', dataIndex: 'department_name', width: 150 },
+                {
+                  title: '计划招聘人数',
+                  dataIndex: 'headcount',
+                  width: 120,
+                  render: (n) => `${n} 人`,
+                },
+                { title: '招人要求确认人', dataIndex: 'approver_name', width: 150 },
                 {
                   title: '招人要求',
                   dataIndex: 'latest_profile',
@@ -477,7 +490,13 @@ export function Jobs({ revision, openJob, canCreate, create }: WorkspaceProps) {
                   ),
                 },
                 {
-                  title: '',
+                  title: '最近更新',
+                  dataIndex: 'updated_at',
+                  width: 130,
+                  render: (updatedAt) => dateTime(updatedAt),
+                },
+                {
+                  title: '操作',
                   dataIndex: 'id',
                   width: 90,
                   render: (_text, j) => (
