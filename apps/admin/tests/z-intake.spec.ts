@@ -37,10 +37,25 @@ test('候选人录入表单使用统一下拉与日期日历', async ({ page }) 
   await login(page);
   await page.getByRole('link', { name: '候选人', exact: true }).click();
   await page.getByRole('button', { name: '新增候选人', exact: true }).click();
+  const sourceSelect = page.locator('#new-candidate-source');
+  await expect
+    .poll(() =>
+      sourceSelect.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {
+          height: style.height,
+          maxHeight: style.maxHeight,
+          overflowY: style.overflowY,
+          borderRadius: style.borderRadius,
+        };
+      }),
+    )
+    .toEqual({ height: '42px', maxHeight: '42px', overflowY: 'hidden', borderRadius: '10px' });
   await page.locator('#new-candidate-gender').click();
   await page.getByText('女', { exact: true }).click();
   await expect(page.locator('#new-candidate-gender')).toContainText('女');
-  await page.locator('#new-candidate-source').click();
+  await sourceSelect.click();
+  await expect(page.getByText('内推', { exact: true })).toBeVisible();
   await page.getByText('内推', { exact: true }).click();
   const today = new Date();
   const todayLabel = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;

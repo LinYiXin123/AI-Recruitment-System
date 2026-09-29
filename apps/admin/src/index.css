@@ -606,11 +606,14 @@ body {
   width: 100%;
 }
 .candidate-create-grid input,
-.candidate-create-grid .candidate-select .semi-select-selection,
 .candidate-create-grid .candidate-date-trigger {
   height: 42px;
 }
-.candidate-create-grid .candidate-select .semi-select-selection {
+.candidate-create-grid .candidate-select.semi-select {
+  height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  overflow: hidden;
   border-radius: 10px;
   border-color: var(--border);
   background: var(--card);
@@ -619,13 +622,25 @@ body {
     box-shadow 150ms ease,
     background-color 150ms ease;
 }
-.candidate-create-grid .candidate-select:hover .semi-select-selection {
+.candidate-create-grid .candidate-select.semi-select:hover {
   border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
+  background: var(--card);
 }
-.candidate-create-grid .candidate-select .semi-select-selection:focus-within,
-.candidate-create-grid .candidate-select.semi-select-open .semi-select-selection {
+.candidate-create-grid .candidate-select .semi-select-selection {
+  height: 100%;
+  margin-left: 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.candidate-create-grid .candidate-select .semi-select-arrow {
+  width: 38px;
+}
+.candidate-create-grid .candidate-select.semi-select-focus,
+.candidate-create-grid .candidate-select.semi-select-open {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+  background: var(--card);
 }
 .candidate-date-trigger {
   width: 100%;
