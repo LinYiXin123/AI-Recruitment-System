@@ -17,6 +17,7 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
@@ -60,13 +61,14 @@ export function CreateJob({
           close();
       }}
     >
-      <SheetContent className="job-sheet">
-        <SheetHeader>
+      <SheetContent side="top" className="profile-settings-dialog job-create-dialog">
+        <SheetHeader className="profile-settings-header">
           <SheetTitle>新建职位</SheetTitle>
           <SheetDescription>先填写基本需求，保存后继续整理招人要求。</SheetDescription>
         </SheetHeader>
         <form
-          className="sheet-scroll"
+          id="create-job-form"
+          className="profile-settings-body job-create-body"
           onChange={() => setDirty(true)}
           onSubmit={async (e) => {
             e.preventDefault();
@@ -95,7 +97,12 @@ export function CreateJob({
           <FieldSet disabled={busy}>
             <FieldGroup>
               <Field>
-                <FieldLabel htmlFor="title">职位名称</FieldLabel>
+                <FieldLabel htmlFor="title">
+                  职位名称
+                  <span className="job-required-mark" aria-hidden="true">
+                    *
+                  </span>
+                </FieldLabel>
                 <Input
                   name="title"
                   id="title"
@@ -188,23 +195,23 @@ export function CreateJob({
                 />
               </Field>
               {error && <ErrorNotice message={error} />}
-              <div className="form-actions">
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={() => {
-                    if (!dirty || window.confirm('放弃尚未保存的职位内容？')) close();
-                  }}
-                >
-                  取消
-                </Button>
-                <Button type="submit" disabled={busy || !d?.approvers.length}>
-                  {busy ? '正在保存…' : '保存并填写招人要求'}
-                </Button>
-              </div>
             </FieldGroup>
           </FieldSet>
         </form>
+        <SheetFooter className="profile-settings-footer job-create-footer">
+          <Button
+            variant="outline"
+            type="button"
+            onClick={() => {
+              if (!dirty || window.confirm('放弃尚未保存的职位内容？')) close();
+            }}
+          >
+            取消
+          </Button>
+          <Button type="submit" form="create-job-form" disabled={busy || !d?.approvers.length}>
+            {busy ? '正在保存…' : '保存'}
+          </Button>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   );

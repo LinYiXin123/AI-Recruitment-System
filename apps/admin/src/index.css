@@ -1508,6 +1508,17 @@ body {
   padding: 16px 28px;
   border-top: 1px solid var(--border);
 }
+.job-create-body {
+  padding-top: 24px;
+}
+.job-create-footer {
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+}
+.job-required-mark {
+  color: var(--destructive);
+}
 .page-heading h1 {
   font-size: 22px;
 }

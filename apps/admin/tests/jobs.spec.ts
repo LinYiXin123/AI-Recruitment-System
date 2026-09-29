@@ -19,9 +19,35 @@ async function createJob(page: Page, title: string) {
   await page.getByLabel('工作地点').fill('深圳');
   await page.getByLabel('计划招聘人数').fill('2');
   await page.getByLabel('招人要求确认人').selectOption({ label: '体验负责人' });
-  await page.getByRole('button', { name: '保存并填写招人要求' }).click();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
 }
+
+test('新建职位以居中弹窗显示必填标题和固定操作区', async ({ page }) => {
+  await page.setViewportSize({ width: 896, height: 738 });
+  await login(page);
+  await openJobs(page);
+  await page.getByRole('button', { name: '新建职位', exact: true }).click();
+
+  const dialog = page.getByRole('dialog');
+  const form = dialog.locator('#create-job-form');
+  const footer = dialog.locator('[data-slot="sheet-footer"]');
+  await expect(dialog).toHaveClass(/job-create-dialog/);
+  expect(
+    await page.getByLabel('职位名称').evaluate((element) => (element as HTMLInputElement).required),
+  ).toBe(true);
+  await expect(dialog.locator('.job-required-mark')).toHaveText('*');
+  await expect(footer.getByRole('button', { name: '取消', exact: true })).toBeVisible();
+  await expect(footer.getByRole('button', { name: '保存', exact: true })).toBeVisible();
+  expect(await form.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto');
+  expect(
+    await form.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBeTruthy();
+  await page.screenshot({ path: 'test-results/新建职位弹窗.png' });
+
+  await footer.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+});
 async function fillRequirements(page: Page) {
   await page.getByRole('button', { name: '填写招人要求', exact: true }).click();
   await page
@@ -198,10 +224,10 @@ test('建岗响应丢失后重试，只保留一条职位', async ({ page }) => 
       await route.abort();
     } else await route.continue();
   });
-  await page.getByRole('button', { name: '保存并填写招人要求' }).click();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('暂时连接不上服务');
   await page.unroute('**/api/v1/jobs/');
-  await page.getByRole('button', { name: '保存并填写招人要求' }).click();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: '幂等建岗（网络验收）', exact: true }),
   ).toBeVisible();
