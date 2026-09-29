@@ -36,7 +36,7 @@ function pdf(text = '') {
 test('候选人筛选使用统一下拉面板且录入表单使用日期日历', async ({ page }) => {
   await login(page);
   await page.getByRole('link', { name: '候选人', exact: true }).click();
-  const filterSelect = page.locator('.candidate-filter-select').nth(1);
+  const filterSelect = page.locator('.candidate-filter-select').first();
   await expect
     .poll(() =>
       filterSelect.evaluate((element) => {
@@ -45,6 +45,47 @@ test('候选人筛选使用统一下拉面板且录入表单使用日期日历',
       }),
     )
     .toEqual({ height: '42px', borderRadius: '10px' });
+  const filterMenus: Array<[number, string[]]> = [
+    [
+      0,
+      [
+        '全部',
+        '待筛选',
+        '待初试',
+        '初试通过',
+        '待复试',
+        '复试通过',
+        '已发offer',
+        '已入职',
+        '已淘汰',
+        '人才库',
+      ],
+    ],
+    [
+      1,
+      [
+        '全部',
+        'BOSS直聘',
+        '智联招聘',
+        '前程无忧',
+        '猎聘',
+        '拉勾',
+        '内推',
+        '猎头推荐',
+        '校园招聘',
+        '官网投递',
+        '其他',
+      ],
+    ],
+    [2, ['全部', '高中及以下', '大专', '本科', '硕士', '博士', '其他']],
+  ];
+  for (const [index, options] of filterMenus) {
+    await page.locator('.candidate-filter-select').nth(index).click();
+    await expect(page.locator('.candidate-select-dropdown:visible .semi-select-option')).toHaveText(
+      options,
+    );
+    await page.keyboard.press('Escape');
+  }
   await filterSelect.click();
   const filterOption = page
     .locator('.candidate-select-dropdown')

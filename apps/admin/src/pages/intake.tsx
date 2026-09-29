@@ -163,8 +163,6 @@ function JobPicker({
 
 type CandidateFilterOptions = {
   jobs: { job_id: number; job__title: string }[];
-  sources: string[];
-  owners: { owner_id: number; owner__user__first_name: string; owner__user__username: string }[];
 };
 
 export type CandidateLibraryActions = {
@@ -173,7 +171,31 @@ export type CandidateLibraryActions = {
   showMailboxSyncStatus: () => void;
 };
 
-const emptyCandidateFilters: CandidateFilterOptions = { jobs: [], sources: [], owners: [] };
+const emptyCandidateFilters: CandidateFilterOptions = { jobs: [] };
+const candidateFilterStages = [
+  'pending_review',
+  'ready_to_schedule',
+  'first_interview_passed',
+  'second_interview',
+  'second_interview_passed',
+  'offer_sent',
+  'hired',
+  'closed',
+  'talent_pool',
+] as const;
+const resumeSources = [
+  'BOSS直聘',
+  '智联招聘',
+  '前程无忧',
+  '猎聘',
+  '拉勾',
+  '内推',
+  '猎头推荐',
+  '校园招聘',
+  '官网投递',
+  '其他',
+] as const;
+const educationLevels = ['高中及以下', '大专', '本科', '硕士', '博士', '其他'] as const;
 
 export const Candidates = forwardRef<
   CandidateLibraryActions,
@@ -187,7 +209,7 @@ export const Candidates = forwardRef<
   const [stage, setStage] = useState('');
   const [job, setJob] = useState('');
   const [source, setSource] = useState('');
-  const [owner, setOwner] = useState('');
+  const [educationLevel, setEducationLevel] = useState('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Page<Application> | null>(null);
   const [filters, setFilters] = useState<CandidateFilterOptions>(emptyCandidateFilters);
@@ -206,7 +228,7 @@ export const Candidates = forwardRef<
   if (stage) query.set('stage', stage);
   if (job) query.set('job', job);
   if (source) query.set('source', source);
-  if (owner) query.set('owner', owner);
+  if (educationLevel) query.set('education_level', educationLevel);
   const applicationUrl = `applications/?${query.toString()}`;
 
   useEffect(() => {
@@ -234,7 +256,7 @@ export const Candidates = forwardRef<
     setStage('');
     setJob('');
     setSource('');
-    setOwner('');
+    setEducationLevel('');
     setPage(1);
   }
 
@@ -314,25 +336,7 @@ export const Candidates = forwardRef<
           />
           <Select
             className="candidate-filter-select"
-            aria-label="筛选职位"
-            value={job}
-            onChange={(value) => {
-              setJob(typeof value === 'string' ? value : '');
-              setPage(1);
-            }}
-            clickToHide
-            dropdownClassName="candidate-select-dropdown"
-          >
-            <Select.Option value="">全部</Select.Option>
-            {filters.jobs.map((item) => (
-              <Select.Option key={item.job_id} value={String(item.job_id)}>
-                {item.job__title}
-              </Select.Option>
-            ))}
-          </Select>
-          <Select
-            className="candidate-filter-select"
-            aria-label="筛选阶段"
+            aria-label="筛选状态"
             value={stage}
             onChange={(value) => {
               setStage(typeof value === 'string' ? value : '');
@@ -342,9 +346,9 @@ export const Candidates = forwardRef<
             dropdownClassName="candidate-select-dropdown"
           >
             <Select.Option value="">全部</Select.Option>
-            {Object.entries(stages).map(([value, label]) => (
+            {candidateFilterStages.map((value) => (
               <Select.Option key={value} value={value}>
-                {label}
+                {stages[value]}
               </Select.Option>
             ))}
           </Select>
@@ -360,7 +364,7 @@ export const Candidates = forwardRef<
             dropdownClassName="candidate-select-dropdown"
           >
             <Select.Option value="">全部</Select.Option>
-            {filters.sources.map((item) => (
+            {resumeSources.map((item) => (
               <Select.Option key={item} value={item}>
                 {item}
               </Select.Option>
@@ -368,19 +372,37 @@ export const Candidates = forwardRef<
           </Select>
           <Select
             className="candidate-filter-select"
-            aria-label="筛选接手 HR"
-            value={owner}
+            aria-label="筛选学历"
+            value={educationLevel}
             onChange={(value) => {
-              setOwner(typeof value === 'string' ? value : '');
+              setEducationLevel(typeof value === 'string' ? value : '');
               setPage(1);
             }}
             clickToHide
             dropdownClassName="candidate-select-dropdown"
           >
             <Select.Option value="">全部</Select.Option>
-            {filters.owners.map((item) => (
-              <Select.Option key={item.owner_id} value={String(item.owner_id)}>
-                {item.owner__user__first_name || item.owner__user__username}
+            {educationLevels.map((item) => (
+              <Select.Option key={item} value={item}>
+                {item}
+              </Select.Option>
+            ))}
+          </Select>
+          <Select
+            className="candidate-filter-select"
+            aria-label="筛选职位"
+            value={job}
+            onChange={(value) => {
+              setJob(typeof value === 'string' ? value : '');
+              setPage(1);
+            }}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
+          >
+            <Select.Option value="">全部</Select.Option>
+            {filters.jobs.map((item) => (
+              <Select.Option key={item.job_id} value={String(item.job_id)}>
+                {item.job__title}
               </Select.Option>
             ))}
           </Select>
@@ -914,18 +936,7 @@ function CreateCandidateDialog({
               clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
-              {[
-                'BOSS直聘',
-                '智联招聘',
-                '前程无忧',
-                '猎聘',
-                '拉勾',
-                '内推',
-                '猎头推荐',
-                '校园招聘',
-                '官网投递',
-                '其他',
-              ].map((item) => (
+              {resumeSources.map((item) => (
                 <Select.Option key={item} value={item}>
                   {item}
                 </Select.Option>
@@ -945,7 +956,7 @@ function CreateCandidateDialog({
               clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
-              {['高中及以下', '大专', '本科', '硕士', '博士', '其他'].map((item) => (
+              {educationLevels.map((item) => (
                 <Select.Option key={item} value={item}>
                   {item}
                 </Select.Option>

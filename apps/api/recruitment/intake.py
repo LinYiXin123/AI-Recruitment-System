@@ -821,6 +821,10 @@ class ApplicationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             qs = qs.filter(job_id=self.request.query_params["job"])
         if self.request.query_params.get("source"):
             qs = qs.filter(source=self.request.query_params["source"][:200])
+        if self.request.query_params.get("education_level"):
+            qs = qs.filter(
+                candidate__education_level=self.request.query_params["education_level"][:20]
+            )
         if self.request.query_params.get("owner"):
             qs = qs.filter(owner_id=self.request.query_params["owner"])
         return qs

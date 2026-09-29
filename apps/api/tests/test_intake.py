@@ -198,6 +198,27 @@ def test_dedup_multiple_jobs_reapply_and_idempotent_review(team):
     assert Candidate.objects.count() == 2
 
 
+def test_application_filter_matches_candidate_education_level(team):
+    c = client_for(team[2])
+    job = recruiting(team)
+    created = c.post(
+        "/api/v1/candidates/",
+        {
+            "request_key": str(uuid.uuid4()),
+            "job": job["id"],
+            "source": "BOSS直聘",
+            "display_name": "学历筛选候选人",
+            "phone": "13800138000",
+            "education_level": "本科",
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.data
+    rows = c.get("/api/v1/applications/?education_level=本科").data
+    assert [item["candidate"] for item in rows["results"]] == [created.data["candidate"]]
+    assert c.get("/api/v1/applications/?education_level=硕士").data["count"] == 0
+
+
 def test_private_scope_and_revocation(team):
     c = client_for(team[2])
     url, item, _ = upload(c, recruiting(team))
