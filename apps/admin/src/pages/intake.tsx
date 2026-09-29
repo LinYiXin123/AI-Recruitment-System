@@ -312,66 +312,78 @@ export const Candidates = forwardRef<
               setPage(1);
             }}
           />
-          <NativeSelect
+          <Select
+            className="candidate-filter-select"
             aria-label="筛选职位"
             value={job}
-            onChange={(event) => {
-              setJob(event.target.value);
+            onChange={(value) => {
+              setJob(typeof value === 'string' ? value : '');
               setPage(1);
             }}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
           >
-            <NativeSelectOption value="">全部</NativeSelectOption>
+            <Select.Option value="">全部</Select.Option>
             {filters.jobs.map((item) => (
-              <NativeSelectOption key={item.job_id} value={item.job_id}>
+              <Select.Option key={item.job_id} value={String(item.job_id)}>
                 {item.job__title}
-              </NativeSelectOption>
+              </Select.Option>
             ))}
-          </NativeSelect>
-          <NativeSelect
+          </Select>
+          <Select
+            className="candidate-filter-select"
             aria-label="筛选阶段"
             value={stage}
-            onChange={(event) => {
-              setStage(event.target.value);
+            onChange={(value) => {
+              setStage(typeof value === 'string' ? value : '');
               setPage(1);
             }}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
           >
-            <NativeSelectOption value="">全部</NativeSelectOption>
+            <Select.Option value="">全部</Select.Option>
             {Object.entries(stages).map(([value, label]) => (
-              <NativeSelectOption key={value} value={value}>
+              <Select.Option key={value} value={value}>
                 {label}
-              </NativeSelectOption>
+              </Select.Option>
             ))}
-          </NativeSelect>
-          <NativeSelect
+          </Select>
+          <Select
+            className="candidate-filter-select"
             aria-label="筛选来源"
             value={source}
-            onChange={(event) => {
-              setSource(event.target.value);
+            onChange={(value) => {
+              setSource(typeof value === 'string' ? value : '');
               setPage(1);
             }}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
           >
-            <NativeSelectOption value="">全部</NativeSelectOption>
+            <Select.Option value="">全部</Select.Option>
             {filters.sources.map((item) => (
-              <NativeSelectOption key={item} value={item}>
+              <Select.Option key={item} value={item}>
                 {item}
-              </NativeSelectOption>
+              </Select.Option>
             ))}
-          </NativeSelect>
-          <NativeSelect
+          </Select>
+          <Select
+            className="candidate-filter-select"
             aria-label="筛选接手 HR"
             value={owner}
-            onChange={(event) => {
-              setOwner(event.target.value);
+            onChange={(value) => {
+              setOwner(typeof value === 'string' ? value : '');
               setPage(1);
             }}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
           >
-            <NativeSelectOption value="">全部</NativeSelectOption>
+            <Select.Option value="">全部</Select.Option>
             {filters.owners.map((item) => (
-              <NativeSelectOption key={item.owner_id} value={item.owner_id}>
+              <Select.Option key={item.owner_id} value={String(item.owner_id)}>
                 {item.owner__user__first_name || item.owner__user__username}
-              </NativeSelectOption>
+              </Select.Option>
             ))}
-          </NativeSelect>
+          </Select>
           <Button type="button" variant="outline" size="sm" onClick={resetFilters}>
             重置
           </Button>

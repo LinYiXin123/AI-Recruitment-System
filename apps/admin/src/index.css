@@ -489,13 +489,35 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .candidate-filterbar .candidate-search,
-.candidate-filterbar > [data-slot="native-select-wrapper"] {
+.candidate-filterbar > .candidate-filter-select {
   width: 100%;
 }
 .candidate-filterbar .candidate-search,
-.candidate-filterbar [data-slot="native-select"] {
+.candidate-filterbar .candidate-filter-select.semi-select {
   height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  overflow: hidden;
+  border-radius: 10px;
+  border-color: var(--border);
+  background: var(--card);
   font-size: 14px;
+}
+.candidate-filterbar .candidate-filter-select .semi-select-selection {
+  height: 100%;
+  margin-left: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.candidate-filterbar .candidate-filter-select .semi-select-arrow {
+  width: 38px;
+}
+.candidate-filterbar .candidate-filter-select.semi-select-focus,
+.candidate-filterbar .candidate-filter-select.semi-select-open {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+  background: var(--card);
 }
 .candidate-filterbar > button {
   height: 42px;

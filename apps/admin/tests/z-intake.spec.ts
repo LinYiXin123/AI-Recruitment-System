@@ -33,10 +33,10 @@ function pdf(text = '') {
   return Buffer.from(content);
 }
 
-test('候选人录入表单使用统一下拉与日期日历', async ({ page }) => {
+test('候选人筛选使用统一下拉面板且录入表单使用日期日历', async ({ page }) => {
   await login(page);
   await page.getByRole('link', { name: '候选人', exact: true }).click();
-  const filterSelect = page.locator('[data-slot="native-select"]').first();
+  const filterSelect = page.locator('.candidate-filter-select').nth(1);
   await expect
     .poll(() =>
       filterSelect.evaluate((element) => {
@@ -45,6 +45,13 @@ test('候选人录入表单使用统一下拉与日期日历', async ({ page }) 
       }),
     )
     .toEqual({ height: '42px', borderRadius: '10px' });
+  await filterSelect.click();
+  const filterOption = page
+    .locator('.candidate-select-dropdown')
+    .getByText('待筛选', { exact: true });
+  await expect(filterOption).toBeVisible();
+  await filterOption.click();
+  await expect(filterSelect).toContainText('待筛选');
   await page.getByRole('button', { name: '新增候选人', exact: true }).click();
   const sourceSelect = page.locator('#new-candidate-source');
   await expect
