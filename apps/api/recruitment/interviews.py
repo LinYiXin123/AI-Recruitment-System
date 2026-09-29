@@ -155,8 +155,22 @@ def time_label(value, zone_name):
 class InterviewViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
     def get_queryset(self):
         qs = visible_interviews(member(self.request))
+        if search := self.request.query_params.get("search", "").strip():
+            qs = qs.filter(
+                Q(application__candidate__display_name__icontains=search)
+                | Q(application__job__title__icontains=search)
+            )
         if status := self.request.query_params.get("status"):
             qs = qs.filter(status=status)
+        if round_no := self.request.query_params.get("round"):
+            try:
+                qs = qs.filter(round_no=int(round_no))
+            except ValueError:
+                return qs.none()
+        if mode := self.request.query_params.get("mode"):
+            if mode not in InterviewRevision.Mode.values:
+                return qs.none()
+            qs = qs.filter(current_revision__mode=mode)
         if application := self.request.query_params.get("application"):
             qs = qs.filter(application_id=application)
         return qs

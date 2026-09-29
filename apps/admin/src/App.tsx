@@ -43,7 +43,7 @@ import {
 } from '@/components/ui/sheet';
 import { ApiError, api, type DashboardData, type Me } from '@/lib/api';
 import { ApplicationDetail, type CandidateLibraryActions, Candidates } from '@/pages/intake';
-import { Interviews } from '@/pages/interviews';
+import { type InterviewActions, Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
 import { Jobs, Today } from '@/pages/workspace';
 
@@ -142,6 +142,7 @@ export default function App() {
   const [leaving, setLeaving] = useState(false);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const candidateLibraryRef = useRef<CandidateLibraryActions>(null);
+  const interviewRef = useRef<InterviewActions>(null);
 
   function openJob(id: number, tab = 'requirements') {
     setJobTab(tab);
@@ -211,7 +212,7 @@ export default function App() {
       description: '查看你负责、协作或获授权的职位，明确每一次招聘的要求。',
     },
     candidates: { title: '候选人库', description: '候选人全生命周期与状态流转' },
-    interviews: { title: '面试管理', description: '查看已保存的系统内排期与当前参与状态。' },
+    interviews: { title: '面试管理', description: '面试安排与记录，一人可多轮' },
     'ai-screening': {
       title: 'AI 初面',
       description: '该入口已按原型保留，正式 AI 初面能力尚未接通。',
@@ -363,6 +364,21 @@ export default function App() {
                   </Button>
                 </>
               )}
+              {route === 'interviews' && (
+                <>
+                  <Button variant="outline" onClick={() => interviewRef.current?.exportModule()}>
+                    导出本模块
+                  </Button>
+                  <Button
+                    title="前往候选人详情安排真实面试记录"
+                    onClick={() => {
+                      window.location.hash = 'candidates';
+                    }}
+                  >
+                    新增面试记录
+                  </Button>
+                </>
+              )}
             </div>
           </div>
           {error && <ErrorNotice message={error} retry={() => setError('')} />}
@@ -376,7 +392,7 @@ export default function App() {
               openApplication={setApplicationId}
             />
           ) : route === 'interviews' ? (
-            <Interviews revision={revision} />
+            <Interviews ref={interviewRef} revision={revision} />
           ) : route === 'jobs' ? (
             <Jobs
               revision={revision}

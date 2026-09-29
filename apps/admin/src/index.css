@@ -480,6 +480,12 @@ body {
 .candidate-library-panel {
   min-height: 462px;
 }
+.interview-library-panel {
+  min-height: 462px;
+}
+.interview-library-panel .semi-table-wrapper {
+  min-width: 900px;
+}
 .candidate-filterbar {
   display: grid;
   grid-template-columns: minmax(220px, 1.6fr) repeat(4, minmax(116px, 1fr)) auto;
@@ -520,6 +526,68 @@ body {
   background: var(--card);
 }
 .candidate-filterbar > button {
+  height: 42px;
+  padding-inline: 14px;
+  white-space: nowrap;
+}
+.interview-filterbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.6fr) repeat(3, minmax(116px, 1fr)) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 26px;
+  border-bottom: 1px solid var(--border);
+}
+.interview-search {
+  position: relative;
+  width: 100%;
+}
+.interview-search > svg {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 13px;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.interview-search > input {
+  width: 100%;
+  height: 42px;
+  padding-left: 42px;
+}
+.interview-filterbar > .interview-filter-select {
+  width: 100%;
+}
+.interview-filterbar > .interview-filter-select.semi-select {
+  height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  overflow: hidden;
+  border-radius: 10px;
+  border-color: var(--border);
+  background: var(--card);
+  font-size: 14px;
+}
+.interview-filterbar .interview-filter-select .semi-select-selection {
+  height: 100%;
+  margin-left: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.interview-filterbar .interview-filter-select .semi-select-arrow {
+  width: 38px;
+}
+.interview-filterbar .interview-filter-select.semi-select-focus,
+.interview-filterbar .interview-filter-select.semi-select-open {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+  background: var(--card);
+}
+.interview-filterbar > button {
   height: 42px;
   padding-inline: 14px;
   white-space: nowrap;
@@ -1924,6 +1992,9 @@ body {
   .candidate-filterbar {
     grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(132px, 1fr));
   }
+  .interview-filterbar {
+    grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(132px, 1fr));
+  }
 }
 
 @media (max-width: 768px) {
@@ -1974,7 +2045,14 @@ body {
     grid-template-columns: 1fr;
     padding: 14px;
   }
+  .interview-filterbar {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
   .candidate-filterbar > button {
+    justify-self: start;
+  }
+  .interview-filterbar > button {
     justify-self: start;
   }
   .candidate-create-modal .semi-modal-body {

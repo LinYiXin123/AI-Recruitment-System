@@ -85,6 +85,38 @@ def test_schedule_writes_versioned_interview_and_retries_safely(team):
     assert client.get("/api/v1/interviews/").data["results"][0]["candidate_name"] == "虚构小林"
 
 
+def test_list_filters_interviews_by_keyword_round_mode_and_status(team):
+    client = client_for(team[2])
+    first = advance(client, ready_application(team, "虚构小林"))
+    response, _ = schedule(client, first, team[3])
+    assert response.status_code == 201, response.data
+
+    second = advance(client, ready_application(team, "虚构小周"))
+    starts_at = timezone.now().replace(second=0, microsecond=0) + timedelta(days=2)
+    starts_at = starts_at.replace(hour=13, minute=0)
+    response, _ = schedule(
+        client,
+        second,
+        team[3],
+        round_no=2,
+        starts_at=starts_at.isoformat(),
+        ends_at=(starts_at + timedelta(hours=1)).isoformat(),
+        mode="video",
+        meeting_url="https://meeting.example.com/interview",
+    )
+    assert response.status_code == 201, response.data
+
+    response = client.get(
+        "/api/v1/interviews/?search=虚构小林&round=1&mode=onsite&status=pending_confirmation"
+    )
+    assert response.status_code == 200, response.data
+    assert [item["candidate_name"] for item in response.data["results"]] == ["虚构小林"]
+
+    response = client.get("/api/v1/interviews/?mode=video&round=2")
+    assert response.status_code == 200, response.data
+    assert [item["candidate_name"] for item in response.data["results"]] == ["虚构小周"]
+
+
 def test_schedule_rejects_invalid_participants_and_conflicts(team):
     client = client_for(team[2])
     first = advance(client, ready_application(team, "虚构小林"))

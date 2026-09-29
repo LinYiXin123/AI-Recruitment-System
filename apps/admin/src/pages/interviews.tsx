@@ -1,10 +1,19 @@
 import Table from '@douyinfe/semi-ui/lib/es/table';
-import { CalendarClock } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import Select from '@douyinfe/semi-ui/lib/es/select';
+import { BriefcaseBusiness, Search } from 'lucide-react';
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { Blank, ErrorNotice, Loading, Pager } from '@/components/feedback';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
 import {
   Field,
   FieldDescription,
@@ -51,106 +60,260 @@ const interviewStatus: Record<string, string> = {
   cancelled: '已取消',
 };
 
+const interviewMode: Record<NonNullable<Interview['revision']>['mode'], string> = {
+  onsite: '现场面试',
+  video: '视频面试',
+  phone: '电话面试',
+};
+
+export type InterviewActions = {
+  exportModule: () => void;
+};
+
 function toBeijingISOString(value: string) {
   const withSeconds = value.length === 16 ? `${value}:00` : value;
   return `${withSeconds}+08:00`;
 }
 
-export function Interviews({ revision }: { revision: number }) {
+export const Interviews = forwardRef<InterviewActions, { revision: number }>(function Interviews(
+  { revision },
+  ref,
+) {
   const [data, setData] = useState<Page<Interview> | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [search, setSearch] = useState('');
+  const [round, setRound] = useState('');
+  const [mode, setMode] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [reload, setReload] = useState(0);
+  const [exporting, setExporting] = useState(false);
+
+  const query = new URLSearchParams({ page: String(page) });
+  if (search) query.set('search', search);
+  if (round) query.set('round', round);
+  if (mode) query.set('mode', mode);
+  if (status) query.set('status', status);
+  const interviewUrl = `interviews/?${query.toString()}`;
 
   useEffect(() => {
     const controller = new AbortController();
     setData(null);
     setError('');
-    api<Page<Interview>>(`interviews/?status=${status}&page=${page}`, undefined, controller.signal)
+    api<Page<Interview>>(interviewUrl, undefined, controller.signal)
       .then(setData)
       .catch((e) => {
         if (e.name !== 'AbortError') setError(e.message);
       });
     return () => controller.abort();
-  }, [page, reload, revision, status]);
+  }, [interviewUrl, reload, revision]);
+
+  function resetFilters() {
+    setSearch('');
+    setRound('');
+    setMode('');
+    setStatus('');
+    setPage(1);
+  }
+
+  async function exportModule() {
+    if (exporting) return;
+    setExporting(true);
+    setNotice('');
+    try {
+      const exportQuery = new URLSearchParams(query);
+      exportQuery.delete('page');
+      const rows: Interview[] = [];
+      let currentPage = 1;
+      let total = 0;
+      do {
+        const response = await api<Page<Interview>>(
+          `interviews/?${exportQuery.toString()}&page=${currentPage}`,
+        );
+        total = response.count;
+        rows.push(...response.results);
+        currentPage += 1;
+      } while (rows.length < total);
+      const csv = [
+        ['候选人', '职位', '面试轮次', '开始时间（北京时间）', '面试方式', '面试官', '场次状态'],
+        ...rows.map((item) => [
+          item.candidate_name,
+          item.job_title,
+          `第 ${item.round_no} 轮`,
+          item.revision ? dateTime(item.revision.starts_at) : '未排期',
+          item.revision ? interviewMode[item.revision.mode] : '—',
+          item.revision?.participants.map((person) => person.name).join('、') || '—',
+          interviewStatus[item.status] || item.status,
+        ]),
+      ]
+        .map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(','))
+        .join('\r\n');
+      const url = URL.createObjectURL(
+        new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = '面试管理.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+      setNotice(`已导出当前授权范围内的 ${rows.length} 条面试记录。`);
+    } catch (e) {
+      setNotice(`导出未完成：${(e as Error).message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  useImperativeHandle(ref, () => ({ exportModule: () => void exportModule() }));
 
   return (
-    <section className="panel jobs-panel">
-      <div className="panel-title">
-        <h2>
-          <CalendarClock />
-          面试日程
-        </h2>
-        <Badge variant="outline">系统内日程 · 北京时间</Badge>
-      </div>
-      <div className="filterbar">
-        <NativeSelect
-          aria-label="面试状态"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            setPage(1);
-          }}
-        >
-          <NativeSelectOption value="">全部场次</NativeSelectOption>
-          <NativeSelectOption value="pending_confirmation">待确认</NativeSelectOption>
-          <NativeSelectOption value="confirmed">已确认</NativeSelectOption>
-          <NativeSelectOption value="completed">已完成</NativeSelectOption>
-          <NativeSelectOption value="cancelled">已取消</NativeSelectOption>
-        </NativeSelect>
-        <span className="scope-note">只显示你负责安排或本人参与的场次</span>
-      </div>
-      {error ? (
-        <ErrorNotice message={error} retry={() => setReload((old) => old + 1)} />
-      ) : !data ? (
-        <Loading />
-      ) : data.count === 0 ? (
-        <Blank
-          title="还没有面试安排"
-          description="在应聘详情完成“安排面试”后，这里会显示真实排期与参与人。"
-        />
-      ) : (
-        <>
-          <div className="table-container">
-            <Table<Interview>
-              rowKey="id"
-              dataSource={data.results}
-              pagination={false}
-              columns={[
-                { title: '候选人', dataIndex: 'candidate_name', width: 150 },
-                { title: '职位', dataIndex: 'job_title', width: 210 },
-                { title: '轮次', width: 80, render: (_, row) => `第 ${row.round_no} 轮` },
-                {
-                  title: '时间',
-                  width: 190,
-                  render: (_, row) => (row.revision ? dateTime(row.revision.starts_at) : '未排期'),
-                },
-                {
-                  title: '面试官',
-                  width: 190,
-                  render: (_, row) =>
-                    row.revision?.participants.map((p) => p.name).join('、') || '—',
-                },
-                {
-                  title: '状态',
-                  width: 165,
-                  render: (_, row) => (
-                    <div className="flex flex-col items-start gap-1">
-                      <Badge variant="secondary">{interviewStatus[row.status] || row.status}</Badge>
-                      {row.invitation_status === 'not_sent' && <small>邀请尚未发送</small>}
-                    </div>
-                  ),
-                },
-              ]}
+    <>
+      {notice && (
+        <Alert className="candidate-library-notice">
+          <AlertTitle>面试管理提示</AlertTitle>
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      )}
+      <section className="panel interview-library-panel" aria-label="面试管理">
+        <div className="interview-filterbar">
+          <div className="interview-search">
+            <Search aria-hidden="true" />
+            <Input
+              aria-label="搜索面试记录"
+              placeholder="搜索..."
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
             />
           </div>
-          <Pager count={data.count} page={page} onChange={setPage} />
-        </>
-      )}
-    </section>
+          <Select
+            className="interview-filter-select"
+            aria-label="筛选面试轮次"
+            value={round}
+            onChange={(value) => {
+              setRound(typeof value === 'string' ? value : '');
+              setPage(1);
+            }}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
+          >
+            <Select.Option value="">全部</Select.Option>
+            {[1, 2, 3, 4].map((value) => (
+              <Select.Option key={value} value={String(value)}>
+                第 {value} 轮
+              </Select.Option>
+            ))}
+          </Select>
+          <Select
+            className="interview-filter-select"
+            aria-label="筛选面试方式"
+            value={mode}
+            onChange={(value) => {
+              setMode(typeof value === 'string' ? value : '');
+              setPage(1);
+            }}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
+          >
+            <Select.Option value="">全部</Select.Option>
+            {Object.entries(interviewMode).map(([value, label]) => (
+              <Select.Option key={value} value={value}>
+                {label}
+              </Select.Option>
+            ))}
+          </Select>
+          <Select
+            className="interview-filter-select"
+            aria-label="筛选场次状态"
+            value={status}
+            onChange={(value) => {
+              setStatus(typeof value === 'string' ? value : '');
+              setPage(1);
+            }}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
+          >
+            <Select.Option value="">全部</Select.Option>
+            {Object.entries(interviewStatus)
+              .filter(([value]) => value !== 'unscheduled')
+              .map(([value, label]) => (
+                <Select.Option key={value} value={value}>
+                  {label}
+                </Select.Option>
+              ))}
+          </Select>
+          <Button type="button" variant="outline" size="sm" onClick={resetFilters}>
+            重置
+          </Button>
+        </div>
+        {error ? (
+          <ErrorNotice message={error} retry={() => setReload((old) => old + 1)} />
+        ) : !data ? (
+          <Loading />
+        ) : data.count === 0 ? (
+          <Empty className="candidate-library-empty">
+            <EmptyHeader>
+              <EmptyMedia className="candidate-library-empty-icon">
+                <BriefcaseBusiness aria-hidden="true" />
+              </EmptyMedia>
+              <EmptyTitle>还没有数据</EmptyTitle>
+              <EmptyDescription>
+                点击右上角「新增面试记录」，在候选人详情安排第一场面试。
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <>
+            <div className="table-container">
+              <Table<Interview>
+                rowKey="id"
+                dataSource={data.results}
+                pagination={false}
+                columns={[
+                  { title: '候选人', dataIndex: 'candidate_name', width: 140 },
+                  { title: '职位', dataIndex: 'job_title', width: 170 },
+                  { title: '轮次', width: 70, render: (_, row) => `第 ${row.round_no} 轮` },
+                  {
+                    title: '时间',
+                    width: 145,
+                    render: (_, row) => (row.revision ? dateTime(row.revision.starts_at) : '未排期'),
+                  },
+                  {
+                    title: '方式',
+                    width: 100,
+                    render: (_, row) => (row.revision ? interviewMode[row.revision.mode] : '—'),
+                  },
+                  {
+                    title: '面试官',
+                    width: 150,
+                    render: (_, row) =>
+                      row.revision?.participants.map((person) => person.name).join('、') || '—',
+                  },
+                  {
+                    title: '状态',
+                    width: 130,
+                    render: (_, row) => (
+                      <div className="flex flex-col items-start gap-1">
+                        <Badge variant="secondary">
+                          {interviewStatus[row.status] || row.status}
+                        </Badge>
+                        {row.invitation_status === 'not_sent' && <small>邀请尚未发送</small>}
+                      </div>
+                    ),
+                  },
+                ]}
+              />
+            </div>
+            <Pager count={data.count} page={page} onChange={setPage} />
+          </>
+        )}
+      </section>
+    </>
   );
-}
+});
 
 export function ScheduleInterview({
   application,
