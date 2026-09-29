@@ -20,6 +20,7 @@ test('AI 初面表单与结果区等高，操作按钮和附件说明符合页�
     ),
   ).toBeVisible();
   await expect(page.getByText(/点击分析会将简历文本/)).toHaveCount(0);
+  await expect(page.getByText('分析不提供录用或淘汰结论，也不会自动评分。')).toHaveCount(0);
 
   const runButton = page.getByRole('button', { name: '开始分析' });
   const clearButton = page.getByRole('button', { name: '清空' });

@@ -427,7 +427,6 @@ export function AiScreeningPage() {
                   <EmptyTitle>尚未发起分析</EmptyTitle>
                   <EmptyDescription>左侧填写后点击「开始分析」</EmptyDescription>
                 </EmptyHeader>
-                <p className="ai-screening-help">分析不提供录用或淘汰结论，也不会自动评分。</p>
               </Empty>
             )}
           </div>
