@@ -601,12 +601,183 @@ body {
   color: var(--muted-foreground);
   font-weight: 500;
 }
-.candidate-create-grid [data-slot="native-select-wrapper"] {
+.candidate-create-grid .candidate-select,
+.candidate-create-grid .candidate-date-picker {
   width: 100%;
 }
 .candidate-create-grid input,
-.candidate-create-grid [data-slot="native-select"] {
+.candidate-create-grid .candidate-select .semi-select-selection,
+.candidate-create-grid .candidate-date-trigger {
   height: 42px;
+}
+.candidate-create-grid .candidate-select .semi-select-selection {
+  border-radius: 10px;
+  border-color: var(--border);
+  background: var(--card);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background-color 150ms ease;
+}
+.candidate-create-grid .candidate-select:hover .semi-select-selection {
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
+}
+.candidate-create-grid .candidate-select .semi-select-selection:focus-within,
+.candidate-create-grid .candidate-select.semi-select-open .semi-select-selection {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+.candidate-date-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--foreground);
+  text-align: left;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+.candidate-date-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.candidate-date-control .candidate-date-trigger {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+}
+.candidate-date-trigger > svg {
+  width: 17px;
+  height: 17px;
+  color: var(--muted-foreground);
+}
+.candidate-date-trigger .is-placeholder {
+  color: var(--muted-foreground);
+}
+.candidate-date-trigger:focus-visible,
+.candidate-date-picker[data-open="true"] .candidate-date-trigger {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+.candidate-date-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.candidate-date-clear {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 12px;
+}
+.candidate-date-clear:hover {
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+  color: var(--primary);
+}
+.candidate-date-clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.candidate-calendar-panel {
+  margin-top: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+.candidate-calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.candidate-calendar-header strong {
+  color: var(--foreground);
+  font-size: 14px;
+}
+.candidate-calendar-header button,
+.candidate-calendar-today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.candidate-calendar-header button {
+  width: 30px;
+  height: 30px;
+}
+.candidate-calendar-header button:hover,
+.candidate-calendar-today:hover {
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+  color: var(--primary);
+}
+.candidate-calendar-header svg {
+  width: 16px;
+  height: 16px;
+}
+.candidate-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+.candidate-calendar-weekday,
+.candidate-calendar-day {
+  display: grid;
+  min-height: 34px;
+  place-items: center;
+  font-size: 13px;
+}
+.candidate-calendar-weekday {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.candidate-calendar-day {
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+.candidate-calendar-day:hover {
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+  color: var(--primary);
+}
+.candidate-calendar-day.is-outside {
+  color: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
+}
+.candidate-calendar-day.is-today {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 45%, transparent);
+  color: var(--primary);
+}
+.candidate-calendar-day.is-selected,
+.candidate-calendar-day.is-selected:hover {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.candidate-calendar-today {
+  margin: 10px 0 0 auto;
+  padding: 6px 10px;
+  color: var(--primary);
+  font-size: 12px;
+}
+.candidate-select-dropdown .semi-select-option {
+  min-height: 38px;
+  border-radius: 7px;
+  margin: 2px 4px;
 }
 .candidate-create-grid [data-slot="textarea"] {
   min-height: 108px;
