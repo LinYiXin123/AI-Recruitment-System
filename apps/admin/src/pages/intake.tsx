@@ -805,6 +805,7 @@ function CreateCandidateDialog({
               onChange={(value) => setGender(typeof value === 'string' ? value : '')}
               placeholder="请选择性别"
               disabled={busy}
+              clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
               <Select.Option value="男">男</Select.Option>
@@ -866,6 +867,7 @@ function CreateCandidateDialog({
               placeholder="请选择职位"
               disabled={busy}
               filter
+              clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
               {jobs.map((item) => (
@@ -897,6 +899,7 @@ function CreateCandidateDialog({
               onChange={(value) => setSource(typeof value === 'string' ? value : '')}
               placeholder="请选择简历来源"
               disabled={busy}
+              clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
               {[
@@ -927,6 +930,7 @@ function CreateCandidateDialog({
               onChange={(value) => setEducationLevel(typeof value === 'string' ? value : '')}
               placeholder="请选择学历"
               disabled={busy}
+              clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
               {['高中及以下', '大专', '本科', '硕士', '博士', '其他'].map((item) => (
@@ -987,6 +991,7 @@ function CreateCandidateDialog({
               value={stage}
               onChange={(value) => setStage(typeof value === 'string' ? value : '')}
               disabled={busy}
+              clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
               <Select.Option value="pending_review">待筛选</Select.Option>

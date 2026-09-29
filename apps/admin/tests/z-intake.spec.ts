@@ -65,6 +65,10 @@ test('候选人录入表单使用统一下拉与日期日历', async ({ page }) 
   await expect(page.locator('#new-candidate-gender')).toContainText('女');
   await sourceSelect.click();
   await expect(page.getByText('内推', { exact: true })).toBeVisible();
+  await sourceSelect.click();
+  await expect(page.getByText('内推', { exact: true })).toBeHidden();
+  await sourceSelect.click();
+  await expect(page.getByText('内推', { exact: true })).toBeVisible();
   await page.getByText('内推', { exact: true }).click();
   const today = new Date();
   const todayLabel = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
