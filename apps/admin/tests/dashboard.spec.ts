@@ -34,6 +34,15 @@ test('招聘总览按原型呈现完整侧栏、六项指标和真实导出', as
     await expect(overview.getByText(label, { exact: true })).toBeVisible();
   }
   await expect(page.getByRole('heading', { name: '近 14 天每日新增简历' })).toBeVisible();
+  const dailyBar = page.locator('.mini-bars').first().locator('.mini-bar-item').nth(2);
+  await dailyBar.hover();
+  await expect(dailyBar.locator('.mini-bar-fill')).toHaveCSS('filter', /drop-shadow/);
+  await expect(dailyBar).toHaveCSS('box-shadow', 'none');
+  await expect(dailyBar.locator('small')).toHaveCSS('filter', 'none');
+  const unavailableBar = page.locator('.unavailable-bars .mini-bar-item').first();
+  await unavailableBar.hover();
+  await expect(unavailableBar.locator('.mini-bar-fill')).toHaveCSS('filter', /drop-shadow/);
+  await expect(unavailableBar.locator('small')).toHaveCSS('filter', 'none');
   await expect(page.getByRole('heading', { name: '入职分析' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '候选人状态分布' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '今日面试安排' })).toBeVisible();
