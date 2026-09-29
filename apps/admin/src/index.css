@@ -1051,11 +1051,6 @@ body {
   gap: 12px;
   padding: 10px 0;
 }
-.two-fields {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-}
 .requirement-editor {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1288,8 +1283,11 @@ body {
     flex-direction: column;
     align-items: flex-start;
   }
-  .two-fields {
+  .job-create-grid {
     grid-template-columns: 1fr;
+  }
+  .job-create-span-2 {
+    grid-column: auto;
   }
   .section-heading {
     flex-wrap: wrap;
@@ -1599,6 +1597,46 @@ body {
 }
 .job-create-body {
   padding-top: 24px;
+}
+.job-create-dialog[data-slot="sheet-content"] {
+  width: min(1080px, calc(100vw - 48px));
+  max-width: min(1080px, calc(100vw - 48px));
+  height: min(860px, calc(100vh - 40px));
+}
+.job-create-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.job-create-grid [data-slot="field"] {
+  min-width: 0;
+  gap: 8px;
+}
+.job-create-grid [data-slot="input"],
+.job-create-grid [data-slot="native-select"] {
+  height: 48px;
+}
+.job-create-grid [data-slot="native-select-wrapper"] {
+  width: 100%;
+}
+.job-create-grid textarea {
+  min-height: 112px;
+}
+.job-create-span-2 {
+  grid-column: 1 / -1;
+}
+.job-salary-range {
+  display: flex;
+  gap: 10px;
+}
+.job-salary-range > input {
+  min-width: 0;
+  flex: 1;
+}
+.job-salary-range > button {
+  height: 48px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .job-create-footer {
   flex-direction: row;

@@ -25,6 +25,14 @@ export type Job = {
   title: string;
   department: number;
   department_name: string;
+  company_name: string;
+  job_level: string;
+  salary_range: string;
+  base_salary: string;
+  performance_salary: string;
+  commission_salary: string;
+  total_monthly_salary: string;
+  planned_publish_date: string | null;
   location: string;
   headcount: number;
   owner_name: string;

@@ -114,6 +114,44 @@ def test_create_submit_confirm_and_activate_persist(team):
     assert AuditEvent.objects.count() == 5
 
 
+def test_new_job_persists_reference_form_metadata_and_starts_as_draft(team):
+    org, dept, hr, manager, _ = team
+    c = client_for(hr)
+    body = {
+        "request_id": str(uuid.uuid4()),
+        "title": "招聘专员",
+        "department": dept.id,
+        "company_name": org.name,
+        "job_level": "主管级",
+        "salary_range": "底薪 7K + 绩效 1K + 提成 1K",
+        "base_salary": "7K",
+        "performance_salary": "1K",
+        "commission_salary": "1K",
+        "total_monthly_salary": "8-9K",
+        "planned_publish_date": "2026-09-29",
+        "location": "深圳",
+        "headcount": 3,
+        "approver": manager.id,
+        "status": "draft",
+        "jd": "一行一条，便于阅读",
+    }
+    response = c.post("/api/v1/jobs/", body, format="json")
+    assert response.status_code == 201, response.data
+    assert response.data["company_name"] == org.name
+    assert response.data["job_level"] == "主管级"
+    assert response.data["salary_range"] == "底薪 7K + 绩效 1K + 提成 1K"
+    assert response.data["planned_publish_date"] == "2026-09-29"
+    assert response.data["status"] == "draft"
+    job = Job.objects.get(pk=response.data["id"])
+    assert job.total_monthly_salary == "8-9K"
+    assert job.base_salary == "7K"
+
+    body.update(request_id=str(uuid.uuid4()), status="open")
+    rejected = c.post("/api/v1/jobs/", body, format="json")
+    assert rejected.status_code == 400
+    assert "草稿" in str(rejected.data)
+
+
 def test_dashboard_uses_authorized_records_and_keeps_future_metrics_unavailable(team):
     _, _, hr, manager, outsider = team
     job = new_job(team)
@@ -140,12 +178,8 @@ def test_dashboard_uses_authorized_records_and_keeps_future_metrics_unavailable(
     assert sum(row["count"] for row in dashboard.data["candidate_stages"]) == 1
 
     # 同部门负责人可读部门内职位；未被分配到该职位的 HR 不会看到汇总数量。
-    assert client_for(manager).get("/api/v1/dashboard/").data["metrics"][
-        "talent_pool_total"
-    ] == 1
-    assert client_for(outsider).get("/api/v1/dashboard/").data["metrics"][
-        "talent_pool_total"
-    ] == 0
+    assert client_for(manager).get("/api/v1/dashboard/").data["metrics"]["talent_pool_total"] == 1
+    assert client_for(outsider).get("/api/v1/dashboard/").data["metrics"]["talent_pool_total"] == 0
 
 
 def test_scope_on_list_search_detail_history_and_tasks(team):

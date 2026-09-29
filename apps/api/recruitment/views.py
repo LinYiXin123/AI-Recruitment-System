@@ -108,10 +108,7 @@ def dashboard(request):
 
     interviews = (
         Interview.objects.filter(organization=m.organization)
-        .filter(
-            Q(application__job__in=jobs)
-            | Q(current_revision__participants__membership=m)
-        )
+        .filter(Q(application__job__in=jobs) | Q(current_revision__participants__membership=m))
         .distinct()
     )
     today_interviews = (
@@ -127,9 +124,11 @@ def dashboard(request):
     daily_start = today - timedelta(days=13)
     resume_counts = {
         row["day"]: row["count"]
-        for row in resumes.filter(created_at__gte=timezone.make_aware(
-            datetime.combine(daily_start, time.min), current_zone
-        ))
+        for row in resumes.filter(
+            created_at__gte=timezone.make_aware(
+                datetime.combine(daily_start, time.min), current_zone
+            )
+        )
         .annotate(day=TruncDate("created_at", tzinfo=current_zone))
         .values("day")
         .annotate(count=Count("id"))
@@ -252,6 +251,10 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
     def create(self, request):
         m = member(request)
         data = validate_input(NewJobSerializer, request.data)
+        if data["status"] != Job.Status.DRAFT:
+            raise ValidationError(
+                {"status": "新建职位需先以草稿保存，负责人确认招人要求后才能开启招聘。"}
+            )
         Membership.objects.select_for_update().get(pk=m.pk)
         existing = Job.objects.filter(owner=m, request_id=data["request_id"]).first()
         if existing:
@@ -259,7 +262,21 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 raise PermissionDenied("当前已无权查看或重试这个职位。")
             same = all(
                 getattr(existing, key) == data[key]
-                for key in ["title", "location", "headcount", "jd"]
+                for key in [
+                    "title",
+                    "company_name",
+                    "job_level",
+                    "salary_range",
+                    "base_salary",
+                    "performance_salary",
+                    "commission_salary",
+                    "total_monthly_salary",
+                    "planned_publish_date",
+                    "location",
+                    "headcount",
+                    "status",
+                    "jd",
+                ]
             )
             same = (
                 same
@@ -304,7 +321,24 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             owner=m,
             approver=approver,
             request_id=data["request_id"],
-            **{k: data[k] for k in ["title", "location", "headcount", "jd"]},
+            **{
+                k: data[k]
+                for k in [
+                    "title",
+                    "company_name",
+                    "job_level",
+                    "salary_range",
+                    "base_salary",
+                    "performance_salary",
+                    "commission_salary",
+                    "total_monthly_salary",
+                    "planned_publish_date",
+                    "location",
+                    "headcount",
+                    "status",
+                    "jd",
+                ]
+            },
         )
         JobMember.objects.bulk_create([JobMember(job=job, membership=p) for p in collaborators])
         AuditEvent.objects.create(job=job, actor=m, action="创建职位", job_version=job.version)

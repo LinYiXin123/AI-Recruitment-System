@@ -84,6 +84,14 @@ class JobSerializer(serializers.ModelSerializer):
             "title",
             "department",
             "department_name",
+            "company_name",
+            "job_level",
+            "salary_range",
+            "base_salary",
+            "performance_salary",
+            "commission_salary",
+            "total_monthly_salary",
+            "planned_publish_date",
             "location",
             "headcount",
             "owner_name",
@@ -103,9 +111,18 @@ class NewJobSerializer(serializers.Serializer):
     request_id = serializers.UUIDField()
     title = serializers.CharField(max_length=100)
     department = serializers.IntegerField(min_value=1)
+    company_name = serializers.CharField(max_length=200, allow_blank=True, default="")
+    job_level = serializers.CharField(max_length=100, allow_blank=True, default="")
+    salary_range = serializers.CharField(max_length=200, allow_blank=True, default="")
+    base_salary = serializers.CharField(max_length=100, allow_blank=True, default="")
+    performance_salary = serializers.CharField(max_length=100, allow_blank=True, default="")
+    commission_salary = serializers.CharField(max_length=100, allow_blank=True, default="")
+    total_monthly_salary = serializers.CharField(max_length=200, allow_blank=True, default="")
+    planned_publish_date = serializers.DateField(required=False, allow_null=True, default=None)
     location = serializers.CharField(max_length=100)
     headcount = serializers.IntegerField(min_value=1, max_value=32767)
     approver = serializers.IntegerField(min_value=1)
+    status = serializers.ChoiceField(choices=Job.Status.choices, default=Job.Status.DRAFT)
     jd = serializers.CharField(max_length=30000, allow_blank=True, default="")
     collaborators = serializers.ListField(
         child=serializers.IntegerField(min_value=1), max_length=30, default=list

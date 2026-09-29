@@ -52,6 +52,10 @@ export function CreateJob({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [salaryRange, setSalaryRange] = useState('');
+  const [baseSalary, setBaseSalary] = useState('');
+  const [performanceSalary, setPerformanceSalary] = useState('');
+  const [commissionSalary, setCommissionSalary] = useState('');
   const d = me.departments.find((d) => d.id === department);
   return (
     <Sheet
@@ -64,7 +68,7 @@ export function CreateJob({
       <SheetContent side="top" className="profile-settings-dialog job-create-dialog">
         <SheetHeader className="profile-settings-header">
           <SheetTitle>新建职位</SheetTitle>
-          <SheetDescription>先填写基本需求，保存后继续整理招人要求。</SheetDescription>
+          <SheetDescription className="sr-only">填写职位基本信息。</SheetDescription>
         </SheetHeader>
         <form
           id="create-job-form"
@@ -80,10 +84,19 @@ export function CreateJob({
                 await api<Job>('jobs/', {
                   request_id: requestId,
                   title: f.get('title'),
+                  company_name: f.get('company_name'),
+                  job_level: f.get('job_level'),
+                  salary_range: f.get('salary_range'),
+                  base_salary: f.get('base_salary'),
+                  performance_salary: f.get('performance_salary'),
+                  commission_salary: f.get('commission_salary'),
+                  total_monthly_salary: f.get('total_monthly_salary'),
+                  planned_publish_date: f.get('planned_publish_date') || null,
                   location: f.get('location'),
                   headcount: Number(f.get('headcount')),
                   department,
                   approver: Number(f.get('approver')),
+                  status: f.get('status'),
                   jd: f.get('jd'),
                   collaborators: f.getAll('collaborators').map(Number),
                 }),
@@ -95,7 +108,7 @@ export function CreateJob({
           }}
         >
           <FieldSet disabled={busy}>
-            <FieldGroup>
+            <FieldGroup className="job-create-grid">
               <Field>
                 <FieldLabel htmlFor="title">
                   职位名称
@@ -106,15 +119,16 @@ export function CreateJob({
                 <Input
                   name="title"
                   id="title"
-                  placeholder="例如：产品经理"
+                  placeholder="如：招聘专员"
                   maxLength={100}
                   required
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="department">用人部门</FieldLabel>
+                <FieldLabel htmlFor="department">所属部门</FieldLabel>
                 <NativeSelect
                   id="department"
+                  className="w-full"
                   value={department}
                   onChange={(e) => setDepartment(Number(e.target.value))}
                 >
@@ -125,35 +139,138 @@ export function CreateJob({
                   ))}
                 </NativeSelect>
               </Field>
-              <div className="two-fields">
-                <Field>
-                  <FieldLabel htmlFor="location">工作地点</FieldLabel>
+              <Field>
+                <FieldLabel htmlFor="company_name">所属企业</FieldLabel>
+                <NativeSelect
+                  id="company_name"
+                  name="company_name"
+                  className="w-full"
+                  defaultValue=""
+                >
+                  <NativeSelectOption value="" disabled>
+                    不指定企业（选填）
+                  </NativeSelectOption>
+                  <NativeSelectOption value={me.organization}>{me.organization}</NativeSelectOption>
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="job_level">职级</FieldLabel>
+                <Input
+                  id="job_level"
+                  name="job_level"
+                  placeholder="如：P5 / 主管级"
+                  maxLength={100}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="salary_range">薪资区间</FieldLabel>
+                <div className="job-salary-range">
                   <Input
-                    id="location"
-                    name="location"
-                    placeholder="例如：深圳"
-                    maxLength={100}
-                    required
+                    id="salary_range"
+                    name="salary_range"
+                    value={salaryRange}
+                    onChange={(e) => setSalaryRange(e.target.value)}
+                    placeholder="如：8-12K（文本，不做数值化）"
+                    maxLength={200}
                   />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="headcount">计划招聘人数</FieldLabel>
-                  <Input
-                    type="number"
-                    id="headcount"
-                    name="headcount"
-                    defaultValue={1}
-                    min={1}
-                    max={32767}
-                    required
-                  />
-                </Field>
-              </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const parts = [
+                        ['底薪', baseSalary],
+                        ['绩效', performanceSalary],
+                        ['提成', commissionSalary],
+                      ].filter(([, value]) => value.trim());
+                      setSalaryRange(
+                        parts.map(([label, value]) => `${label} ${value}`).join(' + '),
+                      );
+                    }}
+                  >
+                    按构成生成
+                  </Button>
+                </div>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="base_salary">底薪</FieldLabel>
+                <Input
+                  id="base_salary"
+                  name="base_salary"
+                  value={baseSalary}
+                  onChange={(e) => setBaseSalary(e.target.value)}
+                  placeholder="如：5-7K"
+                  maxLength={100}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="performance_salary">绩效</FieldLabel>
+                <Input
+                  id="performance_salary"
+                  name="performance_salary"
+                  value={performanceSalary}
+                  onChange={(e) => setPerformanceSalary(e.target.value)}
+                  placeholder="如：1-2K"
+                  maxLength={100}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="commission_salary">提成</FieldLabel>
+                <Input
+                  id="commission_salary"
+                  name="commission_salary"
+                  value={commissionSalary}
+                  onChange={(e) => setCommissionSalary(e.target.value)}
+                  placeholder="如：按课时 2-4K / 上不封顶"
+                  maxLength={100}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="total_monthly_salary">综合月薪</FieldLabel>
+                <Input
+                  id="total_monthly_salary"
+                  name="total_monthly_salary"
+                  placeholder="如：6-9K（上不封顶）"
+                  maxLength={200}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="headcount">招聘人数</FieldLabel>
+                <Input
+                  type="number"
+                  id="headcount"
+                  name="headcount"
+                  defaultValue={1}
+                  min={1}
+                  max={32767}
+                  required
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="status">状态</FieldLabel>
+                <NativeSelect id="status" name="status" className="w-full" defaultValue="draft">
+                  <NativeSelectOption value="draft">草稿</NativeSelectOption>
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="planned_publish_date">发布时间</FieldLabel>
+                <Input id="planned_publish_date" name="planned_publish_date" type="date" />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="location">工作地点</FieldLabel>
+                <Input
+                  id="location"
+                  name="location"
+                  placeholder="如：深圳"
+                  maxLength={100}
+                  required
+                />
+              </Field>
               <Field>
                 <FieldLabel htmlFor="approver">招人要求确认人</FieldLabel>
                 <NativeSelect
                   id="approver"
                   name="approver"
+                  className="w-full"
                   key={department}
                   required
                   defaultValue=""
@@ -174,7 +291,7 @@ export function CreateJob({
                 </FieldDescription>
               </Field>
               {!!d?.collaborators.length && (
-                <FieldSet>
+                <FieldSet className="job-create-span-2">
                   <FieldLegend>协作 HR（可选）</FieldLegend>
                   {d.collaborators.map((p) => (
                     <Field key={p.id} orientation="horizontal">
@@ -184,17 +301,21 @@ export function CreateJob({
                   ))}
                 </FieldSet>
               )}
-              <Field>
-                <FieldLabel htmlFor="jd">对外职位描述（可稍后完善）</FieldLabel>
+              <Field className="job-create-span-2">
+                <FieldLabel htmlFor="jd">任职要求</FieldLabel>
                 <Textarea
                   id="jd"
                   name="jd"
-                  rows={5}
+                  rows={4}
                   maxLength={30000}
-                  placeholder="介绍工作职责与岗位价值，内部判断标准在下一步填写。"
+                  placeholder="一行一条，便于阅读"
                 />
               </Field>
-              {error && <ErrorNotice message={error} />}
+              {error && (
+                <div className="job-create-span-2">
+                  <ErrorNotice message={error} />
+                </div>
+              )}
             </FieldGroup>
           </FieldSet>
         </form>
@@ -523,6 +644,22 @@ export function JobDetail({
               <TabsContent value="info" className="detail-tab">
                 <dl className="job-meta">
                   <div>
+                    <dt>所属部门</dt>
+                    <dd>{job.department_name}</dd>
+                  </div>
+                  <div>
+                    <dt>所属企业</dt>
+                    <dd>{job.company_name || '未指定'}</dd>
+                  </div>
+                  <div>
+                    <dt>职级</dt>
+                    <dd>{job.job_level || '未填写'}</dd>
+                  </div>
+                  <div>
+                    <dt>薪资区间</dt>
+                    <dd>{job.salary_range || '未填写'}</dd>
+                  </div>
+                  <div>
                     <dt>HR 负责人</dt>
                     <dd>{job.owner_name}</dd>
                   </div>
@@ -531,12 +668,12 @@ export function JobDetail({
                     <dd>{job.approver_name}</dd>
                   </div>
                   <div>
-                    <dt>计划招聘</dt>
+                    <dt>招聘人数</dt>
                     <dd>{job.headcount} 人</dd>
                   </div>
                   <div>
-                    <dt>最近更新</dt>
-                    <dd>{dateTime(job.updated_at)}</dd>
+                    <dt>发布时间</dt>
+                    <dd>{job.planned_publish_date || '未设置'}</dd>
                   </div>
                 </dl>
                 <h2>对外职位描述</h2>

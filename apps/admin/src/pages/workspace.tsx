@@ -17,15 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
-import {
-  api,
-  type DashboardData,
-  dateTime,
-  type Job,
-  jobStatus,
-  type Page,
-  profileStatus,
-} from '@/lib/api';
+import { api, type DashboardData, type Job, jobStatus, type Page } from '@/lib/api';
 
 type WorkspaceProps = {
   revision: number;
@@ -460,29 +452,33 @@ export function Jobs({ revision, openJob, canCreate, create }: WorkspaceProps) {
                     </div>
                   ),
                 },
-                { title: '用人部门', dataIndex: 'department_name', width: 150 },
+                { title: '所属部门', dataIndex: 'department_name', width: 150 },
                 {
-                  title: '计划招聘人数',
+                  title: '所属企业',
+                  dataIndex: 'company_name',
+                  width: 160,
+                  render: (value) => value || '—',
+                },
+                {
+                  title: '职级',
+                  dataIndex: 'job_level',
+                  width: 130,
+                  render: (value) => value || '—',
+                },
+                {
+                  title: '薪资区间',
+                  dataIndex: 'salary_range',
+                  width: 210,
+                  render: (value) => value || '—',
+                },
+                {
+                  title: '招聘人数',
                   dataIndex: 'headcount',
                   width: 120,
                   render: (n) => `${n} 人`,
                 },
-                { title: '招人要求确认人', dataIndex: 'approver_name', width: 150 },
                 {
-                  title: '招人要求',
-                  dataIndex: 'latest_profile',
-                  width: 170,
-                  render: (_text, j) =>
-                    j.latest_profile ? (
-                      <span>
-                        v{j.latest_profile.number} · {profileStatus[j.latest_profile.status]}
-                      </span>
-                    ) : (
-                      '尚未填写'
-                    ),
-                },
-                {
-                  title: '职位状态',
+                  title: '状态',
                   dataIndex: 'status',
                   width: 100,
                   render: (s) => (
@@ -490,10 +486,10 @@ export function Jobs({ revision, openJob, canCreate, create }: WorkspaceProps) {
                   ),
                 },
                 {
-                  title: '最近更新',
-                  dataIndex: 'updated_at',
+                  title: '发布时间',
+                  dataIndex: 'planned_publish_date',
                   width: 130,
-                  render: (updatedAt) => dateTime(updatedAt),
+                  render: (value) => value || '—',
                 },
                 {
                   title: '操作',

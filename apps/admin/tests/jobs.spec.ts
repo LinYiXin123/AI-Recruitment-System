@@ -17,7 +17,7 @@ async function createJob(page: Page, title: string) {
   await page.getByRole('button', { name: '新建职位', exact: true }).click();
   await page.getByLabel('职位名称').fill(title);
   await page.getByLabel('工作地点').fill('深圳');
-  await page.getByLabel('计划招聘人数').fill('2');
+  await page.getByLabel('招聘人数').fill('2');
   await page.getByLabel('招人要求确认人').selectOption({ label: '体验负责人' });
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
@@ -37,6 +37,11 @@ test('新建职位以居中弹窗显示必填标题和固定操作区', async ({
     await page.getByLabel('职位名称').evaluate((element) => (element as HTMLInputElement).required),
   ).toBe(true);
   await expect(dialog.locator('.job-required-mark')).toHaveText('*');
+  await expect(dialog.getByText('先填写基本需求，保存后继续整理招人要求。')).toHaveCount(0);
+  await expect(dialog.getByLabel('所属企业')).toBeVisible();
+  await expect(dialog.getByLabel('薪资区间')).toBeVisible();
+  await expect(dialog.getByLabel('发布时间')).toHaveAttribute('type', 'date');
+  expect((await page.getByLabel('职位名称').boundingBox())?.height).toBe(48);
   await expect(footer.getByRole('button', { name: '取消', exact: true })).toBeVisible();
   await expect(footer.getByRole('button', { name: '保存', exact: true })).toBeVisible();
   expect(await form.evaluate((element) => getComputedStyle(element).overflowY)).toBe('auto');
@@ -52,22 +57,49 @@ test('新建职位以居中弹窗显示必填标题和固定操作区', async ({
 test('职位列表展示保存后的建岗字段', async ({ page }) => {
   const title = '招聘专员（列表字段验收）';
   await login(page);
-  await createJob(page, title);
+  await openJobs(page);
+  await page.getByRole('button', { name: '新建职位', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('职位名称').fill(title);
+  await dialog.getByLabel('所属企业').selectOption({ index: 1 });
+  await dialog.getByLabel('职级').fill('主管级');
+  await dialog.getByLabel('底薪').fill('7K');
+  await dialog.getByLabel('绩效').fill('1K');
+  await dialog.getByLabel('提成').fill('1K');
+  await dialog.getByRole('button', { name: '按构成生成', exact: true }).click();
+  await expect(dialog.getByLabel('薪资区间')).toHaveValue('底薪 7K + 绩效 1K + 提成 1K');
+  await dialog.getByLabel('综合月薪').fill('8-9K');
+  await dialog.getByLabel('招聘人数').fill('3');
+  await dialog.getByLabel('发布时间').fill('2026-09-29');
+  await dialog.getByLabel('工作地点').fill('深圳');
+  await dialog.getByLabel('招人要求确认人').selectOption({ label: '体验负责人' });
+  await dialog.getByLabel('任职要求').fill('一行一条，便于阅读');
+  await page.screenshot({ path: 'test-results/职位完整字段弹窗.png' });
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await closeDetail(page);
 
   await expect(page.getByText('职位名称', { exact: true })).toBeVisible();
-  await expect(page.getByText('用人部门', { exact: true })).toBeVisible();
-  await expect(page.getByText('计划招聘人数', { exact: true })).toBeVisible();
-  await expect(page.getByText('招人要求确认人', { exact: true })).toBeVisible();
-  await expect(page.getByText('最近更新', { exact: true })).toBeVisible();
+  await expect(page.getByText('所属部门', { exact: true })).toBeVisible();
+  await expect(page.getByText('所属企业', { exact: true })).toBeVisible();
+  await expect(page.getByText('职级', { exact: true })).toBeVisible();
+  await expect(page.getByText('薪资区间', { exact: true })).toBeVisible();
+  await expect(page.getByText('招聘人数', { exact: true })).toBeVisible();
+  await expect(page.getByText('发布时间', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: title, exact: true })).toBeVisible();
   await expect(page.getByText('工作地点 · 深圳', { exact: true })).toBeVisible();
   await expect(page.getByText('产品研发部（虚构）', { exact: true })).toBeVisible();
-  await expect(page.getByText('2 人', { exact: true })).toBeVisible();
-  await expect(page.getByText('体验负责人', { exact: true })).toBeVisible();
-  await expect(page.getByText('尚未填写', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('grid').getByText('知遇体验团队（虚构）', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('grid').getByText('主管级', { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('grid').getByText('底薪 7K + 绩效 1K + 提成 1K', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('grid').getByText('3 人', { exact: true })).toBeVisible();
+  await expect(page.getByRole('grid').getByText('2026-09-29', { exact: true })).toBeVisible();
   await expect(page.getByRole('grid').getByText('草稿', { exact: true })).toBeVisible();
-  await page.screenshot({ path: 'test-results/职位列表字段输出.png' });
+  await page.screenshot({ path: 'test-results/职位完整字段列表.png' });
 });
 
 async function fillRequirements(page: Page) {
