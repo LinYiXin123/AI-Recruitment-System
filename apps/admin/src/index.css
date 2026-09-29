@@ -1666,6 +1666,14 @@ body {
   color: var(--muted-foreground);
   text-align: center;
 }
+.dashboard-blank > svg {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 8px;
+  color: var(--muted-foreground);
+  opacity: 0.65;
+  stroke-width: 1.7;
+}
 .dashboard-blank a {
   color: var(--primary);
   text-decoration: none;

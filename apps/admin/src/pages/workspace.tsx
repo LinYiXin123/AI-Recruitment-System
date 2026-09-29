@@ -3,7 +3,7 @@ import {
   ArrowRight,
   BriefcaseBusiness,
   CalendarCheck2,
-  type CalendarDays,
+  CalendarDays,
   Check,
   Flag,
   Plus,
@@ -137,6 +137,7 @@ export function Today({ revision, onLoaded }: TodayProps) {
                 title="还没有候选人数据"
                 action="去「候选人库」录入第一位候选人"
                 href="#candidates"
+                icon={UsersRound}
               />
             ) : (
               data.candidate_stages.map((item) => (
@@ -159,6 +160,7 @@ export function Today({ revision, onLoaded }: TodayProps) {
               title="今日暂无面试安排"
               action="去「面试管理」新增一条面试记录"
               href="#interviews"
+              icon={CalendarDays}
             />
           ) : (
             <ul className="today-interview-list">
@@ -297,9 +299,20 @@ function AnalysisCell({ value, label }: { value: number | string; label: string 
   );
 }
 
-function DashboardBlank({ title, action, href }: { title: string; action: string; href: string }) {
+function DashboardBlank({
+  title,
+  action,
+  href,
+  icon: Icon,
+}: {
+  title: string;
+  action: string;
+  href: string;
+  icon: typeof CalendarDays;
+}) {
   return (
     <div className="dashboard-blank">
+      <Icon aria-hidden="true" />
       <strong>{title}</strong>
       <a href={href}>{action}</a>
     </div>

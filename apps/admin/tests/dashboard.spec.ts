@@ -38,6 +38,7 @@ test('招聘总览按原型呈现完整侧栏、六项指标和真实导出', as
   await expect(page.getByRole('heading', { name: '候选人状态分布' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '今日面试安排' })).toBeVisible();
   await expect(page.getByText('Offer 流程尚未接通', { exact: true })).toBeVisible();
+  await expect(page.locator('.dashboard-blank svg[aria-hidden="true"]')).toHaveCount(2);
 
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: '导出全部数据' }).click();
