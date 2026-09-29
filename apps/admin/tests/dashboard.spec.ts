@@ -45,9 +45,16 @@ test('招聘总览按原型呈现完整侧栏、六项指标和真实导出', as
   await expect((await download).suggestedFilename()).toMatch(/^招聘总览-\d{4}-\d{2}-\d{2}\.csv$/);
 
   await sidebar.getByRole('button', { name: /体验 HR/ }).click();
-  await expect(page.getByRole('heading', { name: '飞书个人信息' })).toBeVisible();
-  await expect(page.getByText('当前使用本地体验身份，未连接飞书头像。')).toBeVisible();
-  await page.getByRole('button', { name: '关闭详情' }).click();
+  const profileSettings = page.getByRole('dialog', { name: '个人设置' });
+  await expect(profileSettings).toBeVisible();
+  await expect(profileSettings.getByText('邮箱自动同步', { exact: true })).toBeVisible();
+  await expect(profileSettings.getByRole('checkbox', { name: '尚未接通' })).toBeDisabled();
+  await expect(profileSettings.getByLabel('邮箱地址')).toBeDisabled();
+  await expect(profileSettings.getByLabel('邮箱授权码')).toBeDisabled();
+  await expect(profileSettings.getByText('同步状态：邮箱服务尚未接通。')).toBeVisible();
+  await profileSettings.screenshot({ path: testInfo.outputPath('个人设置弹窗.png') });
+  await profileSettings.getByRole('button', { name: '关闭', exact: true }).click();
+  await expect(profileSettings).toBeHidden();
 
   await sidebar.getByRole('button', { name: '在职人员管理' }).click();
   await expect(sidebar.getByText('全部在职', { exact: true })).toBeVisible();
@@ -86,6 +93,13 @@ test('窄屏使用原型同款顶栏、飞书头像和遮罩侧栏', async ({ pa
 
   await drawer.getByRole('link', { name: '今天' }).click();
   await expect(drawer).toBeHidden();
+  await page.getByRole('button', { name: '打开飞书个人设置' }).click();
+  const profileSettings = page.getByRole('dialog', { name: '个人设置' });
+  await expect(profileSettings).toBeVisible();
+  expect(
+    await profileSettings.evaluate((element) => element.getBoundingClientRect().width),
+  ).toBeLessThanOrEqual(859);
+  await profileSettings.getByRole('button', { name: '关闭', exact: true }).click();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
   ).toBeTruthy();

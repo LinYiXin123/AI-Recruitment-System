@@ -16,13 +16,28 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ErrorNotice, Loading } from '@/components/feedback';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  FieldTitle,
+} from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 import {
   Sheet,
   SheetContent,
   SheetDescription,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
@@ -376,32 +391,124 @@ export default function App() {
       </div>
 
       <Sheet open={profileOpen} onOpenChange={setProfileOpen}>
-        <SheetContent className="profile-sheet">
-          <SheetHeader>
-            <SheetTitle>飞书个人信息</SheetTitle>
-            <SheetDescription>
-              头像和姓名来自当前登录身份，招聘权限由组织授权决定。
+        <SheetContent side="top" className="profile-settings-dialog">
+          <SheetHeader className="profile-settings-header">
+            <SheetTitle>个人设置</SheetTitle>
+            <SheetDescription className="sr-only">
+              查看个人资料和邮箱自动同步设置。
             </SheetDescription>
           </SheetHeader>
-          <div className="profile-sheet-body">
-            <UserAvatar me={me} large />
-            <div>
-              <h2>{me.name}</h2>
-              <p>{me.organization}</p>
-            </div>
-            <div className="profile-role-list">
-              {me.roles.map((role) => (
-                <Badge key={role} variant="secondary">
-                  {roleNames[role] || role}
-                </Badge>
-              ))}
-            </div>
-            <p className="profile-source-note">
-              {me.auth_source === 'feishu'
-                ? '当前已通过飞书身份进入工作台；如需更换头像或姓名，请在飞书中修改后重新登录。'
-                : '当前使用本地体验身份，未连接飞书头像。'}
-            </p>
+          <div className="profile-settings-body">
+            <section className="profile-settings-section" aria-labelledby="mailbox-sync-title">
+              <Separator />
+              <h2 id="mailbox-sync-title">邮箱自动同步</h2>
+              <Alert className="profile-sync-notice">
+                <AlertDescription>
+                  开启后，系统会定时读取此邮箱中的附件简历并写入你名下的候选人库。目前邮箱服务尚未接通，因此不会保存邮箱地址或授权码；请继续使用“新增候选人”导入简历。
+                </AlertDescription>
+              </Alert>
+              <FieldGroup>
+                <FieldSet>
+                  <FieldLegend variant="label">启用邮箱自动同步</FieldLegend>
+                  <Field orientation="horizontal" data-disabled>
+                    <Checkbox
+                      id="mailbox-sync-enabled"
+                      aria-label="启用邮箱自动同步"
+                      checked={false}
+                      disabled
+                    />
+                    <FieldContent>
+                      <FieldLabel htmlFor="mailbox-sync-enabled">尚未接通</FieldLabel>
+                      <FieldDescription>完成服务端邮箱集成后才能开启。</FieldDescription>
+                    </FieldContent>
+                  </Field>
+                </FieldSet>
+                <Field data-disabled>
+                  <FieldLabel htmlFor="mailbox-address">邮箱地址</FieldLabel>
+                  <Input
+                    id="mailbox-address"
+                    className="h-11"
+                    type="email"
+                    placeholder="接通后可配置完整邮箱地址"
+                    disabled
+                  />
+                  <FieldDescription>完整邮箱地址，例如 6xxxxxxxx@qq.com</FieldDescription>
+                </Field>
+                <Field data-disabled>
+                  <FieldLabel htmlFor="mailbox-password">邮箱授权码</FieldLabel>
+                  <Input
+                    id="mailbox-password"
+                    className="h-11"
+                    type="password"
+                    placeholder="服务尚未接通，暂不能保存授权码"
+                    disabled
+                  />
+                  <FieldDescription>
+                    授权码应仅由服务端安全保存和使用，不会回显或写入日志。
+                  </FieldDescription>
+                </Field>
+              </FieldGroup>
+              <details className="profile-settings-advanced">
+                <summary>进阶设置（IMAP 服务器 / 端口 / 收件目录）</summary>
+                <p>邮箱集成接通后，可在这里配置服务端连接参数和收件目录。</p>
+              </details>
+              <div className="profile-sync-actions">
+                <Button disabled>保存配置</Button>
+                <Button variant="outline" disabled>
+                  立即同步
+                </Button>
+                <p>同步状态：邮箱服务尚未接通。</p>
+              </div>
+            </section>
+
+            <section className="profile-settings-section" aria-labelledby="profile-info-title">
+              <Separator />
+              <h2 id="profile-info-title">个人资料</h2>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="profile-name">昵称</FieldLabel>
+                  <Input id="profile-name" className="h-11" value={me.name} readOnly />
+                  <FieldDescription>
+                    {me.auth_source === 'feishu'
+                      ? '昵称和头像来自飞书身份；在飞书中修改后重新登录即可同步。'
+                      : '当前使用本地体验身份，昵称和头像由体验账号提供。'}
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel>头像</FieldLabel>
+                  <div className="profile-settings-avatar-row">
+                    <UserAvatar me={me} large />
+                    <FieldContent>
+                      <FieldTitle>{me.organization}</FieldTitle>
+                      <FieldDescription>头像由当前登录身份提供。</FieldDescription>
+                    </FieldContent>
+                  </div>
+                </Field>
+                <Field data-disabled>
+                  <FieldLabel htmlFor="ai-model-name">AI 初面使用的模型名</FieldLabel>
+                  <Input
+                    id="ai-model-name"
+                    className="h-11"
+                    placeholder="留空即可，由系统自动选用"
+                    disabled
+                  />
+                  <FieldDescription>AI 初面服务接通后可由管理员统一配置。</FieldDescription>
+                </Field>
+              </FieldGroup>
+              <div className="profile-role-list">
+                {me.roles.map((role) => (
+                  <Badge key={role} variant="secondary">
+                    {roleNames[role] || role}
+                  </Badge>
+                ))}
+              </div>
+            </section>
           </div>
+          <SheetFooter className="profile-settings-footer">
+            <Button variant="outline" onClick={() => setProfileOpen(false)}>
+              关闭
+            </Button>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
 
