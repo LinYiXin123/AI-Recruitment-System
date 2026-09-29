@@ -1,5 +1,4 @@
 import {
-  Bot,
   BriefcaseBusiness,
   Building2,
   CalendarDays,
@@ -43,6 +42,7 @@ import {
 } from '@/components/ui/sheet';
 import { ApiError, api, type DashboardData, type Me } from '@/lib/api';
 import { ApplicationDetail, type CandidateLibraryActions, Candidates } from '@/pages/intake';
+import { AiScreeningPage } from '@/pages/ai-screening';
 import { type InterviewActions, Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
 import { Jobs, Today } from '@/pages/workspace';
@@ -215,7 +215,7 @@ export default function App() {
     interviews: { title: '面试管理', description: '面试安排与记录，一人可多轮' },
     'ai-screening': {
       title: 'AI 初面',
-      description: '该入口已按原型保留，正式 AI 初面能力尚未接通。',
+      description: '选择候选人 + 粘贴简历 + 选择目标职位，由大模型给出匹配初判',
     },
     'question-bank': {
       title: '面试题库',
@@ -318,7 +318,11 @@ export default function App() {
       </Sheet>
 
       <div className="workspace-body">
-        <main className="workspace-main" id="main-content" tabIndex={-1}>
+        <main
+          className={`workspace-main${route === 'ai-screening' ? ' ai-screening-main' : ''}`}
+          id="main-content"
+          tabIndex={-1}
+        >
           <div className="page-heading">
             <div>
               <h1>{current.title}</h1>
@@ -384,6 +388,8 @@ export default function App() {
           {error && <ErrorNotice message={error} retry={() => setError('')} />}
           {route === 'today' ? (
             <Today revision={revision} onLoaded={setDashboardData} />
+          ) : route === 'ai-screening' ? (
+            <AiScreeningPage />
           ) : route === 'candidates' ? (
             <Candidates
               ref={candidateLibraryRef}
@@ -669,14 +675,9 @@ function SidebarPanel({
 function UnavailablePage({
   route,
 }: {
-  route: Exclude<Route, 'today' | 'jobs' | 'candidates' | 'interviews'>;
+  route: Exclude<Route, 'today' | 'jobs' | 'candidates' | 'interviews' | 'ai-screening'>;
 }) {
-  const messages: Record<typeof route, { icon: typeof Bot; title: string; body: string }> = {
-    'ai-screening': {
-      icon: Bot,
-      title: 'AI 初面尚未接通',
-      body: '当前不会生成虚假的 AI 评分或面试结果。正式接入模型、证据与人工复核流程后，这里再开放。',
-    },
+  const messages: Record<typeof route, { icon: typeof Building2; title: string; body: string }> = {
     'question-bank': {
       icon: CircleHelp,
       title: '面试题库尚未接通',
