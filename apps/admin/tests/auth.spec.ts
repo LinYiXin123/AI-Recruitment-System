@@ -92,6 +92,12 @@ test('飞书姓名头像与真实角色显示，缺失头像及窄屏长姓名�
   await expect(profile.locator('[data-slot="avatar-fallback"]')).toHaveText('林');
   await page.getByRole('button', { name: '菜单' }).click();
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible();
+  const sidebarStatus = page.getByRole('status').filter({ hasText: '已同步' });
+  const logout = page.getByRole('button', { name: '退出登录' });
+  await expect(sidebarStatus).toBeVisible();
+  expect((await logout.boundingBox())!.y).toBeGreaterThan((await sidebarStatus.boundingBox())!.y);
+  await expect(sidebarStatus.locator('span')).toHaveCSS('background-color', 'rgb(22, 104, 71)');
+  await expect(sidebarStatus.locator('span')).toHaveCSS('animation-name', 'sync-dot-breathe');
   await expect(page.getByRole('status', { name: '正在加载' })).toHaveCount(0);
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),

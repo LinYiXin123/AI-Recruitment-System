@@ -1130,20 +1130,21 @@ body {
     height: 15px;
   }
   .sidebar-bottom {
-    display: block;
-    padding: 0;
-    border: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 14px 4px 0;
+    border-top: 1px solid var(--border);
     margin: 0;
   }
   .sidebar-logout {
-    position: absolute;
-    top: 12px;
-    right: 14px;
-    width: 34px;
-    height: 34px;
+    position: static;
+    width: 100%;
+    height: auto;
     padding: 8px;
-    overflow: hidden;
-    font-size: 0;
+    overflow: visible;
+    font-size: inherit;
   }
   .workspace-main {
     padding: 18px 14px 40px;
@@ -1396,6 +1397,26 @@ body {
   height: 7px;
   border-radius: 999px;
   background: var(--success);
+  animation: sync-dot-breathe 1.7s ease-in-out infinite;
+}
+@keyframes sync-dot-breathe {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 48%, transparent);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 22%, transparent);
+    transform: scale(1.18);
+  }
+  100% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--success) 0%, transparent);
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connection-status > span {
+    animation: none;
+  }
 }
 .mobile-header {
   display: none;
