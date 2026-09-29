@@ -36,6 +36,15 @@ function pdf(text = '') {
 test('候选人录入表单使用统一下拉与日期日历', async ({ page }) => {
   await login(page);
   await page.getByRole('link', { name: '候选人', exact: true }).click();
+  const filterSelect = page.locator('[data-slot="native-select"]').first();
+  await expect
+    .poll(() =>
+      filterSelect.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return { height: style.height, borderRadius: style.borderRadius };
+      }),
+    )
+    .toEqual({ height: '42px', borderRadius: '10px' });
   await page.getByRole('button', { name: '新增候选人', exact: true }).click();
   const sourceSelect = page.locator('#new-candidate-source');
   await expect

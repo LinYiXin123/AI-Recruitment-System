@@ -76,6 +76,7 @@
 ## HR 网页默认前端技术栈
 
 - 用户没有其他明确指令时，本项目 HR 电脑端与外部产品网页默认使用 React、TypeScript、[shadcn/ui](https://github.com/shadcn-ui/ui)、[Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) 和抖音的 [Semi Design](https://github.com/DouyinFE/semi-design)。
+- 工作台下拉框的未展开状态统一采用候选人录入表单的样式：单层白底、约 42px 高、10px 圆角、文字与单个向下箭头对齐；不得露出内部滚动条或嵌套白色区域。展开后的选项列表沿用各控件当前样式，不因统一闭合态而重做。
 - 本项目暂不采用 Ant Design 及其 Pro、ProComponents、X 体系；本约定取代此前要求默认使用 Ant Design 的约定。已有模板、依赖或技能不代表继续采用该技术栈。
 - 本约定对项目所有目录及会话生效，后续以用户明确指令为准。默认技术栈约定本身不触发已有代码和依赖的安装、卸载或迁移，另按实际任务处理。
 

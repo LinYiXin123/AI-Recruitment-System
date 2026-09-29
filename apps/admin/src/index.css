@@ -494,11 +494,11 @@ body {
 }
 .candidate-filterbar .candidate-search,
 .candidate-filterbar [data-slot="native-select"] {
-  height: 40px;
+  height: 42px;
   font-size: 14px;
 }
 .candidate-filterbar > button {
-  height: 40px;
+  height: 42px;
   padding-inline: 14px;
   white-space: nowrap;
 }
