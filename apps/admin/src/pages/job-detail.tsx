@@ -125,10 +125,14 @@ export function CreateJob({
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="department">所属部门</FieldLabel>
+                <FieldLabel id="department-label" htmlFor="department">
+                  所属部门
+                </FieldLabel>
                 <NativeSelect
+                  aria-labelledby="department-label"
                   id="department"
                   className="w-full"
+                  disabled={busy}
                   value={department}
                   onChange={(e) => setDepartment(Number(e.target.value))}
                 >
@@ -140,11 +144,15 @@ export function CreateJob({
                 </NativeSelect>
               </Field>
               <Field>
-                <FieldLabel htmlFor="company_name">所属企业</FieldLabel>
+                <FieldLabel id="company-name-label" htmlFor="company_name">
+                  所属企业
+                </FieldLabel>
                 <NativeSelect
+                  aria-labelledby="company-name-label"
                   id="company_name"
                   name="company_name"
                   className="w-full"
+                  disabled={busy}
                   defaultValue=""
                 >
                   <NativeSelectOption value="" disabled>
@@ -246,8 +254,17 @@ export function CreateJob({
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="status">状态</FieldLabel>
-                <NativeSelect id="status" name="status" className="w-full" defaultValue="draft">
+                <FieldLabel id="job-status-label" htmlFor="status">
+                  状态
+                </FieldLabel>
+                <NativeSelect
+                  aria-labelledby="job-status-label"
+                  id="status"
+                  name="status"
+                  className="w-full"
+                  disabled={busy}
+                  defaultValue="draft"
+                >
                   <NativeSelectOption value="draft">草稿</NativeSelectOption>
                 </NativeSelect>
               </Field>
@@ -266,12 +283,16 @@ export function CreateJob({
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="approver">招人要求确认人</FieldLabel>
+                <FieldLabel id="approver-label" htmlFor="approver">
+                  招人要求确认人
+                </FieldLabel>
                 <NativeSelect
+                  aria-labelledby="approver-label"
                   id="approver"
                   name="approver"
                   className="w-full"
                   key={department}
+                  disabled={busy}
                   required
                   defaultValue=""
                 >
@@ -681,8 +702,11 @@ export function JobDetail({
                 {job.permissions.edit && (
                   <FieldGroup>
                     <Field>
-                      <FieldLabel htmlFor="next-status">调整职位状态</FieldLabel>
+                      <FieldLabel id="next-status-label" htmlFor="next-status">
+                        调整职位状态
+                      </FieldLabel>
                       <NativeSelect
+                        aria-labelledby="next-status-label"
                         id="next-status"
                         disabled={busy}
                         value={nextStatus}
@@ -866,6 +890,7 @@ function ProfileEditor({
               <div className="flex items-center justify-between gap-3">
                 <NativeSelect
                   aria-label={`要求 ${i + 1} 类型`}
+                  disabled={busy}
                   value={r.kind}
                   onChange={(e) => update(r.key, { kind: e.target.value as Requirement['kind'] })}
                 >

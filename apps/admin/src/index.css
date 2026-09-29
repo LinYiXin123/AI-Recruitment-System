@@ -879,6 +879,71 @@ body {
   color: var(--primary);
   font-size: 12px;
 }
+.native-select.semi-select {
+  display: inline-flex;
+  width: fit-content;
+  min-width: 0;
+  height: 42px;
+  min-height: 42px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--foreground);
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background-color 150ms ease;
+}
+.native-select.semi-select.w-full {
+  width: 100%;
+}
+.native-select.semi-select-small {
+  height: 28px;
+  min-height: 28px;
+}
+.native-select.semi-select:hover {
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
+  background: var(--card);
+}
+.native-select .semi-select-selection {
+  height: 100%;
+  margin-left: 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground);
+}
+.native-select .semi-select-arrow {
+  width: 38px;
+  color: var(--muted-foreground);
+}
+.native-select.semi-select-focus,
+.native-select.semi-select-open {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+  background: var(--card);
+}
+.native-select.semi-select-disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.native-select.semi-select[aria-invalid="true"] {
+  border-color: var(--destructive);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--destructive) 18%, transparent);
+}
+.native-select-proxy {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
 .candidate-select-dropdown .semi-select-option {
   min-height: 38px;
   border-radius: 7px;
@@ -1613,10 +1678,11 @@ body {
   gap: 8px;
 }
 .job-create-grid [data-slot="input"],
-.job-create-grid [data-slot="native-select"] {
+.job-create-grid .native-select {
   height: 48px;
+  min-height: 48px;
 }
-.job-create-grid [data-slot="native-select-wrapper"] {
+.job-create-grid .native-select {
   width: 100%;
 }
 .job-create-grid textarea {

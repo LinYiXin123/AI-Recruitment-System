@@ -1,34 +1,129 @@
-import { ChevronDownIcon } from 'lucide-react';
+import Select from '@douyinfe/semi-ui/lib/es/select';
 import type * as React from 'react';
+import { Children, isValidElement, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 
-type NativeSelectProps = Omit<React.ComponentProps<'select'>, 'size'> & {
+type NativeSelectProps = {
+  'aria-describedby'?: string;
+  'aria-invalid'?: React.AriaAttributes['aria-invalid'];
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
+  className?: string;
+  defaultValue?: string | number;
+  disabled?: boolean;
+  id?: string;
+  name?: string;
+  onBlur?: React.FocusEventHandler;
+  onChange?: (event: { target: { value: string } }) => void;
+  onFocus?: React.FocusEventHandler;
+  required?: boolean;
   size?: 'sm' | 'default';
+  value?: string | number;
+  children?: React.ReactNode;
 };
 
-function NativeSelect({ className, size = 'default', ...props }: NativeSelectProps) {
+function NativeSelect({
+  'aria-describedby': ariaDescribedby,
+  'aria-invalid': ariaInvalid,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledby,
+  children,
+  className,
+  defaultValue,
+  disabled,
+  id,
+  name,
+  onBlur,
+  onChange,
+  onFocus,
+  required,
+  size = 'default',
+  value,
+}: NativeSelectProps) {
+  const selectRef = useRef<Select>(null);
+  const [internalValue, setInternalValue] = useState<string | number>(value ?? defaultValue ?? '');
+  const [invalid, setInvalid] = useState(false);
+  const selectedValue = value ?? internalValue;
+
   return (
-    <div
-      className={cn(
-        'group/native-select relative w-fit has-[select:disabled]:opacity-50',
-        className,
-      )}
-      data-slot="native-select-wrapper"
-      data-size={size}
-    >
+    <>
+      <Select
+        ref={selectRef}
+        aria-describedby={ariaDescribedby}
+        aria-invalid={ariaInvalid ?? (invalid || undefined)}
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledby}
+        aria-required={required || undefined}
+        className={cn('native-select', className)}
+        clickToHide
+        disabled={disabled}
+        dropdownClassName="candidate-select-dropdown"
+        id={id}
+        onBlur={onBlur}
+        onChange={(nextValue) => {
+          const next =
+            typeof nextValue === 'string' || typeof nextValue === 'number' ? nextValue : '';
+          if (value === undefined) setInternalValue(next);
+          setInvalid(false);
+          onChange?.({ target: { value: String(next) } });
+        }}
+        onFocus={onFocus}
+        size={size === 'sm' ? 'small' : 'default'}
+        value={selectedValue}
+      >
+        {toSemiOptions(children)}
+      </Select>
       <select
-        data-slot="native-select"
-        data-size={size}
-        className="h-[42px] w-full min-w-0 appearance-none rounded-[10px] border border-input bg-card py-2.5 pr-9 pl-3 text-sm transition-colors outline-none select-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] data-[size=sm]:py-0.5 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40"
-        {...props}
-      />
-      <ChevronDownIcon
-        className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted-foreground select-none"
         aria-hidden="true"
-        data-slot="native-select-icon"
-      />
-    </div>
+        className="native-select-proxy"
+        disabled={disabled}
+        name={name}
+        onInvalid={(event) => {
+          event.preventDefault();
+          setInvalid(true);
+          selectRef.current?.focus();
+        }}
+        required={required}
+        tabIndex={-1}
+        value={String(selectedValue)}
+        onChange={() => undefined}
+      >
+        {children}
+      </select>
+    </>
   );
+}
+
+function toSemiOptions(children: React.ReactNode): React.ReactNode {
+  return Children.map(children, (child) => {
+    if (!isValidElement(child)) return child;
+
+    if (child.type === NativeSelectOption) {
+      const option = child.props as React.ComponentProps<'option'>;
+      return (
+        <Select.Option
+          key={child.key}
+          className={option.className}
+          disabled={option.disabled}
+          label={option.label}
+          value={option.value as string | number}
+        >
+          {option.children}
+        </Select.Option>
+      );
+    }
+
+    if (child.type === NativeSelectOptGroup) {
+      const group = child.props as React.ComponentProps<'optgroup'>;
+      return (
+        <Select.OptGroup key={child.key} label={group.label}>
+          {toSemiOptions(group.children)}
+        </Select.OptGroup>
+      );
+    }
+
+    return child;
+  });
 }
 
 function NativeSelectOption({ className, ...props }: React.ComponentProps<'option'>) {

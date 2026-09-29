@@ -96,11 +96,13 @@ export function Clarifications({
             <FieldSet disabled={busy} className="rounded-xl border p-4">
               <FieldGroup>
                 <Field>
-                  <FieldLabel htmlFor="clarification-requirement">
+                  <FieldLabel id="clarification-requirement-label" htmlFor="clarification-requirement">
                     需要澄清哪条要求（必填）
                   </FieldLabel>
                   <NativeSelect
+                    aria-labelledby="clarification-requirement-label"
                     id="clarification-requirement"
+                    disabled={busy}
                     required
                     value={requirement}
                     onChange={(e) => setRequirement(e.target.value)}

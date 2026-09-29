@@ -130,8 +130,11 @@ function JobPicker({
         />
       </Field>
       <Field>
-        <FieldLabel htmlFor="target-job">目标职位</FieldLabel>
+        <FieldLabel id="target-job-label" htmlFor="target-job">
+          目标职位
+        </FieldLabel>
         <NativeSelect
+          aria-labelledby="target-job-label"
           id="target-job"
           required
           disabled={disabled}
@@ -1550,9 +1553,13 @@ function IdentityEditor({
                     </AlertDescription>
                   </Alert>
                   <Field>
-                    <FieldLabel htmlFor="identity-choice">身份核对结果</FieldLabel>
+                    <FieldLabel id="identity-choice-label" htmlFor="identity-choice">
+                      身份核对结果
+                    </FieldLabel>
                     <NativeSelect
+                      aria-labelledby="identity-choice-label"
                       id="identity-choice"
+                      disabled={busy}
                       value={candidate}
                       onChange={(e) => setCandidate(e.target.value)}
                     >
@@ -1738,10 +1745,14 @@ export function ApplicationDetail({
               <fieldset disabled={busy} className="flex flex-col gap-4">
                 <FieldGroup>
                   <Field>
-                    <FieldLabel htmlFor="review-action">处理结果</FieldLabel>
+                    <FieldLabel id="review-action-label" htmlFor="review-action">
+                      处理结果
+                    </FieldLabel>
                     <NativeSelect
+                      aria-labelledby="review-action-label"
                       id="review-action"
                       value={action}
+                      disabled={busy}
                       required
                       onChange={(e) => setAction(e.target.value)}
                     >
@@ -1776,10 +1787,14 @@ export function ApplicationDetail({
                   {action === 'need_info' && (
                     <>
                       <Field>
-                        <FieldLabel htmlFor="followup-owner">接手 HR</FieldLabel>
+                        <FieldLabel id="followup-owner-label" htmlFor="followup-owner">
+                          接手 HR
+                        </FieldLabel>
                         <NativeSelect
+                          aria-labelledby="followup-owner-label"
                           id="followup-owner"
                           value={handler}
+                          disabled={busy}
                           onChange={(e) => setHandler(e.target.value)}
                           required
                         >

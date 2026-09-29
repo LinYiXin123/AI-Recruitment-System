@@ -462,9 +462,13 @@ export function ScheduleInterview({
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="interview-mode">面试方式</FieldLabel>
+                <FieldLabel id="interview-mode-label" htmlFor="interview-mode">
+                  面试方式
+                </FieldLabel>
                 <NativeSelect
+                  aria-labelledby="interview-mode-label"
                   id="interview-mode"
+                  disabled={busy}
                   value={mode}
                   onChange={(e) => {
                     changed();
