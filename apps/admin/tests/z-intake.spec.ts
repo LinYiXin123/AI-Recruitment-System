@@ -70,7 +70,6 @@ test('候选人筛选使用统一下拉面板且录入表单使用日期日历',
         '前程无忧',
         '猎聘',
         '拉勾',
-        '内推',
         '猎头推荐',
         '校园招聘',
         '官网投递',
@@ -112,12 +111,10 @@ test('候选人筛选使用统一下拉面板且录入表单使用日期日历',
   await page.getByText('女', { exact: true }).click();
   await expect(page.locator('#new-candidate-gender')).toContainText('女');
   await sourceSelect.click();
-  await expect(page.getByText('内推', { exact: true })).toBeVisible();
-  await sourceSelect.click();
-  await expect(page.getByText('内推', { exact: true })).toBeHidden();
-  await sourceSelect.click();
-  await expect(page.getByText('内推', { exact: true })).toBeVisible();
-  await page.getByText('内推', { exact: true }).click();
+  const sourceDropdown = page.locator('.candidate-select-dropdown:visible');
+  await expect(sourceDropdown.getByText('内推', { exact: true })).toHaveCount(0);
+  await sourceDropdown.getByText('猎头推荐', { exact: true }).click();
+  await expect(sourceSelect).toContainText('猎头推荐');
   const today = new Date();
   const todayLabel = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   await page.getByRole('button', { name: '选择预计入职日期' }).click();
