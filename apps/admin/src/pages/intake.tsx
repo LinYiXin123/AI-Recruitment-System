@@ -1,6 +1,7 @@
 import Modal from '@douyinfe/semi-ui/lib/es/modal';
+import Select from '@douyinfe/semi-ui/lib/es/select';
 import Table from '@douyinfe/semi-ui/lib/es/table';
-import { BriefcaseBusiness, FileText } from 'lucide-react';
+import { BriefcaseBusiness, CalendarDays, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import {
   forwardRef,
   type ReactNode,
@@ -458,6 +459,151 @@ export const Candidates = forwardRef<
   );
 });
 
+function CandidateDatePicker({
+  id,
+  value,
+  onChange,
+  disabled,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const selected = value ? new Date(`${value}T12:00:00`) : new Date();
+    return new Date(selected.getFullYear(), selected.getMonth(), 1);
+  });
+  const monthLabel = `${visibleMonth.getFullYear()}年${visibleMonth.getMonth() + 1}月`;
+  const firstDay = new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1);
+  const calendarStart = new Date(
+    firstDay.getFullYear(),
+    firstDay.getMonth(),
+    1 - firstDay.getDay(),
+  );
+  const days = Array.from(
+    { length: 42 },
+    (_, index) =>
+      new Date(
+        calendarStart.getFullYear(),
+        calendarStart.getMonth(),
+        calendarStart.getDate() + index,
+      ),
+  );
+  const today = new Date();
+  const formatDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  return (
+    <div className="candidate-date-picker" data-open={open}>
+      <div className="candidate-date-control">
+        <button
+          type="button"
+          id={id}
+          className="candidate-date-trigger"
+          aria-label="选择预计入职日期"
+          aria-expanded={open}
+          aria-controls="candidate-start-date-calendar"
+          disabled={disabled}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <CalendarDays aria-hidden="true" />
+          <span className={value ? '' : 'is-placeholder'}>{value || '选择预计入职日期'}</span>
+        </button>
+        {value && (
+          <button
+            type="button"
+            className="candidate-date-clear"
+            aria-label="清除预计入职日期"
+            disabled={disabled}
+            onClick={() => onChange('')}
+          >
+            清除
+          </button>
+        )}
+      </div>
+      {open && (
+        <section
+          className="candidate-calendar-panel"
+          id="candidate-start-date-calendar"
+          aria-label="日期日历"
+        >
+          <div className="candidate-calendar-header">
+            <button
+              type="button"
+              aria-label="上个月"
+              onClick={() =>
+                setVisibleMonth(
+                  new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1),
+                )
+              }
+            >
+              <ChevronLeft aria-hidden="true" />
+            </button>
+            <strong aria-live="polite">{monthLabel}</strong>
+            <button
+              type="button"
+              aria-label="下个月"
+              onClick={() =>
+                setVisibleMonth(
+                  new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1),
+                )
+              }
+            >
+              <ChevronRight aria-hidden="true" />
+            </button>
+          </div>
+          <div className="candidate-calendar-grid">
+            {['日', '一', '二', '三', '四', '五', '六'].map((weekday) => (
+              <span className="candidate-calendar-weekday" aria-hidden="true" key={weekday}>
+                {weekday}
+              </span>
+            ))}
+            {days.map((day) => {
+              const dateValue = formatDate(day);
+              const inMonth = day.getMonth() === visibleMonth.getMonth();
+              const isSelected = dateValue === value;
+              const isToday = dateValue === formatDate(today);
+              return (
+                <button
+                  type="button"
+                  aria-label={dateValue}
+                  aria-pressed={isSelected}
+                  className={`candidate-calendar-day${inMonth ? '' : ' is-outside'}${isSelected ? ' is-selected' : ''}${isToday ? ' is-today' : ''}`}
+                  key={dateValue}
+                  onClick={() => {
+                    onChange(dateValue);
+                    setVisibleMonth(new Date(day.getFullYear(), day.getMonth(), 1));
+                    setOpen(false);
+                  }}
+                >
+                  {day.getDate()}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            className="candidate-calendar-today"
+            type="button"
+            onClick={() => {
+              onChange(formatDate(today));
+              setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+              setOpen(false);
+            }}
+          >
+            选择今天
+          </button>
+        </section>
+      )}
+    </div>
+  );
+}
+
 function CreateCandidateDialog({
   close,
   openImport,
@@ -651,16 +797,19 @@ function CreateCandidateDialog({
           </Field>
           <Field>
             <FieldLabel htmlFor="new-candidate-gender">性别</FieldLabel>
-            <NativeSelect
+            <Select
+              className="candidate-select"
               id="new-candidate-gender"
+              aria-label="性别"
               value={gender}
-              onChange={(event) => setGender(event.target.value)}
+              onChange={(value) => setGender(typeof value === 'string' ? value : '')}
+              placeholder="请选择性别"
               disabled={busy}
+              dropdownClassName="candidate-select-dropdown"
             >
-              <NativeSelectOption value="">请选择</NativeSelectOption>
-              <NativeSelectOption value="男">男</NativeSelectOption>
-              <NativeSelectOption value="女">女</NativeSelectOption>
-            </NativeSelect>
+              <Select.Option value="男">男</Select.Option>
+              <Select.Option value="女">女</Select.Option>
+            </Select>
           </Field>
           <Field>
             <FieldLabel htmlFor="new-candidate-email">邮箱</FieldLabel>
@@ -707,20 +856,24 @@ function CreateCandidateDialog({
           </Field>
           <Field>
             <FieldLabel htmlFor="new-candidate-job">应聘职位</FieldLabel>
-            <NativeSelect
+            <Select
+              className="candidate-select"
               id="new-candidate-job"
+              aria-label="应聘职位"
+              aria-required="true"
               value={job}
-              onChange={(event) => setJob(event.target.value)}
-              required
+              onChange={(value) => setJob(typeof value === 'string' ? value : '')}
+              placeholder="请选择职位"
               disabled={busy}
+              filter
+              dropdownClassName="candidate-select-dropdown"
             >
-              <NativeSelectOption value="">请选择职位</NativeSelectOption>
               {jobs.map((item) => (
-                <NativeSelectOption key={item.id} value={item.id}>
+                <Select.Option key={item.id} value={String(item.id)}>
                   {item.title} · {item.department_name}
-                </NativeSelectOption>
+                </Select.Option>
               ))}
-            </NativeSelect>
+            </Select>
           </Field>
           <Field>
             <FieldLabel htmlFor="new-candidate-intended-role">意向岗位（简历识别）</FieldLabel>
@@ -735,42 +888,53 @@ function CreateCandidateDialog({
           </Field>
           <Field>
             <FieldLabel htmlFor="new-candidate-source">简历来源</FieldLabel>
-            <NativeSelect
+            <Select
+              className="candidate-select"
               id="new-candidate-source"
+              aria-label="简历来源"
+              aria-required="true"
               value={source}
-              onChange={(event) => setSource(event.target.value)}
-              required
+              onChange={(value) => setSource(typeof value === 'string' ? value : '')}
+              placeholder="请选择简历来源"
               disabled={busy}
+              dropdownClassName="candidate-select-dropdown"
             >
-              <NativeSelectOption value="">请选择</NativeSelectOption>
-              <NativeSelectOption value="BOSS直聘">BOSS直聘</NativeSelectOption>
-              <NativeSelectOption value="智联招聘">智联招聘</NativeSelectOption>
-              <NativeSelectOption value="前程无忧">前程无忧</NativeSelectOption>
-              <NativeSelectOption value="猎聘">猎聘</NativeSelectOption>
-              <NativeSelectOption value="拉勾">拉勾</NativeSelectOption>
-              <NativeSelectOption value="内推">内推</NativeSelectOption>
-              <NativeSelectOption value="猎头推荐">猎头推荐</NativeSelectOption>
-              <NativeSelectOption value="校园招聘">校园招聘</NativeSelectOption>
-              <NativeSelectOption value="官网投递">官网投递</NativeSelectOption>
-              <NativeSelectOption value="其他">其他</NativeSelectOption>
-            </NativeSelect>
+              {[
+                'BOSS直聘',
+                '智联招聘',
+                '前程无忧',
+                '猎聘',
+                '拉勾',
+                '内推',
+                '猎头推荐',
+                '校园招聘',
+                '官网投递',
+                '其他',
+              ].map((item) => (
+                <Select.Option key={item} value={item}>
+                  {item}
+                </Select.Option>
+              ))}
+            </Select>
           </Field>
           <Field>
             <FieldLabel htmlFor="new-candidate-education-level">最高学历</FieldLabel>
-            <NativeSelect
+            <Select
+              className="candidate-select"
               id="new-candidate-education-level"
+              aria-label="最高学历"
               value={educationLevel}
-              onChange={(event) => setEducationLevel(event.target.value)}
+              onChange={(value) => setEducationLevel(typeof value === 'string' ? value : '')}
+              placeholder="请选择学历"
               disabled={busy}
+              dropdownClassName="candidate-select-dropdown"
             >
-              <NativeSelectOption value="">请选择</NativeSelectOption>
-              <NativeSelectOption value="高中及以下">高中及以下</NativeSelectOption>
-              <NativeSelectOption value="大专">大专</NativeSelectOption>
-              <NativeSelectOption value="本科">本科</NativeSelectOption>
-              <NativeSelectOption value="硕士">硕士</NativeSelectOption>
-              <NativeSelectOption value="博士">博士</NativeSelectOption>
-              <NativeSelectOption value="其他">其他</NativeSelectOption>
-            </NativeSelect>
+              {['高中及以下', '大专', '本科', '硕士', '博士', '其他'].map((item) => (
+                <Select.Option key={item} value={item}>
+                  {item}
+                </Select.Option>
+              ))}
+            </Select>
           </Field>
           <Field>
             <FieldLabel htmlFor="new-candidate-school">毕业院校</FieldLabel>
@@ -816,31 +980,32 @@ function CreateCandidateDialog({
           </Field>
           <Field className="candidate-create-full">
             <FieldLabel htmlFor="new-candidate-stage">当前状态</FieldLabel>
-            <NativeSelect
+            <Select
+              className="candidate-select"
               id="new-candidate-stage"
+              aria-label="当前状态"
               value={stage}
-              onChange={(event) => setStage(event.target.value)}
+              onChange={(value) => setStage(typeof value === 'string' ? value : '')}
               disabled={busy}
+              dropdownClassName="candidate-select-dropdown"
             >
-              <NativeSelectOption value="">请选择</NativeSelectOption>
-              <NativeSelectOption value="pending_review">待筛选</NativeSelectOption>
-              <NativeSelectOption value="ready_to_schedule">待初试</NativeSelectOption>
-              <NativeSelectOption value="first_interview_passed">初试通过</NativeSelectOption>
-              <NativeSelectOption value="second_interview">待复试</NativeSelectOption>
-              <NativeSelectOption value="second_interview_passed">复试通过</NativeSelectOption>
-              <NativeSelectOption value="offer_sent">已发offer</NativeSelectOption>
-              <NativeSelectOption value="hired">已入职</NativeSelectOption>
-              <NativeSelectOption value="closed">已淘汰</NativeSelectOption>
-              <NativeSelectOption value="talent_pool">人才库</NativeSelectOption>
-            </NativeSelect>
+              <Select.Option value="pending_review">待筛选</Select.Option>
+              <Select.Option value="ready_to_schedule">待初试</Select.Option>
+              <Select.Option value="first_interview_passed">初试通过</Select.Option>
+              <Select.Option value="second_interview">待复试</Select.Option>
+              <Select.Option value="second_interview_passed">复试通过</Select.Option>
+              <Select.Option value="offer_sent">已发offer</Select.Option>
+              <Select.Option value="hired">已入职</Select.Option>
+              <Select.Option value="closed">已淘汰</Select.Option>
+              <Select.Option value="talent_pool">人才库</Select.Option>
+            </Select>
           </Field>
           <Field className="candidate-create-full">
             <FieldLabel htmlFor="new-candidate-expected-start">预计入职日期</FieldLabel>
-            <Input
+            <CandidateDatePicker
               id="new-candidate-expected-start"
-              type="date"
               value={expectedStartDate}
-              onChange={(event) => setExpectedStartDate(event.target.value)}
+              onChange={setExpectedStartDate}
               disabled={busy}
             />
             <p className="candidate-field-help">

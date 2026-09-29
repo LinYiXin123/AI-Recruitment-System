@@ -33,6 +33,26 @@ function pdf(text = '') {
   return Buffer.from(content);
 }
 
+test('候选人录入表单使用统一下拉与日期日历', async ({ page }) => {
+  await login(page);
+  await page.getByRole('link', { name: '候选人', exact: true }).click();
+  await page.getByRole('button', { name: '新增候选人', exact: true }).click();
+  await page.locator('#new-candidate-gender').click();
+  await page.getByText('女', { exact: true }).click();
+  await expect(page.locator('#new-candidate-gender')).toContainText('女');
+  await page.locator('#new-candidate-source').click();
+  await page.getByText('内推', { exact: true }).click();
+  const today = new Date();
+  const todayLabel = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  await page.getByRole('button', { name: '选择预计入职日期' }).click();
+  await page.getByRole('button', { name: todayLabel, exact: true }).click();
+  await expect(page.getByRole('button', { name: '选择预计入职日期' })).toContainText(todayLabel);
+  await page.getByRole('button', { name: '清除预计入职日期' }).click();
+  await expect(page.getByRole('button', { name: '选择预计入职日期' })).toContainText(
+    '选择预计入职日期',
+  );
+});
+
 test('导入真实文字、失败恢复、人工复核、多人多次应聘与待办直达', async ({ page, browser }) => {
   test.setTimeout(90000);
   const errors: string[] = [];
