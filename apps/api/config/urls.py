@@ -1,7 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from recruitment import auth, intake, interviews, views
+from recruitment import ai_screening, auth, intake, interviews, views
 
 router = DefaultRouter()
 router.register("jobs", views.JobViewSet, basename="jobs")
@@ -18,5 +18,6 @@ urlpatterns = [
     path("api/v1/auth/logout/", auth.sign_out),
     path("api/v1/me/", views.me),
     path("api/v1/dashboard/", views.dashboard),
+    path("api/v1/ai-screenings/", ai_screening.analyze),
     path("api/v1/", include(router.urls)),
 ]

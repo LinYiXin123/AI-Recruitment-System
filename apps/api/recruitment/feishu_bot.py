@@ -2,8 +2,6 @@ import html
 import json
 import logging
 import re
-import urllib.error
-import urllib.request
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -22,6 +20,8 @@ from lark_oapi.event.callback.model.p2_card_action_trigger import (
     P2CardActionTriggerResponse,
 )
 from lark_oapi.ws.client import HEADER_TYPE, MessageType
+
+from .llm import chat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -265,41 +265,20 @@ def build_thinking_card() -> dict:
 
 class OpenAICompatibleChat:
     def __init__(self, *, base_url: str, api_key: str, model: str):
-        self._endpoint = f"{base_url.rstrip('/')}/chat/completions"
+        self._base_url = base_url
         self._api_key = api_key
         self._model = model
 
     def reply(self, user_text: str) -> str:
-        payload = {
-            "model": self._model,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_text},
-            ],
-            "temperature": 0.3,
-            "max_tokens": 500,
-        }
-        request = urllib.request.Request(
-            self._endpoint,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
+        return chat_completion(
+            base_url=self._base_url,
+            api_key=self._api_key,
+            model=self._model,
+            system_prompt=SYSTEM_PROMPT,
+            user_text=user_text,
+            temperature=0.3,
+            max_tokens=500,
         )
-        try:
-            with urllib.request.urlopen(request, timeout=25) as response:
-                response_payload = json.load(response)
-        except urllib.error.HTTPError as exc:
-            raise OSError(f"模型服务返回 HTTP {exc.code}") from exc
-        except urllib.error.URLError as exc:
-            raise OSError("模型服务网络连接失败") from exc
-
-        response_text = response_payload["choices"][0]["message"]["content"]
-        if not isinstance(response_text, str) or not response_text.strip():
-            raise ValueError("模型服务未返回文字内容")
-        return response_text.strip()
 
 
 def send_interactive_card_reply(client: lark.Client, message_id: str, card: dict) -> str | None:

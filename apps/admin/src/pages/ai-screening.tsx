@@ -1,4 +1,5 @@
-import { Bot, Crosshair, RotateCw, Sparkles, Trash2, Upload } from 'lucide-react';
+import Select from '@douyinfe/semi-ui/lib/es/select';
+import { Bot, Crosshair, Sparkles, Trash2, Upload } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { ErrorNotice } from '@/components/feedback';
 import { Button } from '@/components/ui/button';
@@ -10,7 +11,6 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
 import { api, type Job, type Page } from '@/lib/api';
 import type { Application } from '@/lib/intake';
@@ -18,9 +18,16 @@ import type { Application } from '@/lib/intake';
 type ApplicationOption = Pick<Application, 'id' | 'candidate' | 'name'>;
 type JobOption = Pick<Job, 'id' | 'title'>;
 type CandidateOption = { id: number; name: string; applicationId: number };
+type ScreeningResult = {
+  summary: string;
+  evidence: { criterion: string; quote: string; reason: string }[];
+  gaps: { criterion: string; note: string }[];
+  questions: { question: string; reason: string }[];
+  limitations: string;
+};
 
 async function allPages<T>(resource: string, signal: AbortSignal) {
-  // ponytail: load authorized options in full for native selects; switch to server search if startup latency grows.
+  // ponytail: load authorized options in full for selects; switch to server search if startup latency grows.
   const rows: T[] = [];
   let page = 1;
   while (true) {
@@ -42,8 +49,9 @@ export function AiScreeningPage() {
   const [optionsError, setOptionsError] = useState('');
   const [optionsRevision, setOptionsRevision] = useState(0);
   const [resumeNotice, setResumeNotice] = useState('');
-  const [analysisNotice, setAnalysisNotice] = useState('');
-  const [historyNotice, setHistoryNotice] = useState('');
+  const [analysis, setAnalysis] = useState<ScreeningResult | null>(null);
+  const [analysisError, setAnalysisError] = useState('');
+  const [analyzing, setAnalyzing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const resumeInput = useRef<HTMLInputElement>(null);
 
@@ -81,9 +89,10 @@ export function AiScreeningPage() {
   useEffect(() => {
     if (selectedApplication === null) return;
     const controller = new AbortController();
+    setAnalysis(null);
+    setAnalysisError('');
     setResume('');
     setResumeNotice('正在读取候选人的简历原文…');
-    setAnalysisNotice('');
     api<Application>(`applications/${selectedApplication}/`, undefined, controller.signal)
       .then((application) => {
         const source = application.resumes.find((item) => item.parse?.text.trim())?.parse?.text;
@@ -102,7 +111,7 @@ export function AiScreeningPage() {
   }, [selectedApplication]);
 
   async function importResume(file?: File) {
-    if (!file) return;
+    if (!file || analyzing) return;
     if (!file.size || file.size > 10 * 1024 * 1024) {
       setResumeNotice('请选择非空且不超过 10MB 的附件。');
       return;
@@ -111,7 +120,8 @@ export function AiScreeningPage() {
       setResumeNotice('暂不支持该附件格式，请选择 PDF、Word、图片或文本文件。');
       return;
     }
-    setAnalysisNotice('');
+    setAnalysis(null);
+    setAnalysisError('');
     if (/\.(txt|md)$/i.test(file.name)) {
       try {
         setResume(await file.text());
@@ -130,18 +140,33 @@ export function AiScreeningPage() {
     setSelectedJob('');
     setResume('');
     setResumeNotice('');
-    setAnalysisNotice('');
-    setHistoryNotice('');
+    setAnalysis(null);
+    setAnalysisError('');
     if (resumeInput.current) resumeInput.current.value = '';
   }
 
-  function startAnalysis(event: FormEvent<HTMLFormElement>) {
+  async function startAnalysis(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setAnalysisNotice(
-      resume.trim()
-        ? 'AI 初面分析服务尚未接通，当前不会生成评分或面试结果。'
-        : '请先填写或导入简历内容，再开始分析。',
-    );
+    if (!resume.trim()) {
+      setAnalysisError('请先填写或导入简历内容。');
+      return;
+    }
+    setAnalysis(null);
+    setAnalysisError('');
+    setAnalyzing(true);
+    try {
+      setAnalysis(
+        await api<ScreeningResult>('ai-screenings/', {
+          application_id: selectedApplication,
+          job_id: selectedJob ? Number(selectedJob) : null,
+          resume,
+        }),
+      );
+    } catch (error) {
+      setAnalysisError((error as Error).message);
+    } finally {
+      setAnalyzing(false);
+    }
   }
 
   return (
@@ -160,58 +185,83 @@ export function AiScreeningPage() {
           <form className="ai-screening-form" onSubmit={startAnalysis}>
             <FieldGroup className="ai-screening-fields">
               <Field>
-                <FieldLabel htmlFor="ai-candidate">选择候选人</FieldLabel>
-                <NativeSelect
+                <FieldLabel id="ai-candidate-label" htmlFor="ai-candidate">
+                  选择候选人
+                </FieldLabel>
+                <Select
                   className="ai-screening-select"
                   id="ai-candidate"
+                  aria-labelledby="ai-candidate-label"
                   value={selectedCandidate}
-                  disabled={optionsLoading || Boolean(optionsError)}
-                  onChange={(event) => {
-                    const option = candidates.find(
-                      (item) => String(item.id) === event.target.value,
-                    );
-                    setSelectedCandidate(event.target.value);
+                  placeholder="请选择候选人（可留空）"
+                  disabled={optionsLoading || Boolean(optionsError) || analyzing}
+                  clickToHide
+                  dropdownClassName="candidate-select-dropdown"
+                  onChange={(value) => {
+                    const candidateId = typeof value === 'string' ? value : '';
+                    const option = candidates.find((item) => String(item.id) === candidateId);
+                    setSelectedCandidate(candidateId);
                     setSelectedApplication(option?.applicationId ?? null);
+                    setAnalysis(null);
+                    setAnalysisError('');
                   }}
                 >
-                  <NativeSelectOption value="">请选择候选人（可留空）</NativeSelectOption>
                   {candidates.map((candidate) => (
-                    <NativeSelectOption key={candidate.id} value={candidate.id}>
+                    <Select.Option key={candidate.id} value={String(candidate.id)}>
                       {candidate.name}
-                    </NativeSelectOption>
+                    </Select.Option>
                   ))}
-                </NativeSelect>
+                </Select>
               </Field>
               <Field>
-                <FieldLabel htmlFor="ai-job">目标职位</FieldLabel>
-                <NativeSelect
+                <FieldLabel id="ai-job-label" htmlFor="ai-job">
+                  目标职位
+                </FieldLabel>
+                <Select
                   className="ai-screening-select"
                   id="ai-job"
+                  aria-labelledby="ai-job-label"
                   value={selectedJob}
-                  disabled={optionsLoading || Boolean(optionsError)}
-                  onChange={(event) => setSelectedJob(event.target.value)}
+                  placeholder="请选择职位（可留空）"
+                  disabled={optionsLoading || Boolean(optionsError) || analyzing}
+                  clickToHide
+                  dropdownClassName="candidate-select-dropdown"
+                  onChange={(value) => {
+                    setSelectedJob(typeof value === 'string' ? value : '');
+                    setAnalysis(null);
+                    setAnalysisError('');
+                  }}
                 >
-                  <NativeSelectOption value="">请选择职位（可留空）</NativeSelectOption>
                   {jobs.map((job) => (
-                    <NativeSelectOption key={job.id} value={String(job.id)}>
+                    <Select.Option key={job.id} value={String(job.id)}>
                       {job.title}
-                    </NativeSelectOption>
+                    </Select.Option>
                   ))}
-                </NativeSelect>
+                </Select>
               </Field>
               <Field>
-                <FieldLabel htmlFor="ai-company">目标企业</FieldLabel>
-                <NativeSelect className="ai-screening-select" id="ai-company" value="general">
-                  <NativeSelectOption value="general">不指定企业（通用初判）</NativeSelectOption>
-                </NativeSelect>
+                <FieldLabel id="ai-company-label" htmlFor="ai-company">
+                  目标企业
+                </FieldLabel>
+                <Select
+                  className="ai-screening-select"
+                  id="ai-company"
+                  aria-labelledby="ai-company-label"
+                  value="general"
+                  disabled={analyzing}
+                  clickToHide
+                  dropdownClassName="candidate-select-dropdown"
+                >
+                  <Select.Option value="general">不指定企业（通用初判）</Select.Option>
+                </Select>
               </Field>
               <Field>
                 <div className="ai-resume-heading">
                   <FieldLabel htmlFor="ai-resume">简历内容</FieldLabel>
                   <Button
-                    className="ai-upload-button"
                     type="button"
                     variant="outline"
+                    disabled={analyzing}
                     onClick={() => resumeInput.current?.click()}
                   >
                     <Upload data-icon="inline-start" />
@@ -245,6 +295,7 @@ export function AiScreeningPage() {
                   onDrop={(event) => {
                     event.preventDefault();
                     setDragging(false);
+                    if (analyzing) return;
                     void importResume(event.dataTransfer.files[0]);
                   }}
                 >
@@ -253,18 +304,20 @@ export function AiScreeningPage() {
                     id="ai-resume"
                     className="ai-screening-textarea"
                     value={resume}
+                    disabled={analyzing}
                     onChange={(event) => {
                       setResume(event.target.value);
                       setResumeNotice('');
-                      setAnalysisNotice('');
+                      setAnalysis(null);
+                      setAnalysisError('');
                     }}
                     placeholder="选择候选人后会自动带出其简历原文，也可直接粘贴新内容"
                     aria-label="简历内容"
                   />
                 </fieldset>
                 <p className="ai-screening-help">
-                  选择候选人后自动填充其「简历原文」，可覆盖修改；可选 PDF / Word /
-                  图片附件（≤10MB），附件解析尚未接通，也可直接拖入文本文件。
+                  选择候选人后自动填充其「简历原文」，可覆盖修改；也可导入简历附件（PDF / Word /
+                  图片，≤10MB）或直接拖入文本文件。
                 </p>
                 {resumeNotice && (
                   <p className="ai-screening-notice" role="status">
@@ -274,11 +327,17 @@ export function AiScreeningPage() {
               </Field>
             </FieldGroup>
             <div className="ai-screening-actions">
-              <Button className="ai-start-button" type="submit">
+              <Button type="submit" size="lg" disabled={analyzing}>
                 <Sparkles data-icon="inline-start" />
-                开始分析
+                {analyzing ? '正在分析…' : '开始分析'}
               </Button>
-              <Button type="button" variant="ghost" onClick={clearForm}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="lg"
+                onClick={clearForm}
+                disabled={analyzing}
+              >
                 <Trash2 data-icon="inline-start" />
                 清空
               </Button>
@@ -291,23 +350,86 @@ export function AiScreeningPage() {
             <h2 id="ai-result-title">分析结果</h2>
           </header>
           <div className="ai-result-content">
-            <Empty className="ai-result-empty">
-              <EmptyHeader>
-                <EmptyMedia className="ai-empty-icon">
-                  <Crosshair aria-hidden="true" />
-                </EmptyMedia>
-                <EmptyTitle>尚未发起分析</EmptyTitle>
-                <EmptyDescription>左侧填写后点击「开始分析」</EmptyDescription>
-              </EmptyHeader>
-              <p className="ai-screening-help">
-                正式 AI 分析服务尚未接通，当前不会生成评分或面试结果。
+            {analyzing ? (
+              <p className="ai-screening-help p-6 text-center" role="status">
+                正在分析简历与职位要求，请稍候…
               </p>
-              {analysisNotice && (
-                <p className="ai-screening-notice" role="status">
-                  {analysisNotice}
+            ) : analysisError ? (
+              <p className="p-6 text-center text-destructive" role="alert">
+                {analysisError}
+              </p>
+            ) : analysis ? (
+              <div className="space-y-5 p-5">
+                <p className="rounded-lg border bg-secondary px-3 py-2 text-sm font-medium text-foreground">
+                  AI 辅助整理 · 请由 HR 复核
                 </p>
-              )}
-            </Empty>
+                <p className="text-sm leading-7 text-foreground">{analysis.summary}</p>
+                <section className="space-y-2">
+                  <h3 className="text-sm font-semibold text-foreground">简历依据</h3>
+                  {analysis.evidence.length ? (
+                    analysis.evidence.map((item) => (
+                      <div
+                        key={`${item.criterion}-${item.quote}`}
+                        className="rounded-lg border p-3"
+                      >
+                        <p className="text-sm font-medium">{item.criterion}</p>
+                        <blockquote className="my-2 border-l-2 pl-3 text-sm text-muted-foreground">
+                          {item.quote}
+                        </blockquote>
+                        <p className="text-sm text-muted-foreground">{item.reason}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      模型未返回可核验的简历原文依据。
+                    </p>
+                  )}
+                </section>
+                <section className="space-y-2">
+                  <h3 className="text-sm font-semibold text-foreground">待核实信息</h3>
+                  {analysis.gaps.length ? (
+                    analysis.gaps.map((item) => (
+                      <p
+                        key={`${item.criterion}-${item.note}`}
+                        className="text-sm text-muted-foreground"
+                      >
+                        <span className="font-medium text-foreground">{item.criterion}：</span>
+                        {item.note}
+                      </p>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">模型未列出待核实信息。</p>
+                  )}
+                </section>
+                <section className="space-y-2">
+                  <h3 className="text-sm font-semibold text-foreground">建议面试追问</h3>
+                  {analysis.questions.length ? (
+                    analysis.questions.map((item) => (
+                      <div key={`${item.question}-${item.reason}`} className="text-sm">
+                        <p className="font-medium text-foreground">{item.question}</p>
+                        <p className="text-muted-foreground">{item.reason}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">模型未返回面试追问。</p>
+                  )}
+                </section>
+                <p className="border-t pt-3 text-xs leading-5 text-muted-foreground">
+                  {analysis.limitations}
+                </p>
+              </div>
+            ) : (
+              <Empty className="ai-result-empty">
+                <EmptyHeader>
+                  <EmptyMedia className="ai-empty-icon">
+                    <Crosshair aria-hidden="true" />
+                  </EmptyMedia>
+                  <EmptyTitle>尚未发起分析</EmptyTitle>
+                  <EmptyDescription>左侧填写后点击「开始分析」</EmptyDescription>
+                </EmptyHeader>
+                <p className="ai-screening-help">分析不提供录用或淘汰结论，也不会自动评分。</p>
+              </Empty>
+            )}
           </div>
         </section>
       </div>
@@ -318,29 +440,16 @@ export function AiScreeningPage() {
       >
         <header className="dashboard-card-head">
           <h2 id="ai-history-title">历史分析记录</h2>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setHistoryNotice('历史分析服务尚未接通，当前无法刷新记录。')}
-          >
-            <RotateCw data-icon="inline-start" />
-            刷新
-          </Button>
         </header>
         <Empty className="ai-history-empty">
           <EmptyHeader>
             <EmptyMedia className="ai-empty-icon">
               <Bot aria-hidden="true" />
             </EmptyMedia>
-            <EmptyTitle>还没有 AI 初面记录</EmptyTitle>
-            <EmptyDescription>正式分析服务接通后，历史结果会显示在这里。</EmptyDescription>
+            <EmptyTitle>历史记录暂未保存</EmptyTitle>
+            <EmptyDescription>本次分析结果只在当前页面展示，刷新后不会保留。</EmptyDescription>
           </EmptyHeader>
-          {historyNotice && (
-            <p className="ai-screening-notice" role="status">
-              {historyNotice}
-            </p>
-          )}
+          <p className="ai-screening-help">历史留存与访问范围确认后再接入。</p>
         </Empty>
       </section>
     </div>
