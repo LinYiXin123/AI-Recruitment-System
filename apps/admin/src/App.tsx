@@ -45,7 +45,7 @@ import { ApplicationDetail, type CandidateLibraryActions, Candidates } from '@/p
 import { AiScreeningPage } from '@/pages/ai-screening';
 import { type InterviewActions, Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
-import { Jobs, Today } from '@/pages/workspace';
+import { Jobs, type JobsActions, Today } from '@/pages/workspace';
 
 type Route =
   | 'today'
@@ -143,6 +143,7 @@ export default function App() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const candidateLibraryRef = useRef<CandidateLibraryActions>(null);
   const interviewRef = useRef<InterviewActions>(null);
+  const jobsRef = useRef<JobsActions>(null);
 
   function openJob(id: number, tab = 'requirements') {
     setJobTab(tab);
@@ -343,11 +344,18 @@ export default function App() {
                   </Button>
                 </>
               )}
-              {route === 'jobs' && me.departments.length > 0 && (
-                <Button onClick={() => setCreating(true)}>
-                  <Plus data-icon="inline-start" />
-                  新建职位
-                </Button>
+              {route === 'jobs' && (
+                <>
+                  <Button variant="outline" onClick={() => jobsRef.current?.exportModule()}>
+                    导出本模块
+                  </Button>
+                  {me.departments.length > 0 && (
+                    <Button onClick={() => setCreating(true)}>
+                      <Plus data-icon="inline-start" />
+                      新建职位
+                    </Button>
+                  )}
+                </>
               )}
               {route === 'candidates' && (
                 <>
@@ -401,10 +409,11 @@ export default function App() {
             <Interviews ref={interviewRef} revision={revision} />
           ) : route === 'jobs' ? (
             <Jobs
+              ref={jobsRef}
               revision={revision}
               openJob={openJob}
               canCreate={me.departments.length > 0}
-              create={() => setCreating(true)}
+              departments={me.departments}
             />
           ) : (
             <UnavailablePage route={route} />

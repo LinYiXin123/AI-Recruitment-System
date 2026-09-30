@@ -226,6 +226,16 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 qs = qs.filter(Q(title__icontains=search) | Q(location__icontains=search))
             if status := self.request.query_params.get("status"):
                 qs = qs.filter(status=status)
+            if department := self.request.query_params.get("department"):
+                try:
+                    department_id = int(department)
+                except ValueError as exc:
+                    raise ValidationError({"department": "请选择有效部门。"}) from exc
+                if department_id < 1:
+                    raise ValidationError({"department": "请选择有效部门。"})
+                qs = qs.filter(department_id=department_id)
+            if company := self.request.query_params.get("company", "").strip():
+                qs = qs.filter(company_name=company)
         return qs.prefetch_related("profiles__requirements", "collaborators")
 
     def get_serializer_context(self):

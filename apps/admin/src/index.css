@@ -474,6 +474,68 @@ body {
   color: var(--muted-foreground);
   font-size: 12px;
 }
+.jobs-filterbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.6fr) repeat(3, minmax(116px, 1fr)) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 26px;
+  border-bottom: 1px solid var(--border);
+}
+.jobs-search {
+  position: relative;
+  width: 100%;
+}
+.jobs-search > svg {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 13px;
+  width: 18px;
+  height: 18px;
+  transform: translateY(-50%);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.jobs-search-input {
+  width: 100%;
+  height: 42px;
+  padding-left: 42px;
+}
+.jobs-filterbar > .jobs-filter-select {
+  width: 100%;
+}
+.jobs-filterbar .jobs-filter-select.semi-select {
+  height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  overflow: hidden;
+  border-radius: 10px;
+  border-color: var(--border);
+  background: var(--card);
+  font-size: 14px;
+}
+.jobs-filterbar .jobs-filter-select .semi-select-selection {
+  height: 100%;
+  margin-left: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.jobs-filterbar .jobs-filter-select .semi-select-arrow {
+  width: 38px;
+}
+.jobs-filterbar .jobs-filter-select.semi-select-focus,
+.jobs-filterbar .jobs-filter-select.semi-select-open {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+  background: var(--card);
+}
+.jobs-filterbar > button {
+  height: 42px;
+  padding-inline: 14px;
+  white-space: nowrap;
+}
 .candidate-library-notice {
   margin-bottom: 14px;
 }
@@ -973,6 +1035,20 @@ body {
 .table-container .semi-table-wrapper {
   min-width: 1000px;
 }
+.jobs-panel .table-container .semi-table-wrapper {
+  min-width: 750px;
+}
+.jobs-panel .semi-table-placeholder {
+  min-height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.jobs-panel .semi-table-row-head,
+.jobs-panel .semi-table-row-cell {
+  padding: 10px 6px;
+  font-size: 12px;
+}
 .job-link {
   padding-left: 0;
   padding-right: 0;
@@ -1211,6 +1287,10 @@ body {
     display: grid;
     grid-template-columns: 1fr 1fr;
   }
+  .jobs-filterbar {
+    grid-template-columns: minmax(150px, 1.8fr) repeat(3, minmax(88px, 1fr)) auto;
+    padding: 18px;
+  }
 }
 @media (max-width: 700px) {
   .workspace {
@@ -1330,6 +1410,10 @@ body {
     font-size: 15px;
   }
   .filterbar {
+    padding: 14px;
+  }
+  .jobs-filterbar {
+    grid-template-columns: 1fr;
     padding: 14px;
   }
   .filterbar > input {

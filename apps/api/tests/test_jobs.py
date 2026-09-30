@@ -205,6 +205,22 @@ def test_scope_on_list_search_detail_history_and_tasks(team):
     assert client_for(manager).get("/api/v1/jobs/").data["count"] == 1
 
 
+def test_job_list_filters_department_and_company_without_expanding_scope(team):
+    _, department, hr, _, outsider = team
+    first = new_job(team, title="产品经理", company_name="甲公司")
+    new_job(team, title="数据分析师", company_name="乙公司")
+
+    filtered = client_for(hr).get(
+        f"/api/v1/jobs/?department={department.id}&company=甲公司&status=draft"
+    )
+    assert filtered.data["count"] == 1
+    assert filtered.data["results"][0]["id"] == first["id"]
+    assert client_for(hr).get("/api/v1/jobs/?department=not-a-number").status_code == 400
+    assert client_for(outsider).get(
+        f"/api/v1/jobs/?department={department.id}&company=甲公司"
+    ).data["count"] == 0
+
+
 def test_creation_rejects_cross_org_and_unauthorized_relations(team):
     org, dept, hr, manager, outsider = team
     other = Organization.objects.create(name="外部组织")

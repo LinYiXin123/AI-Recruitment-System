@@ -1,35 +1,36 @@
+import Select from '@douyinfe/semi-ui/lib/es/select';
 import Table from '@douyinfe/semi-ui/lib/es/table';
 import {
   ArrowRight,
-  BriefcaseBusiness,
   CalendarCheck2,
   CalendarDays,
   Check,
   Flag,
-  Plus,
   Plus as PlusIcon,
+  Search,
   UserRound,
   UsersRound,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { Blank, ErrorNotice, Loading, Pager } from '@/components/feedback';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { Blank, ErrorNotice, Loading } from '@/components/feedback';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
-import { api, type DashboardData, type Job, jobStatus, type Page } from '@/lib/api';
+import { api, type DashboardData, type Job, jobStatus, type Me, type Page } from '@/lib/api';
 
 type WorkspaceProps = {
   revision: number;
   openJob: (id: number, tab?: string) => void;
   canCreate: boolean;
-  create: () => void;
+  departments: Pick<Me['departments'][number], 'id' | 'name'>[];
   openApplication?: (id: number) => void;
 };
 type TodayProps = {
   revision: number;
   onLoaded: (data: DashboardData | null) => void;
 };
+export type JobsActions = { exportModule: () => void };
 
 export function Today({ revision, onLoaded }: TodayProps) {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -346,23 +347,29 @@ function eightWeekLabels(today: string) {
   }
   return labels;
 }
-export function Jobs({ revision, openJob, canCreate, create }: WorkspaceProps) {
+export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
+  { revision, openJob, canCreate, departments },
+  ref,
+) {
   const [search, setSearch] = useState('');
+  const [department, setDepartment] = useState('');
+  const [company, setCompany] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [data, setData] = useState<Page<Job> | null>(null);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [reload, setReload] = useState(0);
+  const exportInProgress = useRef(false);
+  const query = new URLSearchParams({ search, department, company, status, page: String(page) });
+  const jobsUrl = `jobs/?${query.toString()}`;
+
   useEffect(() => {
     const c = new AbortController();
     setError('');
     setData(null);
     const timer = setTimeout(() => {
-      void api<Page<Job>>(
-        `jobs/?search=${encodeURIComponent(search)}&status=${status}&page=${page}`,
-        undefined,
-        c.signal,
-      )
+      void api<Page<Job>>(jobsUrl, undefined, c.signal)
         .then(setData)
         .catch((e) => {
           if (e.name !== 'AbortError') setError(e.message);
@@ -372,147 +379,327 @@ export function Jobs({ revision, openJob, canCreate, create }: WorkspaceProps) {
       clearTimeout(timer);
       c.abort();
     };
-  }, [search, status, page, revision, reload]);
+  }, [jobsUrl, revision, reload]);
+
+  const departmentOptions = new Map<number, string>(departments.map(({ id, name }) => [id, name]));
+  for (const job of data?.results ?? []) departmentOptions.set(job.department, job.department_name);
+  const companyOptions = [
+    ...new Set([company, ...(data?.results.map((job) => job.company_name) ?? [])]),
+  ]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+
+  async function exportModule() {
+    if (exportInProgress.current) return;
+    exportInProgress.current = true;
+    setNotice('正在准备职位导出…');
+    try {
+      const exportQuery = new URLSearchParams(query);
+      exportQuery.delete('page');
+      const rows: Job[] = [];
+      let currentPage = 1;
+      let total = 0;
+      do {
+        const response = await api<Page<Job>>(
+          `jobs/?${exportQuery.toString()}&page=${currentPage}`,
+        );
+        total = response.count;
+        rows.push(...response.results);
+        currentPage += 1;
+      } while (rows.length < total);
+
+      const csv = [
+        [
+          '职位名称',
+          '所属部门',
+          '所属企业',
+          '职级',
+          '薪资区间',
+          '招聘人数',
+          '状态',
+          '发布时间',
+          '工作地点',
+        ],
+        ...rows.map((job) => [
+          job.title,
+          job.department_name,
+          job.company_name || '—',
+          job.job_level || '—',
+          job.salary_range || '—',
+          job.headcount,
+          jobStatus[job.status] || job.status,
+          job.planned_publish_date || '—',
+          job.location,
+        ]),
+      ]
+        .map((row) => row.map(csvCell).join(','))
+        .join('\r\n');
+      const url = URL.createObjectURL(
+        new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = '职位管理.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+      setNotice(`已导出当前授权范围内的 ${rows.length} 个职位。`);
+    } catch (e) {
+      setNotice(`导出未完成：${(e as Error).message}`);
+    } finally {
+      exportInProgress.current = false;
+    }
+  }
+
+  useImperativeHandle(ref, () => ({ exportModule: () => void exportModule() }));
+
   return (
-    <section className="panel jobs-panel">
-      <div className="filterbar">
-        <Input
-          aria-label="搜索职位或地点"
-          placeholder="搜索职位名称、工作地点"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-        />
-        <NativeSelect
-          aria-label="职位状态"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            setPage(1);
-          }}
-        >
-          <NativeSelectOption value="">全部状态</NativeSelectOption>
-          {Object.entries(jobStatus).map(([value, label]) => (
-            <NativeSelectOption key={value} value={value}>
-              {label}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
-        <span className="scope-note">我的授权范围{data && ` · ${data.count} 个职位`}</span>
-      </div>
-      {error ? (
-        <ErrorNotice message={error} retry={() => setReload((r) => r + 1)} />
-      ) : !data ? (
-        <Loading />
-      ) : data.count === 0 ? (
-        <Blank
-          title={search || status ? '没有符合条件的职位' : '从第一个职位开始'}
-          description={
-            search || status
-              ? '试试调整关键词或职位状态。'
-              : canCreate
-                ? '先填写基本需求，再邀请用人负责人确认招人要求。'
-                : '当前没有分配给你的职位，请联系负责的 HR。'
-          }
-        >
-          {search || status ? (
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSearch('');
-                setStatus('');
+    <>
+      {notice && (
+        <Alert className="candidate-library-notice">
+          <AlertTitle>职位管理提示</AlertTitle>
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      )}
+      <section className="panel jobs-panel" aria-label="职位列表">
+        <div className="jobs-filterbar">
+          <div className="jobs-search">
+            <Search aria-hidden="true" />
+            <Input
+              aria-label="搜索职位或地点"
+              className="jobs-search-input"
+              placeholder="搜索..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
               }}
-            >
-              清除筛选
-            </Button>
-          ) : (
-            canCreate && <Button onClick={create}>新建职位</Button>
-          )}
-        </Blank>
-      ) : (
-        <>
-          <div className="table-container">
-            <Table<Job>
-              rowKey="id"
-              dataSource={data.results}
-              pagination={false}
-              columns={[
-                {
-                  title: '职位名称',
-                  dataIndex: 'title',
-                  width: 240,
-                  render: (_text, j) => (
-                    <div>
-                      <Button variant="link" className="job-link" onClick={() => openJob(j.id)}>
-                        {j.title}
-                      </Button>
-                      <small className="cell-secondary">工作地点 · {j.location}</small>
-                    </div>
-                  ),
-                },
-                { title: '所属部门', dataIndex: 'department_name', width: 150 },
-                {
-                  title: '所属企业',
-                  dataIndex: 'company_name',
-                  width: 160,
-                  render: (value) => value || '—',
-                },
-                {
-                  title: '职级',
-                  dataIndex: 'job_level',
-                  width: 130,
-                  render: (value) => value || '—',
-                },
-                {
-                  title: '薪资区间',
-                  dataIndex: 'salary_range',
-                  width: 210,
-                  render: (value) => value || '—',
-                },
-                {
-                  title: '招聘人数',
-                  dataIndex: 'headcount',
-                  width: 120,
-                  render: (n) => `${n} 人`,
-                },
-                {
-                  title: '状态',
-                  dataIndex: 'status',
-                  width: 100,
-                  render: (s) => (
-                    <Badge variant={s === 'open' ? 'default' : 'secondary'}>{jobStatus[s]}</Badge>
-                  ),
-                },
-                {
-                  title: '发布时间',
-                  dataIndex: 'planned_publish_date',
-                  width: 130,
-                  render: (value) => value || '—',
-                },
-                {
-                  title: '操作',
-                  dataIndex: 'id',
-                  width: 90,
-                  render: (_text, j) => (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label={`查看${j.title}`}
-                      onClick={() => openJob(j.id)}
-                    >
-                      查看
-                      <ArrowRight data-icon="inline-end" />
-                    </Button>
-                  ),
-                },
-              ]}
             />
           </div>
-          <Pager page={page} count={data.count} onChange={setPage} />
-        </>
-      )}
-    </section>
+          <Select
+            aria-label="按部门筛选职位"
+            className="jobs-filter-select"
+            value={department}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
+            onChange={(value) => {
+              setDepartment(typeof value === 'string' ? value : '');
+              setPage(1);
+            }}
+          >
+            <Select.Option value="">全部</Select.Option>
+            {[...departmentOptions].map(([id, name]) => (
+              <Select.Option key={id} value={String(id)}>
+                {name}
+              </Select.Option>
+            ))}
+          </Select>
+          <Select
+            aria-label="按企业筛选职位"
+            className="jobs-filter-select"
+            value={company}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
+            onChange={(value) => {
+              setCompany(typeof value === 'string' ? value : '');
+              setPage(1);
+            }}
+          >
+            <Select.Option value="">全部</Select.Option>
+            {companyOptions.map((name) => (
+              <Select.Option key={name} value={name}>
+                {name}
+              </Select.Option>
+            ))}
+          </Select>
+          <Select
+            aria-label="按状态筛选职位"
+            className="jobs-filter-select"
+            value={status}
+            clickToHide
+            dropdownClassName="candidate-select-dropdown"
+            onChange={(value) => {
+              setStatus(typeof value === 'string' ? value : '');
+              setPage(1);
+            }}
+          >
+            <Select.Option value="">全部</Select.Option>
+            {Object.entries(jobStatus).map(([value, label]) => (
+              <Select.Option key={value} value={value}>
+                {label}
+              </Select.Option>
+            ))}
+          </Select>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSearch('');
+              setDepartment('');
+              setCompany('');
+              setStatus('');
+              setPage(1);
+            }}
+          >
+            重置
+          </Button>
+        </div>
+        {error ? (
+          <ErrorNotice message={error} retry={() => setReload((r) => r + 1)} />
+        ) : !data ? (
+          <Loading />
+        ) : (
+          <>
+            <div className="table-container">
+              <Table<Job>
+                rowKey="id"
+                dataSource={data.results}
+                pagination={false}
+                empty={
+                  <Blank
+                    title={
+                      search || department || company || status
+                        ? '没有符合条件的职位'
+                        : '从第一个职位开始'
+                    }
+                    description={
+                      search || department || company || status
+                        ? '换个关键词或清空筛选条件再试试。'
+                        : canCreate
+                          ? '先填写基本需求，再邀请用人负责人确认招人要求。'
+                          : '当前没有分配给你的职位，请联系负责的 HR。'
+                    }
+                  >
+                    {(search || department || company || status) && (
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setSearch('');
+                          setDepartment('');
+                          setCompany('');
+                          setStatus('');
+                          setPage(1);
+                        }}
+                      >
+                        清空筛选
+                      </Button>
+                    )}
+                  </Blank>
+                }
+                columns={[
+                  {
+                    title: '职位名称',
+                    dataIndex: 'title',
+                    width: 120,
+                    render: (_text, j) => (
+                      <div>
+                        <Button variant="link" className="job-link" onClick={() => openJob(j.id)}>
+                          {j.title}
+                        </Button>
+                        <small className="cell-secondary">工作地点 · {j.location}</small>
+                      </div>
+                    ),
+                  },
+                  { title: '所属部门', dataIndex: 'department_name', width: 80 },
+                  {
+                    title: '所属企业',
+                    dataIndex: 'company_name',
+                    width: 78,
+                    render: (value) => value || '—',
+                  },
+                  {
+                    title: '职级',
+                    dataIndex: 'job_level',
+                    width: 60,
+                    render: (value) => value || '—',
+                  },
+                  {
+                    title: '薪资区间',
+                    dataIndex: 'salary_range',
+                    width: 120,
+                    render: (value) => value || '—',
+                  },
+                  {
+                    title: '招聘人数',
+                    dataIndex: 'headcount',
+                    width: 68,
+                    render: (n) => `${n} 人`,
+                  },
+                  {
+                    title: '状态',
+                    dataIndex: 'status',
+                    width: 68,
+                    render: (s) => (
+                      <Badge variant={s === 'open' ? 'default' : 'secondary'}>{jobStatus[s]}</Badge>
+                    ),
+                  },
+                  {
+                    title: '发布时间',
+                    dataIndex: 'planned_publish_date',
+                    width: 80,
+                    render: (value) => value || '—',
+                  },
+                  {
+                    title: '操作',
+                    dataIndex: 'id',
+                    width: 76,
+                    render: (_text, j) => (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={`查看${j.title}`}
+                        onClick={() => openJob(j.id)}
+                      >
+                        查看
+                        <ArrowRight data-icon="inline-end" />
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
+            </div>
+            <div className="pager">
+              <span>
+                共 {data.count} 条，第 {page} / {Math.max(1, Math.ceil(data.count / 20))} 页
+              </span>
+              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(1)}>
+                首页
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+              >
+                上一页
+              </Button>
+              <Button size="sm" aria-current="page" disabled>
+                {page}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page * 20 >= data.count}
+                onClick={() => setPage(page + 1)}
+              >
+                下一页
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={page * 20 >= data.count}
+                onClick={() => setPage(Math.max(1, Math.ceil(data.count / 20)))}
+              >
+                末页
+              </Button>
+            </div>
+          </>
+        )}
+      </section>
+    </>
   );
+});
+
+function csvCell(value: string | number | null | undefined) {
+  let text = String(value ?? '');
+  if (/^\s*[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
 }
