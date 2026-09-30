@@ -164,6 +164,28 @@ def test_analysis_returns_only_verifiable_resume_quotes_and_job_context():
     assert sent_context["target_job"]["description"] == job.jd
 
 
+@pytest.mark.parametrize(
+    ("model_content", "diagnostic"),
+    [
+        ("not json", "不是有效 JSON"),
+        (json.dumps(["not", "an object"]), "最外层必须是 JSON 对象"),
+        (json.dumps({"evidence": []}), "缺少字符串类型的 summary"),
+        (json.dumps({"summary": "  "}), "summary 摘要为空"),
+    ],
+)
+def test_analysis_exposes_safe_model_format_diagnostic(model_content, diagnostic):
+    client, _, _ = hr_context()
+    with patch("recruitment.ai_screening.chat_completion", return_value=model_content):
+        response = client.post(
+            "/api/v1/ai-screenings/",
+            {"resume": "简历内容。"},
+            format="json",
+        )
+
+    assert response.status_code == 502
+    assert diagnostic in response.data["errors"]["detail"]
+
+
 def test_selected_application_uses_its_authorized_job_without_sending_candidate_name():
     client, membership, job = hr_context()
     candidate = Candidate.objects.create(
@@ -237,4 +259,5 @@ def test_analysis_returns_service_unavailable_when_model_is_not_configured():
     with patch("recruitment.llm.urllib.request.urlopen") as urlopen:
         response = client.post("/api/v1/ai-screenings/", {"resume": "简历内容。"}, format="json")
     assert response.status_code == 503
+    assert "诊断：模型服务尚未配置" in response.data["errors"]["detail"]
     urlopen.assert_not_called()

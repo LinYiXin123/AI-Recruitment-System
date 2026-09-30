@@ -83,9 +83,14 @@ def _parse_analysis(content, resume):
     try:
         data = json.loads(content)
     except json.JSONDecodeError as exc:
-        raise AnalysisFormatError() from exc
-    if not isinstance(data, dict) or not isinstance(data.get("summary"), str):
-        raise AnalysisFormatError()
+        raise AnalysisFormatError(
+            f"模型返回格式错误：不是有效 JSON（第 {exc.lineno} 行，第 {exc.colno} 列），"
+            "请检查模型输出格式或回复是否被截断。"
+        ) from exc
+    if not isinstance(data, dict):
+        raise AnalysisFormatError("模型返回格式错误：最外层必须是 JSON 对象。")
+    if not isinstance(data.get("summary"), str):
+        raise AnalysisFormatError("模型返回格式错误：缺少字符串类型的 summary 摘要字段。")
 
     normalized_resume = " ".join(resume.split())
     evidence = []
@@ -116,7 +121,7 @@ def _parse_analysis(content, resume):
 
     summary = _text(data["summary"], 800)
     if not summary:
-        raise AnalysisFormatError()
+        raise AnalysisFormatError("模型返回格式错误：summary 摘要为空。")
     return {
         "summary": summary,
         "evidence": evidence,
@@ -254,6 +259,6 @@ def analyze(request):
             max_tokens=1600,
         )
     except LLMServiceError as exc:
-        raise AnalysisUnavailable() from exc
+        raise AnalysisUnavailable(f"{AnalysisUnavailable.default_detail} 诊断：{exc}") from exc
 
     return Response(_parse_analysis(content, data["resume"]))
