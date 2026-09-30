@@ -56,8 +56,19 @@ def docx_resume():
     with zipfile.ZipFile(content, "w") as archive:
         archive.writestr(
             "word/document.xml",
-            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-            "<w:body><w:p><w:r><w:t>独立负责产品上线。</w:t></w:r></w:p></w:body></w:document>",
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            "<w:body><w:p><w:r><w:rPr><w:b/></w:rPr><w:t>独立负责产品上线。</w:t></w:r>"
+            '<w:hyperlink r:id="rId1"><w:r><w:t>作品集</w:t></w:r></w:hyperlink>'
+            "</w:p></w:body></w:document>",
+        )
+        archive.writestr(
+            "word/_rels/document.xml.rels",
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
+            'Target="https://example.com/portfolio" TargetMode="External"/>'
+            "</Relationships>",
         )
     return content.getvalue()
 
@@ -69,7 +80,7 @@ def pdf_resume():
         {
             NameObject("/Type"): NameObject("/Font"),
             NameObject("/Subtype"): NameObject("/Type1"),
-            NameObject("/BaseFont"): NameObject("/Helvetica"),
+            NameObject("/BaseFont"): NameObject("/Helvetica-Bold"),
         }
     )
     font_ref = writer._add_object(font)
@@ -94,6 +105,8 @@ def test_resume_attachment_extraction_returns_text_without_storing_file():
 
     assert response.status_code == 200
     assert "独立负责产品上线" in response.data["text"]
+    assert "<strong>独立负责产品上线。</strong>" in response.data["html"]
+    assert '<a href="https://example.com/portfolio"' in response.data["html"]
     assert not ResumeDocument.objects.exists()
     assert not ResumeParse.objects.exists()
 
@@ -104,6 +117,7 @@ def test_resume_attachment_extraction_returns_text_without_storing_file():
     )
     assert pdf_response.status_code == 200
     assert "PDF resume extraction test" in pdf_response.data["text"]
+    assert "<strong>PDF resume extraction test</strong>" in pdf_response.data["html"]
 
 
 def test_resume_attachment_extraction_rejects_unsupported_or_mismatched_files():
@@ -162,6 +176,9 @@ def test_analysis_returns_only_verifiable_resume_quotes_and_job_context():
     assert sent_context["resume"] == resume
     assert sent_context["target_job"]["title"] == "产品经理"
     assert sent_context["target_job"]["description"] == job.jd
+    assert complete.call_args.kwargs["max_tokens"] == 8192
+    assert complete.call_args.kwargs["thinking"] == {"type": "disabled"}
+    assert complete.call_args.kwargs["response_format"] == {"type": "json_object"}
 
 
 @pytest.mark.parametrize(

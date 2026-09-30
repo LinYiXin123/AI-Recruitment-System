@@ -58,3 +58,26 @@ def test_length_limited_completion_is_reported_as_truncated(urlopen):
             temperature=0.2,
             max_tokens=300,
         )
+
+
+@patch("recruitment.llm.urllib.request.urlopen")
+def test_optional_json_and_thinking_options_are_sent(urlopen):
+    urlopen.return_value.__enter__.return_value = Mock(
+        read=Mock(return_value=json.dumps({"choices": [{"message": {"content": "{}"}}]}))
+    )
+    chat_completion(
+        base_url="https://model.example/v1",
+        api_key="unit-test-token",
+        model="test-model",
+        system_prompt="只返回 JSON",
+        user_text="内容",
+        temperature=0.2,
+        max_tokens=8192,
+        thinking={"type": "disabled"},
+        response_format={"type": "json_object"},
+    )
+
+    payload = json.loads(urlopen.call_args.args[0].data)
+    assert payload["thinking"] == {"type": "disabled"}
+    assert payload["response_format"] == {"type": "json_object"}
+    assert payload["max_tokens"] == 8192

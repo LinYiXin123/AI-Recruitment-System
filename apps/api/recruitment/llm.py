@@ -16,23 +16,29 @@ def chat_completion(
     user_text: str,
     temperature: float,
     max_tokens: int,
+    thinking: dict | None = None,
+    response_format: dict | None = None,
 ) -> str:
     if not all((base_url, api_key, model)):
         raise LLMServiceError("模型服务尚未配置")
 
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if thinking is not None:
+        payload["thinking"] = thinking
+    if response_format is not None:
+        payload["response_format"] = response_format
+
     request = urllib.request.Request(
         f"{base_url.rstrip('/')}/chat/completions",
-        data=json.dumps(
-            {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_text},
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
-        ).encode("utf-8"),
+        data=json.dumps(payload).encode("utf-8"),
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",

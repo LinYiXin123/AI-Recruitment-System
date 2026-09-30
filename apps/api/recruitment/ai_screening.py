@@ -156,7 +156,7 @@ def extract(request):
         result = extract_resume_text(path, kind)
     if not result.get("text"):
         raise serializers.ValidationError({"file": result.get("error", "未能从附件提取文字。")})
-    return Response({"text": result["text"]})
+    return Response({"text": result["text"], "html": result.get("html", "")})
 
 
 @api_view(["POST"])
@@ -256,7 +256,9 @@ def analyze(request):
             system_prompt=SYSTEM_PROMPT,
             user_text=user_text,
             temperature=0.2,
-            max_tokens=1600,
+            max_tokens=8192,
+            thinking={"type": "disabled"},
+            response_format={"type": "json_object"},
         )
     except LLMServiceError as exc:
         raise AnalysisUnavailable(f"{AnalysisUnavailable.default_detail} 诊断：{exc}") from exc

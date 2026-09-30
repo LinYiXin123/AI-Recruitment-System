@@ -1,6 +1,6 @@
 import Select from '@douyinfe/semi-ui/lib/es/select';
 import { Bot, Crosshair, Sparkles, Trash2, Upload } from 'lucide-react';
-import { type FormEvent, useEffect, useRef, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { ErrorNotice } from '@/components/feedback';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,7 +11,6 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { Textarea } from '@/components/ui/textarea';
 import { api, type Job, type Page } from '@/lib/api';
 import type { Application } from '@/lib/intake';
 
@@ -26,6 +25,115 @@ type ScreeningResult = {
   questions: { question: string; reason: string }[];
   limitations: string;
 };
+
+function safeResumeUrl(value: string) {
+  const href = value.trim();
+  if (!/^(https?:\/\/|mailto:)/i.test(href)) return '';
+  try {
+    const url = new URL(href);
+    return ['https:', 'http:', 'mailto:'].includes(url.protocol) ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+
+function linkifyResumeText(text: string) {
+  const fragment = document.createDocumentFragment();
+  const urls =
+    /(?<![\w@.-])(?:https?:\/\/|www\.)[^\s<>"']+|(?<![\w@.-])(?:[\w-]+\.)+[a-z]{2,}(?:\/[^\s<>"']*)?/gi;
+  let offset = 0;
+  for (const match of text.matchAll(urls)) {
+    const index = match.index ?? 0;
+    const raw = match[0];
+    const url = raw.replace(/[.,;:!?，。；：！？)\]}）】]+$/u, '');
+    if (!url) continue;
+    fragment.append(document.createTextNode(text.slice(offset, index)));
+    const href = safeResumeUrl(/^https?:\/\//i.test(url) ? url : `https://${url}`);
+    if (href) {
+      const link = document.createElement('a');
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = url;
+      fragment.append(link);
+    } else {
+      fragment.append(document.createTextNode(url));
+    }
+    fragment.append(document.createTextNode(raw.slice(url.length)));
+    offset = index + raw.length;
+  }
+  fragment.append(document.createTextNode(text.slice(offset)));
+  return fragment;
+}
+
+function sanitizeResumeMarkup(markup: string) {
+  const parsed = new DOMParser().parseFromString(markup, 'text/html');
+  const safe = document.createElement('div');
+  const allowed = new Set(['a', 'b', 'br', 'div', 'em', 'i', 'li', 'ol', 'p', 'strong', 'u', 'ul']);
+  const blocked = new Set(['iframe', 'object', 'script', 'style', 'svg']);
+  const copy = (node: Node, parent: HTMLElement, insideLink = false) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent ?? '';
+      parent.append(insideLink ? document.createTextNode(text) : linkifyResumeText(text));
+      return;
+    }
+    if (!(node instanceof HTMLElement) || blocked.has(node.tagName.toLowerCase())) return;
+    const tag = node.tagName.toLowerCase();
+    if (!allowed.has(tag)) {
+      for (const child of Array.from(node.childNodes)) copy(child, parent, insideLink);
+      return;
+    }
+    if (tag === 'a') {
+      const href = safeResumeUrl(node.getAttribute('href') ?? '');
+      if (!href) {
+        for (const child of Array.from(node.childNodes)) copy(child, parent, insideLink);
+        return;
+      }
+      const link = document.createElement('a');
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      for (const child of Array.from(node.childNodes)) copy(child, link, true);
+      parent.append(link);
+      return;
+    }
+    const element = document.createElement(tag);
+    for (const child of Array.from(node.childNodes)) copy(child, element, insideLink);
+    parent.append(element);
+  };
+  for (const child of Array.from(parsed.body.childNodes)) copy(child, safe);
+  return safe.innerHTML;
+}
+
+function resumeTextFromEditor(editor: HTMLElement) {
+  const copy = editor.cloneNode(true) as HTMLElement;
+  for (const link of Array.from(copy.querySelectorAll('a[href]'))) {
+    const href = link.getAttribute('href') ?? '';
+    if (href && !link.textContent?.includes(href)) {
+      link.append(document.createTextNode(` (${href})`));
+    }
+  }
+  return (copy.innerText || copy.textContent || '').trim();
+}
+
+function insertResumePlainText(editor: HTMLElement, transfer: DataTransfer) {
+  const text = transfer.getData('text/plain');
+  const selection = window.getSelection();
+  if (!text || !selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) return;
+  range.deleteContents();
+  const inserted = linkifyResumeText(text);
+  const lastNode = inserted.lastChild;
+  range.insertNode(inserted);
+  if (lastNode) range.setStartAfter(lastNode);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  editor.dispatchEvent(
+    new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }),
+  );
+}
 
 async function allPages<T>(resource: string, signal: AbortSignal) {
   // ponytail: load authorized options in full for selects; switch to server search if startup latency grows.
@@ -59,6 +167,14 @@ export function AiScreeningPage() {
   const [importing, setImporting] = useState(false);
   const [dragging, setDragging] = useState(false);
   const resumeInput = useRef<HTMLInputElement>(null);
+  const resumeEditor = useRef<HTMLDivElement>(null);
+
+  const setResumeContent = useCallback((text: string, markup = '') => {
+    setResume(text);
+    if (!resumeEditor.current) return;
+    if (markup) resumeEditor.current.innerHTML = sanitizeResumeMarkup(markup);
+    else resumeEditor.current.replaceChildren(linkifyResumeText(text));
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -102,13 +218,13 @@ export function AiScreeningPage() {
     const controller = new AbortController();
     setAnalysis(null);
     setAnalysisError('');
-    setResume('');
+    setResumeContent('');
     setResumeNotice('正在读取候选人的简历原文…');
     api<Application>(`applications/${selectedApplication}/`, undefined, controller.signal)
       .then((application) => {
         const source = application.resumes.find((item) => item.parse?.text.trim())?.parse?.text;
         if (source) {
-          setResume(source);
+          setResumeContent(source);
           setResumeNotice('已填入候选人的简历原文，可继续修改。');
         } else {
           setResumeNotice('暂时没有可用的简历原文，请直接粘贴简历内容。');
@@ -119,7 +235,7 @@ export function AiScreeningPage() {
           setResumeNotice('简历原文暂时无法读取，请直接粘贴简历内容。');
       });
     return () => controller.abort();
-  }, [selectedApplication]);
+  }, [selectedApplication, setResumeContent]);
 
   async function importResume(file?: File) {
     if (!file || analyzing || importing) return;
@@ -140,14 +256,14 @@ export function AiScreeningPage() {
       if (/\.(txt|md)$/i.test(file.name)) {
         const text = await file.text();
         if (!text.trim()) throw new Error('附件中没有可读取的文字。');
-        setResume(text);
+        setResumeContent(text);
         setResumeNotice(`已导入 ${file.name}，可继续修改简历内容。`);
       } else {
         setResumeNotice(`正在识别 ${file.name}…`);
         const data = new FormData();
         data.set('file', file);
-        const result = await api<{ text: string }>('ai-screenings/extract/', data);
-        setResume(result.text);
+        const result = await api<{ text: string; html?: string }>('ai-screenings/extract/', data);
+        setResumeContent(result.text, result.html);
         setResumeNotice(
           `已识别 ${file.name}，共 ${result.text.length.toLocaleString()} 字，请核对后开始分析。`,
         );
@@ -165,7 +281,7 @@ export function AiScreeningPage() {
     setSelectedApplication(null);
     setSelectedJob('');
     setSelectedEnterprise('');
-    setResume('');
+    setResumeContent('');
     setResumeNotice('');
     setResumeError('');
     setAnalysis(null);
@@ -300,7 +416,13 @@ export function AiScreeningPage() {
               </Field>
               <Field>
                 <div className="ai-resume-heading">
-                  <FieldLabel htmlFor="ai-resume">简历内容</FieldLabel>
+                  <FieldLabel
+                    id="ai-resume-label"
+                    htmlFor="ai-resume"
+                    onClick={() => resumeEditor.current?.focus()}
+                  >
+                    简历内容
+                  </FieldLabel>
                   <Button
                     type="button"
                     variant="outline"
@@ -343,23 +465,57 @@ export function AiScreeningPage() {
                   }}
                 >
                   <legend className="sr-only">简历附件拖放区</legend>
-                  <Textarea
+                  {/* biome-ignore lint/a11y/useSemanticElements: contentEditable preserves imported bold text and links. */}
+                  {/* biome-ignore lint/a11y/useKeyWithClickEvents: Anchor links remain keyboard-activatable. */}
+                  <div
+                    ref={resumeEditor}
                     id="ai-resume"
                     className="ai-screening-textarea"
-                    value={resume}
-                    disabled={analyzing || importing}
-                    onChange={(event) => {
-                      setResume(event.target.value);
+                    tabIndex={0}
+                    role="textbox"
+                    aria-labelledby="ai-resume-label"
+                    aria-multiline="true"
+                    aria-disabled={analyzing || importing}
+                    aria-describedby="ai-resume-help"
+                    aria-placeholder="选择候选人后会自动带出其简历原文，也可直接粘贴新内容"
+                    data-placeholder="选择候选人后会自动带出其简历原文，也可直接粘贴新内容"
+                    contentEditable={!analyzing && !importing}
+                    suppressContentEditableWarning
+                    spellCheck
+                    onInput={(event) => {
+                      setResume(resumeTextFromEditor(event.currentTarget));
                       setResumeNotice('');
                       setResumeError('');
                       setAnalysis(null);
                       setAnalysisError('');
                     }}
-                    placeholder="选择候选人后会自动带出其简历原文，也可直接粘贴新内容"
-                    aria-label="简历内容"
+                    onBlur={(event) => {
+                      const editor = event.currentTarget;
+                      editor.innerHTML = sanitizeResumeMarkup(editor.innerHTML);
+                      setResume(resumeTextFromEditor(editor));
+                    }}
+                    onClick={(event) => {
+                      const link = (event.target as HTMLElement).closest<HTMLAnchorElement>(
+                        'a[href]',
+                      );
+                      if (!link || !event.currentTarget.contains(link)) return;
+                      const href = safeResumeUrl(link.href);
+                      if (!href || !/^https?:/i.test(href)) return;
+                      event.preventDefault();
+                      window.open(href, '_blank', 'noopener,noreferrer');
+                    }}
+                    onPaste={(event) => {
+                      event.preventDefault();
+                      insertResumePlainText(event.currentTarget, event.clipboardData);
+                    }}
+                    onDrop={(event) => {
+                      if (event.dataTransfer.files.length) return;
+                      event.preventDefault();
+                      insertResumePlainText(event.currentTarget, event.dataTransfer);
+                    }}
                   />
                 </fieldset>
-                <p className="ai-screening-help">
+                <p className="ai-screening-help" id="ai-resume-help">
                   选择候选人后自动填充其「简历原文」，可覆盖修改；也可导入 PDF、DOCX、TXT 或
                   MD（≤10MB），或直接粘贴原文。扫描件和图片暂不支持 OCR。
                 </p>

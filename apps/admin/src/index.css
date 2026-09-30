@@ -2379,17 +2379,48 @@ body {
   outline: 2px dashed var(--ring);
   outline-offset: 3px;
 }
-.ai-screening-textarea[data-slot="textarea"] {
+.ai-screening-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  height: 200px;
   min-height: 200px;
-  resize: vertical;
+  max-height: 200px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   border-color: var(--border);
   background: var(--card);
   color: var(--foreground);
   font-size: 15px;
   line-height: 1.7;
 }
-.ai-screening-textarea[data-slot="textarea"]::placeholder {
+.ai-screening-textarea:empty::before {
+  content: attr(data-placeholder);
   color: var(--muted-foreground);
+  pointer-events: none;
+}
+.ai-screening-textarea:focus-visible {
+  border-color: var(--ring);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 35%, transparent);
+}
+.ai-screening-textarea[contenteditable="false"] {
+  cursor: not-allowed;
+  background: var(--input);
+}
+.ai-screening-textarea p,
+.ai-screening-textarea div {
+  margin: 0;
+}
+.ai-screening-textarea a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .ai-screening-help {
   color: var(--muted-foreground);

@@ -44,3 +44,34 @@ test('导入简历附件后将识别出的文字填入简历内容', async ({ pa
   await expect(page.getByLabel('简历内容')).toHaveValue('已识别的简历正文。');
   await expect(page.getByRole('status')).toContainText('已识别 resume.docx');
 });
+
+test('简历中的网址可单击并在新标签页打开', async ({ page, context }) => {
+  await login(page);
+  await page.getByRole('link', { name: 'AI 初面' }).click();
+  await context.route('https://github.com/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: 'test destination' }),
+  );
+
+  await page.locator('#ai-resume').evaluate((element) => {
+    element.focus();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    const clipboardData = new DataTransfer();
+    clipboardData.setData('text/plain', '项目地址：github.com/huige66631');
+    element.dispatchEvent(
+      new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData }),
+    );
+  });
+
+  const link = page.locator('#ai-resume a[href="https://github.com/huige66631"]');
+  await expect(link).toHaveAttribute('target', '_blank');
+  const newTab = context.waitForEvent('page');
+  await link.click();
+  const opened = await newTab;
+  await expect(opened).toHaveURL('https://github.com/huige66631');
+  await opened.close();
+});
