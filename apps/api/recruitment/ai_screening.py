@@ -84,8 +84,8 @@ def _parse_analysis(content, resume):
         data = json.loads(content)
     except json.JSONDecodeError as exc:
         raise AnalysisFormatError(
-            f"模型返回格式错误：不是有效 JSON（第 {exc.lineno} 行，第 {exc.colno} 列），"
-            "请检查模型输出格式或回复是否被截断。"
+            f"模型返回格式错误：{exc.msg}（第 {exc.lineno} 行，第 {exc.colno} 列），"
+            "请检查模型输出格式。"
         ) from exc
     if not isinstance(data, dict):
         raise AnalysisFormatError("模型返回格式错误：最外层必须是 JSON 对象。")

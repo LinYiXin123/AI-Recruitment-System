@@ -167,7 +167,7 @@ def test_analysis_returns_only_verifiable_resume_quotes_and_job_context():
 @pytest.mark.parametrize(
     ("model_content", "diagnostic"),
     [
-        ("not json", "不是有效 JSON"),
+        ("not json", "Expecting value"),
         (json.dumps(["not", "an object"]), "最外层必须是 JSON 对象"),
         (json.dumps({"evidence": []}), "缺少字符串类型的 summary"),
         (json.dumps({"summary": "  "}), "summary 摘要为空"),

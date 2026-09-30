@@ -50,8 +50,11 @@ def chat_completion(
         raise LLMServiceError("模型服务返回内容无法读取") from exc
 
     try:
-        content = payload["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
+        choice = payload["choices"][0]
+        if choice.get("finish_reason") == "length":
+            raise LLMServiceError("模型输出达到长度上限，回复可能被截断")
+        content = choice["message"]["content"]
+    except (KeyError, IndexError, TypeError, AttributeError) as exc:
         raise LLMServiceError("模型服务未返回有效内容") from exc
 
     if isinstance(content, list):
