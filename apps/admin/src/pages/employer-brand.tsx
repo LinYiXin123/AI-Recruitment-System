@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
 import { api } from '@/lib/api';
 
@@ -258,7 +257,9 @@ export function EmployerBrandPage() {
           },
         };
       });
-      setAiNotice('已填入 AI 建议，仅供参考；请核对、修改后再保存。');
+      setAiNotice(
+        '已填入 AI 建议（行业 / 企业简介），仅供参考。请核对修改后再保存；未保存前不会写入任何数据。',
+      );
     } catch (e) {
       setFormError((e as Error).message);
     } finally {
@@ -463,8 +464,7 @@ export function EmployerBrandPage() {
           <Alert className="brand-empty-content-note">
             <AlertTitle>企业资料由你创建</AlertTitle>
             <AlertDescription>
-              不预置企业信息；七类背书内容初始留空并标记「待补充」。每个租户最多维护{' '}
-              {workspace?.enterprise_limit ?? 20} 家企业。
+              不预置企业信息；七类背书内容初始留空并标记「待补充」。
             </AlertDescription>
           </Alert>
 
@@ -476,15 +476,18 @@ export function EmployerBrandPage() {
                 placeholder="搜索企业名称、行业或编号…"
                 aria-label="搜索企业名称、行业或编号"
               />
-              <NativeSelect
+              <Select
+                className="native-select"
+                dropdownClassName="candidate-select-dropdown"
+                clickToHide
                 value={status}
-                onChange={(event) => setStatus(event.target.value)}
+                onChange={(value) => setStatus(typeof value === 'string' ? value : 'all')}
                 aria-label="按企业状态筛选"
               >
-                <option value="all">全部状态</option>
-                <option value="enabled">已启用</option>
-                <option value="disabled">已停用</option>
-              </NativeSelect>
+                <Select.Option value="all">全部状态</Select.Option>
+                <Select.Option value="enabled">已启用</Select.Option>
+                <Select.Option value="disabled">已停用</Select.Option>
+              </Select>
               <Button
                 variant="outline"
                 onClick={() => {
@@ -545,6 +548,14 @@ export function EmployerBrandPage() {
               </div>
             )}
           </section>
+
+          <Alert className="brand-empty-content-note">
+            <AlertDescription>
+              每个租户最多维护 {workspace?.enterprise_limit ?? 20}{' '}
+              家企业。删除企业不会删除其背书内容，原内容会转入「未归属 /
+              已删除企业」卡片，可随时重新指定所属企业。
+            </AlertDescription>
+          </Alert>
 
           {orphanGroups.length > 0 && (
             <section className="brand-orphan-panel" aria-labelledby="brand-orphan-title">
@@ -628,11 +639,6 @@ export function EmployerBrandPage() {
                   {formError}
                 </p>
               )}
-              {aiNotice && (
-                <p className="enterprise-ai-notice" role="status">
-                  {aiNotice}
-                </p>
-              )}
               {modal.kind === 'enterprise' ? (
                 <FieldGroup>
                   <Field>
@@ -712,7 +718,7 @@ export function EmployerBrandPage() {
                   </div>
                   <Field>
                     <FieldLabel htmlFor="enterprise-introduction">企业简介（选填）</FieldLabel>
-                    <Textarea
+                    <Input
                       id="enterprise-introduction"
                       maxLength={3000}
                       value={modal.draft.introduction}
@@ -727,7 +733,7 @@ export function EmployerBrandPage() {
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="enterprise-remark">备注（选填）</FieldLabel>
-                    <Textarea
+                    <Input
                       id="enterprise-remark"
                       maxLength={2000}
                       value={modal.draft.remark}
@@ -759,50 +765,57 @@ export function EmployerBrandPage() {
                   {modal.draft.enterprise_id === null && (
                     <Field>
                       <FieldLabel htmlFor="endorsement-enterprise">所属企业</FieldLabel>
-                      <NativeSelect
+                      <Select
                         id="endorsement-enterprise"
+                        className="native-select"
+                        dropdownClassName="candidate-select-dropdown"
+                        clickToHide
                         value=""
-                        onChange={(event) =>
+                        onChange={(value) =>
                           setModal({
                             ...modal,
                             draft: {
                               ...modal.draft,
-                              enterprise_id: event.target.value ? Number(event.target.value) : null,
+                              enterprise_id:
+                                value !== '' && value !== undefined ? Number(value) : null,
                             },
                           })
                         }
                       >
-                        <option value="">未归属 / 选择企业</option>
+                        <Select.Option value="">未归属 / 选择企业</Select.Option>
                         {enterprises.map((item) => (
-                          <option key={item.id} value={item.id}>
+                          <Select.Option key={item.id} value={item.id}>
                             {item.name}
-                          </option>
+                          </Select.Option>
                         ))}
-                      </NativeSelect>
+                      </Select>
                     </Field>
                   )}
                   <div className="enterprise-form-two-columns">
                     <Field>
                       <FieldLabel htmlFor="endorsement-category">分类</FieldLabel>
-                      <NativeSelect
+                      <Select
                         id="endorsement-category"
+                        className="native-select"
+                        dropdownClassName="candidate-select-dropdown"
+                        clickToHide
                         value={modal.draft.category}
-                        onChange={(event) =>
+                        onChange={(value) =>
                           setModal({
                             ...modal,
                             draft: {
                               ...modal.draft,
-                              category: event.target.value as Endorsement['category'],
+                              category: value as Endorsement['category'],
                             },
                           })
                         }
                       >
                         {categories.map((item) => (
-                          <option key={item.value} value={item.value}>
+                          <Select.Option key={item.value} value={item.value}>
                             {item.label}
-                          </option>
+                          </Select.Option>
                         ))}
-                      </NativeSelect>
+                      </Select>
                     </Field>
                     <Field>
                       <FieldLabel htmlFor="endorsement-order">展示顺序</FieldLabel>
@@ -859,6 +872,11 @@ export function EmployerBrandPage() {
                     启用（停用后不进入 AI 初面背书内容）
                   </label>
                 </FieldGroup>
+              )}
+              {modal.kind === 'enterprise' && aiNotice && (
+                <p className="enterprise-ai-notice" role="status">
+                  {aiNotice}
+                </p>
               )}
             </div>
             <div className="enterprise-dialog-footer">

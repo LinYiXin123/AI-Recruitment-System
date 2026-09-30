@@ -2523,7 +2523,7 @@ body {
 .endorsement-item h3 { color: var(--foreground); font-size: 13px; font-weight: 600; }
 .endorsement-item p { margin: 5px 0 0; color: var(--muted-foreground); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
 .endorsement-empty { padding: 12px 0 4px; }
-.enterprise-dialog { width: min(580px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 32px); padding: 0; overflow: auto; border: 0; border-radius: 15px; background: var(--card); color: var(--foreground); box-shadow: 0 22px 64px rgb(20 45 70 / 22%); }
+.enterprise-dialog { position: fixed; inset: 0; width: min(580px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 32px); margin: auto; padding: 0; overflow: auto; border: 0; border-radius: 15px; background: var(--card); color: var(--foreground); box-shadow: 0 22px 64px rgb(20 45 70 / 22%); }
 .enterprise-dialog::backdrop { background: rgb(16 38 55 / 34%); backdrop-filter: blur(2px); }
 .enterprise-dialog form { display: flex; min-height: 100%; flex-direction: column; }
 .enterprise-dialog-heading, .enterprise-dialog-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 20px; }
