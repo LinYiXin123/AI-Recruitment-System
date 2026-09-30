@@ -41,8 +41,9 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { ApiError, api, type DashboardData, type Me } from '@/lib/api';
-import { ApplicationDetail, type CandidateLibraryActions, Candidates } from '@/pages/intake';
 import { AiScreeningPage } from '@/pages/ai-screening';
+import { EmployerBrandPage } from '@/pages/employer-brand';
+import { ApplicationDetail, type CandidateLibraryActions, Candidates } from '@/pages/intake';
 import { type InterviewActions, Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
 import { Jobs, type JobsActions, Today } from '@/pages/workspace';
@@ -224,7 +225,7 @@ export default function App() {
     },
     'employer-brand': {
       title: '企业背书',
-      description: '该参考功能尚未进入正式范围，不会显示占位数据。',
+      description: '按企业维护招聘背书内容，并为 AI 初面提供企业背景。',
     },
     employees: {
       title: '全部在职',
@@ -324,75 +325,77 @@ export default function App() {
           id="main-content"
           tabIndex={-1}
         >
-          <div className="page-heading">
-            <div>
-              <h1>{current.title}</h1>
-              <p>{current.description}</p>
-            </div>
-            <div className="page-actions">
-              {route === 'today' && (
-                <>
-                  <Button variant="outline" onClick={() => setRevision((value) => value + 1)}>
-                    刷新
-                  </Button>
-                  <Button
-                    disabled={!dashboardData}
-                    title="导出本页全部招聘总览数据"
-                    onClick={() => dashboardData && exportDashboard(dashboardData)}
-                  >
-                    导出全部数据
-                  </Button>
-                </>
-              )}
-              {route === 'jobs' && (
-                <>
-                  <Button variant="outline" onClick={() => jobsRef.current?.exportModule()}>
-                    导出本模块
-                  </Button>
-                  {me.departments.length > 0 && (
-                    <Button onClick={() => setCreating(true)}>
-                      <Plus data-icon="inline-start" />
-                      新建职位
+          {route !== 'employer-brand' && (
+            <div className="page-heading">
+              <div>
+                <h1>{current.title}</h1>
+                <p>{current.description}</p>
+              </div>
+              <div className="page-actions">
+                {route === 'today' && (
+                  <>
+                    <Button variant="outline" onClick={() => setRevision((value) => value + 1)}>
+                      刷新
                     </Button>
-                  )}
-                </>
-              )}
-              {route === 'candidates' && (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={() => candidateLibraryRef.current?.exportModule()}
-                  >
-                    导出本模块
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => candidateLibraryRef.current?.showMailboxSyncStatus()}
-                  >
-                    从邮箱同步
-                  </Button>
-                  <Button onClick={() => candidateLibraryRef.current?.openCreateCandidate()}>
-                    新增候选人
-                  </Button>
-                </>
-              )}
-              {route === 'interviews' && (
-                <>
-                  <Button variant="outline" onClick={() => interviewRef.current?.exportModule()}>
-                    导出本模块
-                  </Button>
-                  <Button
-                    title="前往候选人详情安排真实面试记录"
-                    onClick={() => {
-                      window.location.hash = 'candidates';
-                    }}
-                  >
-                    新增面试记录
-                  </Button>
-                </>
-              )}
+                    <Button
+                      disabled={!dashboardData}
+                      title="导出本页全部招聘总览数据"
+                      onClick={() => dashboardData && exportDashboard(dashboardData)}
+                    >
+                      导出全部数据
+                    </Button>
+                  </>
+                )}
+                {route === 'jobs' && (
+                  <>
+                    <Button variant="outline" onClick={() => jobsRef.current?.exportModule()}>
+                      导出本模块
+                    </Button>
+                    {me.departments.length > 0 && (
+                      <Button onClick={() => setCreating(true)}>
+                        <Plus data-icon="inline-start" />
+                        新建职位
+                      </Button>
+                    )}
+                  </>
+                )}
+                {route === 'candidates' && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => candidateLibraryRef.current?.exportModule()}
+                    >
+                      导出本模块
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => candidateLibraryRef.current?.showMailboxSyncStatus()}
+                    >
+                      从邮箱同步
+                    </Button>
+                    <Button onClick={() => candidateLibraryRef.current?.openCreateCandidate()}>
+                      新增候选人
+                    </Button>
+                  </>
+                )}
+                {route === 'interviews' && (
+                  <>
+                    <Button variant="outline" onClick={() => interviewRef.current?.exportModule()}>
+                      导出本模块
+                    </Button>
+                    <Button
+                      title="前往候选人详情安排真实面试记录"
+                      onClick={() => {
+                        window.location.hash = 'candidates';
+                      }}
+                    >
+                      新增面试记录
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
+          )}
           {error && <ErrorNotice message={error} retry={() => setError('')} />}
           {route === 'today' ? (
             <Today revision={revision} onLoaded={setDashboardData} />
@@ -415,6 +418,8 @@ export default function App() {
               canCreate={me.departments.length > 0}
               departments={me.departments}
             />
+          ) : route === 'employer-brand' ? (
+            <EmployerBrandPage />
           ) : (
             <UnavailablePage route={route} />
           )}
@@ -684,18 +689,16 @@ function SidebarPanel({
 function UnavailablePage({
   route,
 }: {
-  route: Exclude<Route, 'today' | 'jobs' | 'candidates' | 'interviews' | 'ai-screening'>;
+  route: Exclude<
+    Route,
+    'today' | 'jobs' | 'candidates' | 'interviews' | 'ai-screening' | 'employer-brand'
+  >;
 }) {
   const messages: Record<typeof route, { icon: typeof Building2; title: string; body: string }> = {
     'question-bank': {
       icon: CircleHelp,
       title: '面试题库尚未接通',
       body: '当前已保留原型入口，但还没有可核验的题库记录。',
-    },
-    'employer-brand': {
-      icon: Building2,
-      title: '企业背书尚未进入正式范围',
-      body: '这里不会展示演示素材或伪造企业信息。',
     },
     employees: {
       icon: UserRoundCheck,

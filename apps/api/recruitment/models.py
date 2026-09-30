@@ -641,3 +641,44 @@ class StageEvent(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["application", "request_key"], name="one_stage_event")
         ]
+
+
+class Enterprise(Timestamped):
+    organization = models.ForeignKey(
+        Organization, on_delete=models.PROTECT, related_name="enterprises"
+    )
+    name = models.CharField(max_length=100)
+    industry = models.CharField(max_length=100, blank=True)
+    introduction = models.TextField(blank=True)
+    remark = models.TextField(blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    enabled = models.BooleanField(default=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["sort_order", "name", "id"]
+
+
+class EnterpriseEndorsement(Timestamped):
+    class Category(models.TextChoices):
+        COMPANY_INTRODUCTION = "company_introduction", "公司简介"
+        CULTURE = "culture", "企业文化"
+        BENEFITS = "benefits", "福利待遇"
+        TEAM = "team", "团队介绍"
+        OFFICE = "office", "办公环境"
+        HISTORY = "history", "发展历程"
+        RECRUITING = "recruiting", "招聘宣传"
+
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    enterprise = models.ForeignKey(
+        Enterprise, on_delete=models.PROTECT, null=True, blank=True, related_name="endorsements"
+    )
+    category = models.CharField(max_length=32, choices=Category.choices)
+    title = models.CharField(max_length=200, blank=True)
+    body = models.TextField(blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    enabled = models.BooleanField(default=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["sort_order", "id"]

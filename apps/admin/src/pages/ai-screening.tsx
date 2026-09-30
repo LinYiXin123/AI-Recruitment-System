@@ -17,6 +17,7 @@ import type { Application } from '@/lib/intake';
 
 type ApplicationOption = Pick<Application, 'id' | 'candidate' | 'name'>;
 type JobOption = Pick<Job, 'id' | 'title'>;
+type EnterpriseOption = { id: number; name: string; industry: string };
 type CandidateOption = { id: number; name: string; applicationId: number };
 type ScreeningResult = {
   summary: string;
@@ -41,9 +42,11 @@ async function allPages<T>(resource: string, signal: AbortSignal) {
 export function AiScreeningPage() {
   const [candidates, setCandidates] = useState<CandidateOption[]>([]);
   const [jobs, setJobs] = useState<JobOption[]>([]);
+  const [enterprises, setEnterprises] = useState<EnterpriseOption[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState('');
   const [selectedApplication, setSelectedApplication] = useState<number | null>(null);
   const [selectedJob, setSelectedJob] = useState('');
+  const [selectedEnterprise, setSelectedEnterprise] = useState('');
   const [resume, setResume] = useState('');
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [optionsError, setOptionsError] = useState('');
@@ -64,8 +67,13 @@ export function AiScreeningPage() {
     Promise.all([
       allPages<ApplicationOption>('applications/', controller.signal),
       allPages<JobOption>('jobs/', controller.signal),
+      api<EnterpriseOption[]>(
+        'employer-brand/enterprises/ai-options/',
+        undefined,
+        controller.signal,
+      ),
     ])
-      .then(([applications, jobRows]) => {
+      .then(([applications, jobRows, enterpriseRows]) => {
         const uniqueCandidates = new Map<number, CandidateOption>();
         for (const application of applications) {
           if (!uniqueCandidates.has(application.candidate)) {
@@ -78,6 +86,7 @@ export function AiScreeningPage() {
         }
         setCandidates([...uniqueCandidates.values()]);
         setJobs(jobRows);
+        setEnterprises(enterpriseRows);
       })
       .catch((error: Error) => {
         if (error.name !== 'AbortError') setOptionsError(error.message);
@@ -155,6 +164,7 @@ export function AiScreeningPage() {
     setSelectedCandidate('');
     setSelectedApplication(null);
     setSelectedJob('');
+    setSelectedEnterprise('');
     setResume('');
     setResumeNotice('');
     setResumeError('');
@@ -178,6 +188,7 @@ export function AiScreeningPage() {
         await api<ScreeningResult>('ai-screenings/', {
           application_id: selectedApplication,
           job_id: selectedJob ? Number(selectedJob) : null,
+          enterprise_id: selectedEnterprise ? Number(selectedEnterprise) : null,
           resume,
         }),
       );
@@ -267,12 +278,24 @@ export function AiScreeningPage() {
                   className="ai-screening-select"
                   id="ai-company"
                   aria-labelledby="ai-company-label"
-                  value="general"
-                  disabled={analyzing || importing}
+                  value={selectedEnterprise || 'general'}
+                  disabled={optionsLoading || Boolean(optionsError) || analyzing || importing}
                   clickToHide
                   dropdownClassName="candidate-select-dropdown"
+                  onChange={(value) => {
+                    setSelectedEnterprise(
+                      typeof value === 'string' && value !== 'general' ? value : '',
+                    );
+                    setAnalysis(null);
+                    setAnalysisError('');
+                  }}
                 >
                   <Select.Option value="general">不指定企业（通用初判）</Select.Option>
+                  {enterprises.map((enterprise) => (
+                    <Select.Option key={enterprise.id} value={String(enterprise.id)}>
+                      {enterprise.name}
+                    </Select.Option>
+                  ))}
                 </Select>
               </Field>
               <Field>

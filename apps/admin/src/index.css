@@ -28,6 +28,7 @@
   --sidebar-foreground: #43526b;
   --success: #166847;
   --success-background: #effaf4;
+  --warning: #946200;
 }
 @theme inline {
   --color-background: var(--background);
@@ -45,6 +46,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -2473,4 +2475,76 @@ body {
     align-items: flex-start;
     flex-direction: column;
   }
+}
+
+.enterprise-brand-page { display: flex; flex-direction: column; gap: 16px; }
+.brand-page-heading { display: flex; flex-direction: column; gap: 14px; }
+.brand-page-title-row, .brand-orphan-heading, .endorsement-category-heading, .endorsement-item-heading {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+}
+.brand-page-heading h1 { color: var(--foreground); font-size: 24px; font-weight: 650; }
+.brand-page-heading p, .brand-orphan-heading p { margin-top: 4px; color: var(--muted-foreground); font-size: 13px; }
+.brand-heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.brand-empty-content-note { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); background: color-mix(in srgb, var(--warning) 8%, var(--card)); }
+.brand-list-panel, .brand-orphan-panel, .endorsement-category-card {
+  min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); box-shadow: 0 1px 2px rgb(36 51 77 / 4%);
+}
+.brand-list-filters { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(135px, 180px) auto; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.brand-list-filters > * { min-width: 0; }
+.enterprise-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr)); gap: 12px; padding-top: 14px; }
+.enterprise-card { min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.enterprise-card-open { display: grid; width: 100%; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 8px 10px; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.enterprise-card-open:focus-visible, .enterprise-card-actions button:focus-visible { outline: 3px solid color-mix(in srgb, var(--ring) 45%, transparent); outline-offset: 3px; }
+.enterprise-card-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: var(--muted); color: var(--primary); }
+.enterprise-card-icon svg { width: 19px; height: 19px; }
+.enterprise-card-copy { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.enterprise-card-copy strong { overflow: hidden; color: var(--foreground); text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+.enterprise-card-copy > span, .enterprise-card-progress { color: var(--muted-foreground); font-size: 12px; }
+.enterprise-card-progress { grid-column: 2 / -1; margin-top: 2px; }
+.enterprise-card-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.brand-empty-state { display: flex; min-height: 270px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: var(--muted-foreground); text-align: center; }
+.brand-empty-state > svg { width: 34px; height: 34px; margin-bottom: 4px; opacity: .65; }
+.brand-empty-state h2 { color: var(--foreground); font-size: 16px; font-weight: 600; }
+.brand-empty-state p, .endorsement-empty { margin: 0; color: var(--muted-foreground); font-size: 13px; }
+.brand-orphan-panel { display: flex; flex-direction: column; gap: 12px; }
+.brand-orphan-heading { align-items: center; }
+.brand-orphan-heading h2 { color: var(--foreground); font-size: 16px; font-weight: 600; }
+.brand-orphan-group { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.brand-orphan-group h3 { color: var(--foreground); font-size: 13px; font-weight: 600; }
+.brand-orphan-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.brand-orphan-item p { overflow: hidden; max-width: 680px; margin-top: 3px; color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.endorsement-category-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; }
+.endorsement-category-heading { align-items: center; margin-bottom: 12px; }
+.endorsement-category-heading > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.endorsement-category-heading h2 { color: var(--foreground); font-size: 15px; font-weight: 600; }
+.endorsement-items { display: flex; flex-direction: column; gap: 8px; }
+.endorsement-item { padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.endorsement-item-heading { align-items: center; }
+.endorsement-item h3 { color: var(--foreground); font-size: 13px; font-weight: 600; }
+.endorsement-item p { margin: 5px 0 0; color: var(--muted-foreground); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.endorsement-empty { padding: 12px 0 4px; }
+.enterprise-dialog { width: min(580px, calc(100vw - 32px)); max-width: none; max-height: calc(100vh - 32px); padding: 0; overflow: auto; border: 0; border-radius: 15px; background: var(--card); color: var(--foreground); box-shadow: 0 22px 64px rgb(20 45 70 / 22%); }
+.enterprise-dialog::backdrop { background: rgb(16 38 55 / 34%); backdrop-filter: blur(2px); }
+.enterprise-dialog form { display: flex; min-height: 100%; flex-direction: column; }
+.enterprise-dialog-heading, .enterprise-dialog-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 20px; }
+.enterprise-dialog-heading { position: sticky; z-index: 1; top: 0; border-bottom: 1px solid var(--border); background: var(--card); }
+.enterprise-dialog-heading h2 { font-size: 17px; font-weight: 600; }
+.enterprise-dialog-body { display: flex; flex-direction: column; gap: 13px; padding: 18px 20px; }
+.enterprise-dialog-body [data-slot="field-group"] { gap: 15px; }
+.enterprise-dialog-body textarea { min-height: 82px; resize: vertical; }
+.enterprise-dialog-footer { justify-content: flex-end; margin-top: auto; border-top: 1px solid var(--border); }
+.enterprise-form-two-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.enterprise-name-row { display: flex; align-items: center; gap: 8px; }
+.enterprise-name-row > :first-child { min-width: 0; flex: 1; }
+.enterprise-industry-select, .enterprise-industry-select .semi-select { width: 100%; }
+.enterprise-enabled-option { display: inline-flex; align-items: center; gap: 8px; color: var(--foreground); font-size: 13px; cursor: pointer; }
+.enterprise-enabled-option input { width: 16px; height: 16px; accent-color: var(--primary); }
+.enterprise-form-error, .enterprise-ai-notice { margin: 0; padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; font-size: 13px; }
+.enterprise-form-error { border-color: color-mix(in srgb, var(--destructive) 35%, var(--border)); background: color-mix(in srgb, var(--destructive) 7%, var(--card)); color: var(--destructive); }
+.enterprise-ai-notice { border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); background: color-mix(in srgb, var(--primary) 7%, var(--card)); }
+@media (max-width: 760px) { .brand-page-title-row { flex-direction: column; } .brand-heading-actions { justify-content: flex-start; } .endorsement-category-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 520px) {
+  .brand-list-panel, .brand-orphan-panel, .endorsement-category-card { padding: 13px; }
+  .brand-list-filters, .enterprise-form-two-columns { grid-template-columns: minmax(0, 1fr); }
+  .enterprise-name-row, .brand-orphan-item { align-items: stretch; flex-direction: column; }
 }
