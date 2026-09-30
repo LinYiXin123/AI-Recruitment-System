@@ -1,9 +1,14 @@
+import io
 import json
+import zipfile
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from rest_framework.test import APIClient
 
 from recruitment.models import (
@@ -14,6 +19,8 @@ from recruitment.models import (
     Job,
     Membership,
     Organization,
+    ResumeDocument,
+    ResumeParse,
 )
 
 pytestmark = pytest.mark.django_db
@@ -42,6 +49,80 @@ def hr_context(username="screening-hr"):
     session["membership_id"] = membership.id
     session.save()
     return client, membership, job
+
+
+def docx_resume():
+    content = io.BytesIO()
+    with zipfile.ZipFile(content, "w") as archive:
+        archive.writestr(
+            "word/document.xml",
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body><w:p><w:r><w:t>独立负责产品上线。</w:t></w:r></w:p></w:body></w:document>",
+        )
+    return content.getvalue()
+
+
+def pdf_resume():
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=200, height=200)
+    font = DictionaryObject(
+        {
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type1"),
+            NameObject("/BaseFont"): NameObject("/Helvetica"),
+        }
+    )
+    font_ref = writer._add_object(font)
+    page[NameObject("/Resources")] = DictionaryObject(
+        {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font_ref})}
+    )
+    content = DecodedStreamObject()
+    content.set_data(b"BT /F1 12 Tf 72 120 Td (PDF resume extraction test) Tj ET")
+    page[NameObject("/Contents")] = writer._add_object(content)
+    output = io.BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def test_resume_attachment_extraction_returns_text_without_storing_file():
+    client, _, _ = hr_context()
+    response = client.post(
+        "/api/v1/ai-screenings/extract/",
+        {"file": SimpleUploadedFile("resume.docx", docx_resume())},
+        format="multipart",
+    )
+
+    assert response.status_code == 200
+    assert "独立负责产品上线" in response.data["text"]
+    assert not ResumeDocument.objects.exists()
+    assert not ResumeParse.objects.exists()
+
+    pdf_response = client.post(
+        "/api/v1/ai-screenings/extract/",
+        {"file": SimpleUploadedFile("resume.pdf", pdf_resume())},
+        format="multipart",
+    )
+    assert pdf_response.status_code == 200
+    assert "PDF resume extraction test" in pdf_response.data["text"]
+
+
+def test_resume_attachment_extraction_rejects_unsupported_or_mismatched_files():
+    client, _, _ = hr_context()
+    image = client.post(
+        "/api/v1/ai-screenings/extract/",
+        {"file": SimpleUploadedFile("resume.png", b"\x89PNG\r\n\x1a\n")},
+        format="multipart",
+    )
+    mismatched = client.post(
+        "/api/v1/ai-screenings/extract/",
+        {"file": SimpleUploadedFile("resume.pdf", b"not a PDF")},
+        format="multipart",
+    )
+
+    assert image.status_code == 400
+    assert "暂不支持 OCR" in str(image.data)
+    assert mismatched.status_code == 400
+    assert "扩展名不匹配" in str(mismatched.data)
 
 
 def test_analysis_returns_only_verifiable_resume_quotes_and_job_context():

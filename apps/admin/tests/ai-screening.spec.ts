@@ -16,7 +16,7 @@ test('AI 初面表单与结果区等高，操作按钮和附件说明符合页�
 
   await expect(
     page.getByText(
-      '选择候选人后自动填充其「简历原文」，可覆盖修改；也可导入简历附件（PDF / Word / 图片，≤10MB）或直接拖入文本文件。',
+      '选择候选人后自动填充其「简历原文」，可覆盖修改；也可导入 PDF、DOCX、TXT 或 MD（≤10MB），或直接粘贴原文。扫描件和图片暂不支持 OCR。',
     ),
   ).toBeVisible();
   await expect(page.getByText(/点击分析会将简历文本/)).toHaveCount(0);
@@ -26,4 +26,21 @@ test('AI 初面表单与结果区等高，操作按钮和附件说明符合页�
   const clearButton = page.getByRole('button', { name: '清空' });
   await expect(runButton).toHaveCSS('height', '36px');
   await expect(clearButton).toHaveCSS('height', '36px');
+});
+
+test('导入简历附件后将识别出的文字填入简历内容', async ({ page }) => {
+  await login(page);
+  await page.getByRole('link', { name: 'AI 初面' }).click();
+  await page.route('**/api/v1/ai-screenings/extract/', (route) =>
+    route.fulfill({ json: { text: '已识别的简历正文。' } }),
+  );
+
+  await page.getByLabel('导入简历附件').setInputFiles({
+    name: 'resume.docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: Buffer.from('fake DOCX'),
+  });
+
+  await expect(page.getByLabel('简历内容')).toHaveValue('已识别的简历正文。');
+  await expect(page.getByRole('status')).toContainText('已识别 resume.docx');
 });

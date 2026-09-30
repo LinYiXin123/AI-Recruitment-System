@@ -1,5 +1,7 @@
 import json
 import re
+import tempfile
+from pathlib import Path
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
@@ -9,7 +11,7 @@ from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.response import Response
 
 from .access import member, visible_jobs
-from .intake import hr_jobs
+from .intake import extract_resume_text, hr_jobs
 from .llm import LLMServiceError, chat_completion
 from .models import Application, DepartmentRole, Job
 
@@ -48,6 +50,25 @@ class AnalysisInputSerializer(serializers.Serializer):
     def validate_resume(self, value):
         if not value.strip():
             raise serializers.ValidationError("请先填写简历内容。")
+        return value
+
+
+class ResumeAttachmentSerializer(serializers.Serializer):
+    file = serializers.FileField()
+
+    def validate_file(self, value):
+        if not value.size or value.size > 10 * 1024 * 1024:
+            raise serializers.ValidationError("请选择非空且不超过 10MB 的附件。")
+        kind = Path(value.name).suffix.lower().lstrip(".")
+        signatures = {"pdf": b"%PDF-", "docx": b"PK\x03\x04"}
+        signature = signatures.get(kind)
+        if not signature:
+            raise serializers.ValidationError(
+                "目前仅支持文字型 PDF 和 DOCX；图片及扫描件暂不支持 OCR。"
+            )
+        if value.read(len(signature)) != signature:
+            raise serializers.ValidationError("文件内容与扩展名不匹配，请选择有效的 PDF 或 DOCX。")
+        value.seek(0)
         return value
 
 
@@ -103,17 +124,40 @@ def _parse_analysis(content, resume):
     }
 
 
-@api_view(["POST"])
-def analyze(request):
-    serializer = AnalysisInputSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-    data = serializer.validated_data
+def _hr_member(request):
     current_member = member(request)
     if not current_member.roles.filter(
         department__organization=current_member.organization,
         role__in=[DepartmentRole.Role.HR, DepartmentRole.Role.SUPERVISOR],
     ).exists():
-        raise PermissionDenied("仅 HR 或招聘主管可发起 AI 初面分析。")
+        raise PermissionDenied("仅 HR 或招聘主管可使用 AI 初面。")
+    return current_member
+
+
+@api_view(["POST"])
+def extract(request):
+    _hr_member(request)
+    serializer = ResumeAttachmentSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    upload = serializer.validated_data["file"]
+    kind = Path(upload.name).suffix.lower().lstrip(".")
+    with tempfile.TemporaryDirectory(prefix="ai-screening-") as directory:
+        path = Path(directory) / f"resume.{kind}"
+        with path.open("xb") as target:
+            for chunk in upload.chunks():
+                target.write(chunk)
+        result = extract_resume_text(path, kind)
+    if not result.get("text"):
+        raise serializers.ValidationError({"file": result.get("error", "未能从附件提取文字。")})
+    return Response({"text": result["text"]})
+
+
+@api_view(["POST"])
+def analyze(request):
+    serializer = AnalysisInputSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+    current_member = _hr_member(request)
 
     application = None
     if data.get("application_id") is not None:

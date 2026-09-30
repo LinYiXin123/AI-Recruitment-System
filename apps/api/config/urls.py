@@ -19,5 +19,6 @@ urlpatterns = [
     path("api/v1/me/", views.me),
     path("api/v1/dashboard/", views.dashboard),
     path("api/v1/ai-screenings/", ai_screening.analyze),
+    path("api/v1/ai-screenings/extract/", ai_screening.extract),
     path("api/v1/", include(router.urls)),
 ]

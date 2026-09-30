@@ -301,6 +301,24 @@ def file_path(doc):
     return settings.PRIVATE_RESUME_ROOT / str(doc.file_key)
 
 
+def extract_resume_text(path, kind):
+    try:
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("extract_resume.py")),
+                str(path),
+                kind,
+            ],
+            capture_output=True,
+            timeout=15,
+            check=True,
+        )
+        return json.loads(process.stdout)
+    except (subprocess.SubprocessError, ValueError, OSError):
+        return {"error": "提取超时或资源不足，可重试、重传精简文件或人工摘录。"}
+
+
 def create_parse(doc, m, key, manual=None):
     existing = doc.parses.filter(request_key=key).first()
     if existing:
@@ -313,21 +331,7 @@ def create_parse(doc, m, key, manual=None):
         return existing
     result = {"text": manual} if manual is not None else {}
     if manual is None:
-        try:
-            process = subprocess.run(
-                [
-                    sys.executable,
-                    str(Path(__file__).with_name("extract_resume.py")),
-                    str(file_path(doc)),
-                    doc.file_type,
-                ],
-                capture_output=True,
-                timeout=15,
-                check=True,
-            )
-            result = json.loads(process.stdout)
-        except (subprocess.SubprocessError, ValueError, OSError):
-            result = {"error": "提取超时或资源不足，可重试、重传精简文件或人工摘录。"}
+        result = extract_resume_text(file_path(doc), doc.file_type)
     return ResumeParse.objects.create(
         document=doc,
         version=(doc.parses.aggregate(n=Max("version"))["n"] or 0) + 1,

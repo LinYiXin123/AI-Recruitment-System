@@ -49,9 +49,11 @@ export function AiScreeningPage() {
   const [optionsError, setOptionsError] = useState('');
   const [optionsRevision, setOptionsRevision] = useState(0);
   const [resumeNotice, setResumeNotice] = useState('');
+  const [resumeError, setResumeError] = useState('');
   const [analysis, setAnalysis] = useState<ScreeningResult | null>(null);
   const [analysisError, setAnalysisError] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [dragging, setDragging] = useState(false);
   const resumeInput = useRef<HTMLInputElement>(null);
 
@@ -111,27 +113,42 @@ export function AiScreeningPage() {
   }, [selectedApplication]);
 
   async function importResume(file?: File) {
-    if (!file || analyzing) return;
+    if (!file || analyzing || importing) return;
+    setResumeNotice('');
+    setResumeError('');
     if (!file.size || file.size > 10 * 1024 * 1024) {
-      setResumeNotice('请选择非空且不超过 10MB 的附件。');
+      setResumeError('请选择非空且不超过 10MB 的附件。');
       return;
     }
-    if (!/\.(pdf|docx?|jpe?g|png|webp|txt|md)$/i.test(file.name)) {
-      setResumeNotice('暂不支持该附件格式，请选择 PDF、Word、图片或文本文件。');
+    if (!/\.(pdf|docx|txt|md)$/i.test(file.name)) {
+      setResumeError('目前支持 PDF、DOCX、TXT 和 MD；图片、扫描件及旧版 DOC 暂不支持识别。');
       return;
     }
     setAnalysis(null);
     setAnalysisError('');
-    if (/\.(txt|md)$/i.test(file.name)) {
-      try {
-        setResume(await file.text());
+    setImporting(true);
+    try {
+      if (/\.(txt|md)$/i.test(file.name)) {
+        const text = await file.text();
+        if (!text.trim()) throw new Error('附件中没有可读取的文字。');
+        setResume(text);
         setResumeNotice(`已导入 ${file.name}，可继续修改简历内容。`);
-      } catch {
-        setResumeNotice('无法读取该附件，请直接粘贴简历内容。');
+      } else {
+        setResumeNotice(`正在识别 ${file.name}…`);
+        const data = new FormData();
+        data.set('file', file);
+        const result = await api<{ text: string }>('ai-screenings/extract/', data);
+        setResume(result.text);
+        setResumeNotice(
+          `已识别 ${file.name}，共 ${result.text.length.toLocaleString()} 字，请核对后开始分析。`,
+        );
       }
-      return;
+    } catch (error) {
+      setResumeNotice('');
+      setResumeError((error as Error).message || '附件识别失败，请重试或直接粘贴简历原文。');
+    } finally {
+      setImporting(false);
     }
-    setResumeNotice(`已选择 ${file.name}。附件解析服务尚未接通，请直接粘贴简历原文。`);
   }
 
   function clearForm() {
@@ -140,6 +157,7 @@ export function AiScreeningPage() {
     setSelectedJob('');
     setResume('');
     setResumeNotice('');
+    setResumeError('');
     setAnalysis(null);
     setAnalysisError('');
     if (resumeInput.current) resumeInput.current.value = '';
@@ -147,6 +165,7 @@ export function AiScreeningPage() {
 
   async function startAnalysis(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (analyzing || importing) return;
     if (!resume.trim()) {
       setAnalysisError('请先填写或导入简历内容。');
       return;
@@ -194,7 +213,7 @@ export function AiScreeningPage() {
                   aria-labelledby="ai-candidate-label"
                   value={selectedCandidate}
                   placeholder="请选择候选人（可留空）"
-                  disabled={optionsLoading || Boolean(optionsError) || analyzing}
+                  disabled={optionsLoading || Boolean(optionsError) || analyzing || importing}
                   clickToHide
                   dropdownClassName="candidate-select-dropdown"
                   onChange={(value) => {
@@ -204,6 +223,7 @@ export function AiScreeningPage() {
                     setSelectedApplication(option?.applicationId ?? null);
                     setAnalysis(null);
                     setAnalysisError('');
+                    setResumeError('');
                   }}
                 >
                   {candidates.map((candidate) => (
@@ -223,7 +243,7 @@ export function AiScreeningPage() {
                   aria-labelledby="ai-job-label"
                   value={selectedJob}
                   placeholder="请选择职位（可留空）"
-                  disabled={optionsLoading || Boolean(optionsError) || analyzing}
+                  disabled={optionsLoading || Boolean(optionsError) || analyzing || importing}
                   clickToHide
                   dropdownClassName="candidate-select-dropdown"
                   onChange={(value) => {
@@ -248,7 +268,7 @@ export function AiScreeningPage() {
                   id="ai-company"
                   aria-labelledby="ai-company-label"
                   value="general"
-                  disabled={analyzing}
+                  disabled={analyzing || importing}
                   clickToHide
                   dropdownClassName="candidate-select-dropdown"
                 >
@@ -261,7 +281,7 @@ export function AiScreeningPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={analyzing}
+                    disabled={analyzing || importing}
                     onClick={() => resumeInput.current?.click()}
                   >
                     <Upload data-icon="inline-start" />
@@ -272,7 +292,7 @@ export function AiScreeningPage() {
                     className="ai-resume-file"
                     type="file"
                     tabIndex={-1}
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.txt,.md"
+                    accept=".pdf,.docx,.txt,.md"
                     aria-label="导入简历附件"
                     onChange={(event) => {
                       void importResume(event.currentTarget.files?.[0]);
@@ -295,7 +315,7 @@ export function AiScreeningPage() {
                   onDrop={(event) => {
                     event.preventDefault();
                     setDragging(false);
-                    if (analyzing) return;
+                    if (analyzing || importing) return;
                     void importResume(event.dataTransfer.files[0]);
                   }}
                 >
@@ -304,10 +324,11 @@ export function AiScreeningPage() {
                     id="ai-resume"
                     className="ai-screening-textarea"
                     value={resume}
-                    disabled={analyzing}
+                    disabled={analyzing || importing}
                     onChange={(event) => {
                       setResume(event.target.value);
                       setResumeNotice('');
+                      setResumeError('');
                       setAnalysis(null);
                       setAnalysisError('');
                     }}
@@ -316,18 +337,19 @@ export function AiScreeningPage() {
                   />
                 </fieldset>
                 <p className="ai-screening-help">
-                  选择候选人后自动填充其「简历原文」，可覆盖修改；也可导入简历附件（PDF / Word /
-                  图片，≤10MB）或直接拖入文本文件。
+                  选择候选人后自动填充其「简历原文」，可覆盖修改；也可导入 PDF、DOCX、TXT 或
+                  MD（≤10MB），或直接粘贴原文。扫描件和图片暂不支持 OCR。
                 </p>
                 {resumeNotice && (
                   <p className="ai-screening-notice" role="status">
-                    {resumeNotice}
+                    {importing ? '正在识别附件文字…' : resumeNotice}
                   </p>
                 )}
+                {resumeError && <ErrorNotice message={resumeError} />}
               </Field>
             </FieldGroup>
             <div className="ai-screening-actions">
-              <Button type="submit" size="lg" disabled={analyzing}>
+              <Button type="submit" size="lg" disabled={analyzing || importing}>
                 <Sparkles data-icon="inline-start" />
                 {analyzing ? '正在分析…' : '开始分析'}
               </Button>
@@ -336,7 +358,7 @@ export function AiScreeningPage() {
                 variant="ghost"
                 size="lg"
                 onClick={clearForm}
-                disabled={analyzing}
+                disabled={analyzing || importing}
               >
                 <Trash2 data-icon="inline-start" />
                 清空
