@@ -1,5 +1,5 @@
 import Select from '@douyinfe/semi-ui/lib/es/select';
-import { ArrowLeft, Building2, Download, Plus, Sparkles } from 'lucide-react';
+import { ArrowLeft, Building2, Plus, Search } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorNotice, Loading } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -104,6 +104,24 @@ type ModalState =
   | { kind: 'endorsement'; draft: EndorsementForm }
   | null;
 
+function enterpriseCode(id: number) {
+  return `E${String(id).padStart(4, '0')}`;
+}
+
+function downloadCsv(filename: string, rows: unknown[][]) {
+  const quote = (value: unknown) => {
+    const text = String(value ?? '');
+    return `"${(/^[\s]*[=+@-]/.test(text) ? `'${text}` : text).replaceAll('"', '""')}"`;
+  };
+  const csv = rows.map((row) => row.map(quote).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function downloadEnterprises(rows: Enterprise[]) {
   const columns: [keyof Enterprise, string][] = [
     ['id', '企业编号'],
@@ -113,23 +131,23 @@ function downloadEnterprises(rows: Enterprise[]) {
     ['remark', '备注'],
     ['sort_order', '排序'],
     ['enabled', '状态'],
+    ['endorsement_count', '背书内容数'],
     ['completed_categories', '已补充分类数'],
   ];
-  const quote = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-  const csv = [
-    columns.map(([, label]) => quote(label)).join(','),
+  downloadCsv('企业列表', [
+    columns.map(([, label]) => label),
     ...rows.map((row) =>
-      columns
-        .map(([key]) => quote(key === 'enabled' ? (row.enabled ? '已启用' : '已停用') : row[key]))
-        .join(','),
+      columns.map(([key]) =>
+        key === 'id'
+          ? enterpriseCode(row.id)
+          : key === 'enabled'
+            ? row.enabled
+              ? '已启用'
+              : '已停用'
+            : row[key],
+      ),
     ),
-  ].join('\r\n');
-  const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `企业列表-${new Date().toISOString().slice(0, 10)}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  ]);
 }
 
 export function EmployerBrandPage() {
@@ -177,7 +195,7 @@ export function EmployerBrandPage() {
     return enterprises.filter((item) => {
       const matchesSearch =
         !keyword ||
-        [item.name, item.industry, item.id].some((value) =>
+        [item.name, item.industry, enterpriseCode(item.id)].some((value) =>
           String(value).toLocaleLowerCase().includes(keyword),
         );
       const matchesStatus =
@@ -270,6 +288,10 @@ export function EmployerBrandPage() {
   async function saveModal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!modal || busy) return;
+    if (modal.kind === 'endorsement' && !modal.draft.id && modal.draft.enterprise_id === null) {
+      setFormError('请选择所属企业。');
+      return;
+    }
     setBusy('save');
     setFormError('');
     setNotice('');
@@ -300,7 +322,32 @@ export function EmployerBrandPage() {
     }
   }
 
+  async function toggleEnterprise(item: Enterprise) {
+    if (busy) return;
+    setBusy(`toggle-${item.id}`);
+    setError('');
+    setNotice('');
+    try {
+      await api('employer-brand/enterprises/save/', {
+        id: item.id,
+        name: item.name,
+        industry: item.industry,
+        introduction: item.introduction,
+        remark: item.remark,
+        sort_order: item.sort_order,
+        enabled: !item.enabled,
+      });
+      setNotice(item.enabled ? '企业已停用，不再进入 AI 初面的企业选项。' : '企业已启用。');
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy('');
+    }
+  }
+
   async function deleteEnterprise(item: Enterprise) {
+    if (busy) return;
     if (
       !window.confirm(
         `删除「${item.name}」后，已有背书内容仍会保留在“未归属 / 已删除企业”中，可再指定给其他企业。确定删除吗？`,
@@ -368,17 +415,45 @@ export function EmployerBrandPage() {
                   编辑企业
                 </Button>
                 <Button
-                  variant="destructive"
-                  disabled={busy === `delete-${selectedEnterprise.id}`}
-                  onClick={() => void deleteEnterprise(selectedEnterprise)}
+                  variant="outline"
+                  onClick={() =>
+                    downloadCsv(`${enterpriseCode(selectedEnterprise.id)}-背书内容`, [
+                      ['企业编号', '企业名称', '分类', '标题', '正文', '展示顺序', '状态'],
+                      ...endorsements
+                        .filter((item) => item.enterprise_id === selectedEnterprise.id)
+                        .map((item) => [
+                          enterpriseCode(selectedEnterprise.id),
+                          selectedEnterprise.name,
+                          item.category_label,
+                          item.title,
+                          item.body,
+                          item.sort_order,
+                          item.enabled ? '已启用' : '已停用',
+                        ]),
+                    ])
+                  }
                 >
-                  删除企业
+                  导出该企业内容
+                </Button>
+                <Button onClick={() => openEndorsementForm('company_introduction')}>
+                  新增内容
                 </Button>
               </div>
             </div>
             <div>
               <h1 id="enterprise-brand-title">{selectedEnterprise.name}</h1>
-              <p>维护这家企业的七类背书内容；空白分类会标注为「待补充」。</p>
+              <div className="enterprise-profile-meta">
+                <Badge variant={selectedEnterprise.enabled ? 'secondary' : 'outline'}>
+                  {selectedEnterprise.enabled ? '已启用' : '已停用'}
+                </Badge>
+                <span className="enterprise-profile-code">
+                  {enterpriseCode(selectedEnterprise.id)}
+                </span>
+                <span>{selectedEnterprise.industry || '行业待补充'}</span>
+                <p className="enterprise-profile-introduction">
+                  {selectedEnterprise.introduction || '企业简介待补充。'}
+                </p>
+              </div>
             </div>
           </header>
           <div className="endorsement-category-grid">
@@ -387,15 +462,12 @@ export function EmployerBrandPage() {
                 (item) =>
                   item.enterprise_id === selectedEnterprise.id && item.category === category.value,
               );
-              const complete = rows.some((item) => item.title.trim() || item.body.trim());
               return (
                 <section className="endorsement-category-card" key={category.value}>
                   <div className="endorsement-category-heading">
                     <div>
                       <h2>{category.label}</h2>
-                      <Badge variant={complete ? 'secondary' : 'outline'}>
-                        {complete ? '已补充' : '待补充'}
-                      </Badge>
+                      <span className="endorsement-category-count">{rows.length} 条</span>
                     </div>
                     <Button
                       size="sm"
@@ -403,7 +475,7 @@ export function EmployerBrandPage() {
                       onClick={() => openEndorsementForm(category.value)}
                     >
                       <Plus data-icon="inline-start" />
-                      新增内容
+                      新增
                     </Button>
                   </div>
                   {rows.length ? (
@@ -426,7 +498,7 @@ export function EmployerBrandPage() {
                       ))}
                     </div>
                   ) : (
-                    <p className="endorsement-empty">该分类还没有内容。</p>
+                    <p className="endorsement-empty">待补充</p>
                   )}
                 </section>
               );
@@ -447,42 +519,43 @@ export function EmployerBrandPage() {
                   disabled={!enterprises.length}
                   onClick={() => downloadEnterprises(enterprises)}
                 >
-                  <Download data-icon="inline-start" />
                   导出企业列表
                 </Button>
                 <Button
                   disabled={enterprises.length >= (workspace?.enterprise_limit ?? 20)}
                   onClick={() => openEnterpriseForm()}
                 >
-                  <Plus data-icon="inline-start" />
                   新增企业
                 </Button>
               </div>
             </div>
           </header>
 
-          <Alert className="brand-empty-content-note">
-            <AlertTitle>企业资料由你创建</AlertTitle>
-            <AlertDescription>
-              不预置企业信息；七类背书内容初始留空并标记「待补充」。
-            </AlertDescription>
-          </Alert>
+          <p className="brand-empty-content-note">
+            背书内容全部留空并标注「待补充」，不预置任何企业信息；企业档案由你自己创建。
+          </p>
 
           <section className="brand-list-panel" aria-label="企业列表">
             <div className="brand-list-filters">
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索企业名称、行业或编号…"
-                aria-label="搜索企业名称、行业或编号"
-              />
+              <div className="brand-search">
+                <Search aria-hidden="true" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="搜索企业名称 / 行业 / 编号..."
+                  aria-label="搜索企业名称、行业或编号"
+                />
+              </div>
+              <span id="brand-status-label" className="sr-only">
+                按企业状态筛选
+              </span>
               <Select
-                className="native-select"
+                className="native-select w-full"
                 dropdownClassName="candidate-select-dropdown"
                 clickToHide
                 value={status}
                 onChange={(value) => setStatus(typeof value === 'string' ? value : 'all')}
-                aria-label="按企业状态筛选"
+                aria-labelledby="brand-status-label"
               >
                 <Select.Option value="all">全部状态</Select.Option>
                 <Select.Option value="enabled">已启用</Select.Option>
@@ -507,27 +580,40 @@ export function EmployerBrandPage() {
                       type="button"
                       onClick={() => setSelectedEnterpriseId(item.id)}
                     >
-                      <span className="enterprise-card-icon">
-                        <Building2 aria-hidden="true" />
-                      </span>
-                      <span className="enterprise-card-copy">
-                        <strong>{item.name}</strong>
-                        <span>
-                          {item.industry || '行业待补充'} · 编号 {item.id}
-                        </span>
-                      </span>
+                      <strong title={item.name}>{item.name}</strong>
                       <Badge variant={item.enabled ? 'secondary' : 'outline'}>
                         {item.enabled ? '已启用' : '已停用'}
                       </Badge>
+                      <span className="enterprise-card-code">{enterpriseCode(item.id)}</span>
                       <span className="enterprise-card-progress">
-                        {item.completed_categories} / 7 类已补充
+                        {item.industry || '行业待补充'} · {item.endorsement_count} 条内容 · 已填充{' '}
+                        {item.completed_categories}/{categories.length} 类
                       </span>
                     </button>
                     <div className="enterprise-card-actions">
-                      <Button variant="ghost" size="sm" onClick={() => openEnterpriseForm(item)}>
-                        编辑档案
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!!busy}
+                        onClick={() => openEnterpriseForm(item)}
+                      >
+                        编辑
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => void deleteEnterprise(item)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!!busy}
+                        onClick={() => void toggleEnterprise(item)}
+                      >
+                        {busy === `toggle-${item.id}` ? '处理中…' : item.enabled ? '停用' : '启用'}
+                      </Button>
+                      <Button
+                        className="enterprise-card-delete"
+                        variant="ghost"
+                        size="sm"
+                        disabled={!!busy}
+                        onClick={() => void deleteEnterprise(item)}
+                      >
                         删除
                       </Button>
                     </div>
@@ -544,18 +630,15 @@ export function EmployerBrandPage() {
               <div className="brand-empty-state">
                 <Building2 aria-hidden="true" />
                 <h2>还没有企业档案</h2>
-                <p>先创建企业档案，再逐项补充背书内容。</p>
+                <p>先建企业档案，再为它补充七类背书内容</p>
               </div>
             )}
-          </section>
-
-          <Alert className="brand-empty-content-note">
-            <AlertDescription>
-              每个租户最多维护 {workspace?.enterprise_limit ?? 20}{' '}
-              家企业。删除企业不会删除其背书内容，原内容会转入「未归属 /
+            <p className="brand-list-tip">
+              每租户最多 {workspace?.enterprise_limit ?? 20}{' '}
+              个企业档案。删除企业不会删除其下背书内容，原内容会转入「未归属 /
               已删除企业」卡片，可随时重新指定所属企业。
-            </AlertDescription>
-          </Alert>
+            </p>
+          </section>
 
           {orphanGroups.length > 0 && (
             <section className="brand-orphan-panel" aria-labelledby="brand-orphan-title">
@@ -599,7 +682,7 @@ export function EmployerBrandPage() {
 
       <dialog
         ref={dialogRef}
-        className="enterprise-dialog"
+        className={`enterprise-dialog${modal?.kind === 'enterprise' ? ' enterprise-profile-dialog' : ''}`}
         aria-labelledby="enterprise-dialog-title"
         onCancel={(event) => {
           event.preventDefault();
@@ -619,8 +702,8 @@ export function EmployerBrandPage() {
                       ? '编辑企业'
                       : '新增企业'
                     : modal.draft.id
-                      ? '编辑背书内容'
-                      : '新增背书内容'}
+                      ? '编辑内容'
+                      : '新增内容'}
                 </h2>
               </div>
               <Button
@@ -664,18 +747,19 @@ export function EmployerBrandPage() {
                         disabled={busy === 'suggest'}
                         onClick={() => void suggestEnterprise()}
                       >
-                        <Sparkles data-icon="inline-start" />
                         {busy === 'suggest' ? '联想中…' : 'AI 联想'}
                       </Button>
                     </div>
-                    <FieldDescription>AI 仅建议行业与简介，不会自动保存。</FieldDescription>
                   </Field>
                   <div className="enterprise-form-two-columns">
                     <Field>
-                      <FieldLabel htmlFor="enterprise-industry">行业（选填）</FieldLabel>
+                      <FieldLabel id="enterprise-industry-label" htmlFor="enterprise-industry">
+                        行业（选填）
+                      </FieldLabel>
                       <Select
                         id="enterprise-industry"
-                        className="enterprise-industry-select native-select"
+                        aria-labelledby="enterprise-industry-label"
+                        className="enterprise-industry-select native-select w-full"
                         dropdownClassName="candidate-select-dropdown"
                         value={modal.draft.industry}
                         placeholder="点击选择，或直接输入"
@@ -722,7 +806,7 @@ export function EmployerBrandPage() {
                       id="enterprise-introduction"
                       maxLength={3000}
                       value={modal.draft.introduction}
-                      placeholder="可由 AI 联想生成建议，提交前请核对"
+                      placeholder="一句话介绍该企业的主营业务，可由 AI 联想生成"
                       onChange={(event) =>
                         setModal({
                           ...modal,
@@ -762,41 +846,52 @@ export function EmployerBrandPage() {
                 </FieldGroup>
               ) : (
                 <FieldGroup>
-                  {modal.draft.enterprise_id === null && (
-                    <Field>
-                      <FieldLabel htmlFor="endorsement-enterprise">所属企业</FieldLabel>
-                      <Select
-                        id="endorsement-enterprise"
-                        className="native-select"
-                        dropdownClassName="candidate-select-dropdown"
-                        clickToHide
-                        value=""
-                        onChange={(value) =>
-                          setModal({
-                            ...modal,
-                            draft: {
-                              ...modal.draft,
-                              enterprise_id:
-                                value !== '' && value !== undefined ? Number(value) : null,
-                            },
-                          })
-                        }
-                      >
-                        <Select.Option value="">未归属 / 选择企业</Select.Option>
-                        {enterprises.map((item) => (
-                          <Select.Option key={item.id} value={item.id}>
-                            {item.name}
-                          </Select.Option>
-                        ))}
-                      </Select>
-                    </Field>
-                  )}
+                  <Field>
+                    <FieldLabel id="endorsement-enterprise-label" htmlFor="endorsement-enterprise">
+                      所属企业{modal.draft.id ? '' : ' *'}
+                    </FieldLabel>
+                    <Select
+                      id="endorsement-enterprise"
+                      aria-labelledby="endorsement-enterprise-label"
+                      className="native-select w-full"
+                      dropdownClassName="candidate-select-dropdown"
+                      clickToHide
+                      placeholder="请选择所属企业"
+                      value={
+                        modal.draft.enterprise_id === null ? '' : String(modal.draft.enterprise_id)
+                      }
+                      aria-required={!modal.draft.id || undefined}
+                      onChange={(value) => {
+                        setFormError('');
+                        setModal({
+                          ...modal,
+                          draft: {
+                            ...modal.draft,
+                            enterprise_id:
+                              value !== '' && value !== undefined ? Number(value) : null,
+                          },
+                        });
+                      }}
+                    >
+                      {enterprises.map((item) => (
+                        <Select.Option key={item.id} value={String(item.id)}>
+                          {item.name}
+                        </Select.Option>
+                      ))}
+                    </Select>
+                    <FieldDescription>
+                      选项来自企业档案；删除的企业其内容会保留，可在此重新指定。
+                    </FieldDescription>
+                  </Field>
                   <div className="enterprise-form-two-columns">
                     <Field>
-                      <FieldLabel htmlFor="endorsement-category">分类</FieldLabel>
+                      <FieldLabel id="endorsement-category-label" htmlFor="endorsement-category">
+                        分类 *
+                      </FieldLabel>
                       <Select
                         id="endorsement-category"
-                        className="native-select"
+                        aria-labelledby="endorsement-category-label"
+                        className="native-select w-full"
                         dropdownClassName="candidate-select-dropdown"
                         clickToHide
                         value={modal.draft.category}
@@ -818,6 +913,23 @@ export function EmployerBrandPage() {
                       </Select>
                     </Field>
                     <Field>
+                      <FieldLabel htmlFor="endorsement-title">标题（选填）</FieldLabel>
+                      <Input
+                        id="endorsement-title"
+                        maxLength={200}
+                        value={modal.draft.title}
+                        placeholder="待补充"
+                        onChange={(event) =>
+                          setModal({
+                            ...modal,
+                            draft: { ...modal.draft, title: event.target.value },
+                          })
+                        }
+                      />
+                    </Field>
+                  </div>
+                  <div className="enterprise-form-two-columns">
+                    <Field>
                       <FieldLabel htmlFor="endorsement-order">展示顺序</FieldLabel>
                       <Input
                         id="endorsement-order"
@@ -832,20 +944,26 @@ export function EmployerBrandPage() {
                           })
                         }
                       />
+                      <FieldDescription>数字越小越靠前</FieldDescription>
+                    </Field>
+                    <Field>
+                      <FieldLabel>是否启用</FieldLabel>
+                      <label className="enterprise-enabled-option">
+                        <input
+                          type="checkbox"
+                          checked={modal.draft.enabled}
+                          onChange={(event) =>
+                            setModal({
+                              ...modal,
+                              draft: { ...modal.draft, enabled: event.target.checked },
+                            })
+                          }
+                        />
+                        启用
+                      </label>
+                      <FieldDescription>停用后不进入 AI 初面背书内容。</FieldDescription>
                     </Field>
                   </div>
-                  <Field>
-                    <FieldLabel htmlFor="endorsement-title">标题（选填）</FieldLabel>
-                    <Input
-                      id="endorsement-title"
-                      maxLength={200}
-                      value={modal.draft.title}
-                      placeholder="待补充"
-                      onChange={(event) =>
-                        setModal({ ...modal, draft: { ...modal.draft, title: event.target.value } })
-                      }
-                    />
-                  </Field>
                   <Field>
                     <FieldLabel htmlFor="endorsement-body">正文（选填）</FieldLabel>
                     <Textarea
@@ -858,19 +976,6 @@ export function EmployerBrandPage() {
                       }
                     />
                   </Field>
-                  <label className="enterprise-enabled-option">
-                    <input
-                      type="checkbox"
-                      checked={modal.draft.enabled}
-                      onChange={(event) =>
-                        setModal({
-                          ...modal,
-                          draft: { ...modal.draft, enabled: event.target.checked },
-                        })
-                      }
-                    />
-                    启用（停用后不进入 AI 初面背书内容）
-                  </label>
                 </FieldGroup>
               )}
               {modal.kind === 'enterprise' && aiNotice && (
@@ -880,9 +985,11 @@ export function EmployerBrandPage() {
               )}
             </div>
             <div className="enterprise-dialog-footer">
-              <Button type="button" variant="outline" onClick={closeModal}>
-                取消
-              </Button>
+              {modal.kind === 'endorsement' && (
+                <Button type="button" variant="outline" onClick={closeModal}>
+                  取消
+                </Button>
+              )}
               <Button
                 type="submit"
                 disabled={
@@ -896,7 +1003,7 @@ export function EmployerBrandPage() {
                     ? modal.draft.id
                       ? '保存修改'
                       : '创建企业'
-                    : '保存内容'}
+                    : '保存'}
               </Button>
             </div>
           </form>
