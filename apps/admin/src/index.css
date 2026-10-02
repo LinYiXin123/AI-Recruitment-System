@@ -2443,7 +2443,18 @@ body {
   display: flex;
   flex: 1;
   flex-direction: column;
+  min-height: 0;
+  contain: size;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
   padding: 0 18px 18px;
+}
+.ai-result-content:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
 }
 .ai-result-empty {
   min-height: 310px;
@@ -2493,6 +2504,10 @@ body {
 @media (max-width: 760px) {
   .ai-screening-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .ai-result-content {
+    flex: none;
+    height: min(560px, 70dvh);
   }
   .ai-result-empty {
     min-height: 250px;

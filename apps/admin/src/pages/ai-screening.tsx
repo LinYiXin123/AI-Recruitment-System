@@ -618,7 +618,13 @@ export function AiScreeningPage() {
           <header className="dashboard-card-head">
             <h2 id="ai-result-title">分析结果</h2>
           </header>
-          <div className="ai-result-content" aria-busy={analyzing}>
+          <section
+            className="ai-result-content"
+            aria-label="分析结果内容"
+            aria-busy={analyzing}
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: 滚动区域需要键盘焦点来支持方向键和 PageDown。
+            tabIndex={0}
+          >
             {analyzing && (
               <p className="ai-screening-help p-6 text-center" role="status">
                 正在整理简历依据并生成面试提纲，请稍候…
@@ -764,7 +770,7 @@ export function AiScreeningPage() {
                 </EmptyHeader>
               </Empty>
             ) : null}
-          </div>
+          </section>
         </section>
       </div>
 

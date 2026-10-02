@@ -124,6 +124,89 @@ test('初面提纲包含题目、追问和回答要点，重新分析失败可�
   expect(requests).toBe(3);
 });
 
+test('长分析结果固定在卡片内滚动，桌面等高且窄屏不撑高页面', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await login(page);
+  await page.getByRole('link', { name: 'AI 初面' }).click();
+  await page.route('**/api/v1/ai-screenings/', (route) =>
+    route.fulfill({
+      json: {
+        summary: '虚构简历：需进一步核实项目实施过程和测试结果。'.repeat(20),
+        evidence: [],
+        gaps: [],
+        questions: Array.from({ length: 5 }, (_, index) => ({
+          question: `第 ${index + 1} 个项目如何验证结果？`,
+          reason: '核实本人职责、实施细节和结果依据。'.repeat(8),
+          follow_up: '请说明样本选取、对照方法和异常处理过程。'.repeat(8),
+          answer_points: Array.from({ length: 5 }, (_, point) =>
+            `${point + 1}. 说明可复查的过程与证据。`.repeat(8),
+          ),
+          quote: '虚构项目经历。',
+        })),
+        limitations: '长结果滚动回归测试。',
+      },
+    }),
+  );
+
+  const cards = page.locator('.ai-screening-grid > .ai-screening-card');
+  const result = page.locator('.ai-result-content');
+  for (const viewport of [
+    { width: 1440, height: 1000 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.getByRole('button', { name: '清空', exact: true }).click();
+    await expect(page.getByText('尚未发起分析', { exact: true })).toBeVisible();
+    const before = await cards.nth(1).boundingBox();
+    if (!before) throw new Error('分析前未找到结果卡片。');
+    await page.getByRole('textbox', { name: '简历内容' }).fill('虚构项目经历。');
+    await page.getByRole('button', { name: '开始分析', exact: true }).click();
+    await expect(page.getByRole('button', { name: '重新分析', exact: true })).toBeEnabled();
+
+    const after = await cards.nth(1).boundingBox();
+    if (!after) throw new Error('分析后未找到结果卡片。');
+    expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(1);
+    if (viewport.width > 760) {
+      const form = await cards.nth(0).boundingBox();
+      if (!form) throw new Error('未找到初面表单卡片。');
+      expect(Math.abs(after.height - form.height)).toBeLessThanOrEqual(1);
+    }
+    await expect
+      .poll(() => result.evaluate((element) => element.scrollHeight - element.clientHeight))
+      .toBeGreaterThan(100);
+    await expect(result).toHaveCSS('overscroll-behavior-y', 'contain');
+    await result.scrollIntoViewIfNeeded();
+    await result.focus();
+    await expect(result).toBeFocused();
+    const pagePosition = await page.evaluate(() => window.scrollY);
+    const initialScroll = await result.evaluate((element) => element.scrollTop);
+    await result.press('PageDown');
+    await expect
+      .poll(() => result.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(initialScroll);
+    expect(await page.evaluate(() => window.scrollY)).toBe(pagePosition);
+
+    await result.hover();
+    const beforeWheel = await result.evaluate((element) => element.scrollTop);
+    await page.mouse.wheel(0, 400);
+    await expect
+      .poll(() => result.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(beforeWheel);
+    expect(await page.evaluate(() => window.scrollY)).toBe(pagePosition);
+    await result.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await page.mouse.wheel(0, 400);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
+    );
+    expect(await page.evaluate(() => window.scrollY)).toBe(pagePosition);
+  }
+});
+
 test('简历中的网址可单击并在新标签页打开', async ({ page, context }) => {
   await login(page);
   await page.getByRole('link', { name: 'AI 初面' }).click();
