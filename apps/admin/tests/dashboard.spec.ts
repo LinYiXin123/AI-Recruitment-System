@@ -12,6 +12,7 @@ test('招聘总览按原型呈现完整侧栏、六项指标和真实导出', as
     '招聘总览',
     '职位管理',
     '候选人库',
+    '人才画像',
     '面试管理',
     'AI 初面',
     '面试题库',
@@ -80,6 +81,26 @@ test('招聘总览按原型呈现完整侧栏、六项指标和真实导出', as
   await page.screenshot({ path: testInfo.outputPath('招聘总览-桌面.png') });
 });
 
+test('人才画像紧邻候选人库且为同级入口，点击和刷新保持独立页面', async ({ page }) => {
+  await login(page);
+  const sidebar = page.getByRole('complementary', { name: '侧边栏' });
+  const profileLink = sidebar.getByRole('link', { name: '人才画像', exact: true });
+  await expect(sidebar.locator('nav > a[href="#candidates"] + a')).toHaveAttribute(
+    'href',
+    '#talent-profiles',
+  );
+  await profileLink.click();
+  await expect(page).toHaveURL(/#talent-profiles$/);
+  await expect(profileLink).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: '人才画像', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '人才画像尚未接入' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '人才画像', exact: true })).toBeVisible();
+  await expect(profileLink).toHaveAttribute('aria-current', 'page');
+  await page.getByRole('button', { name: '返回招聘总览' }).click();
+  await expect(page.getByRole('heading', { name: '招聘总览', exact: true })).toBeVisible();
+});
+
 test('窄屏使用原型同款顶栏、飞书头像和遮罩侧栏', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 879, height: 738 });
   await login(page);
@@ -100,10 +121,12 @@ test('窄屏使用原型同款顶栏、飞书头像和遮罩侧栏', async ({ pa
   ).toBeLessThanOrEqual(344);
   await expect(drawer.getByText('AI 初面', { exact: true })).toBeVisible();
   await expect(drawer.getByText('企业背书', { exact: true })).toBeVisible();
+  await expect(drawer.locator('nav > a[href="#candidates"] + a')).toHaveText('人才画像');
   await page.screenshot({ path: testInfo.outputPath('招聘总览-移动侧栏.png'), fullPage: true });
 
-  await drawer.getByRole('link', { name: '今天' }).click();
+  await drawer.getByRole('link', { name: '人才画像' }).click();
   await expect(drawer).toBeHidden();
+  await expect(page.getByRole('heading', { name: '人才画像', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '打开飞书个人设置' }).click();
   const profileSettings = page.getByRole('dialog', { name: '个人设置' });
   await expect(profileSettings).toBeVisible();

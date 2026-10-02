@@ -11,6 +11,7 @@ import {
   Plus,
   Sparkles,
   UserRoundCheck,
+  UserRoundSearch,
   UsersRound,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -53,6 +54,7 @@ type Route =
   | 'today'
   | 'jobs'
   | 'candidates'
+  | 'talent-profiles'
   | 'interviews'
   | 'ai-screening'
   | 'question-bank'
@@ -64,6 +66,7 @@ const knownRoutes = new Set<Route>([
   'today',
   'jobs',
   'candidates',
+  'talent-profiles',
   'interviews',
   'ai-screening',
   'question-bank',
@@ -215,6 +218,7 @@ export default function App() {
       description: '查看你负责、协作或获授权的职位，明确每一次招聘的要求。',
     },
     candidates: { title: '候选人库', description: '候选人全生命周期与状态流转' },
+    'talent-profiles': { title: '人才画像', description: '人才画像功能待接入。' },
     interviews: { title: '面试管理', description: '面试安排与记录，一人可多轮' },
     'ai-screening': {
       title: 'AI 初面',
@@ -612,6 +616,7 @@ function SidebarPanel({
   const navigation = [
     { route: 'today' as const, label: '招聘总览', legacyLabel: '今天', icon: LayoutDashboard },
     { route: 'candidates' as const, label: '候选人库', legacyLabel: '候选人', icon: UsersRound },
+    { route: 'talent-profiles' as const, label: '人才画像', icon: UserRoundSearch },
     { route: 'jobs' as const, label: '职位管理', legacyLabel: '职位', icon: BriefcaseBusiness },
     { route: 'interviews' as const, label: '面试管理', legacyLabel: '面试', icon: CalendarDays },
     { route: 'ai-screening' as const, label: 'AI 初面', icon: Sparkles },
@@ -704,6 +709,11 @@ function UnavailablePage({
   >;
 }) {
   const messages: Record<typeof route, { icon: typeof Building2; title: string; body: string }> = {
+    'talent-profiles': {
+      icon: UserRoundSearch,
+      title: '人才画像尚未接入',
+      body: '目前可在候选人库查看已有档案；这里暂不生成或展示画像。',
+    },
     employees: {
       icon: UserRoundCheck,
       title: '在职人员管理尚未接通',
