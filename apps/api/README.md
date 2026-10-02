@@ -50,6 +50,8 @@ docker compose --env-file apps/api/.env up -d postgres
 
 工作台“面试题库”支持新增、查看、编辑、删除、关键词搜索，以及适用职位／考察维度／难度的组合筛选。题目内容必填，难度默认中等；适用职位为自由文本，考察维度与参考答案可留空。题目与参考答案最多各 10000 字，职位名称最多 120 字。
 
+新增或复制题目时可“保存并继续”：保存成功后清空题目内容和参考答案，保留职位、维度与难度；失败时保留输入并使用同一请求标识重试。复制会另建题目，不修改原题。职位输入会提示同组织题库中已有的名称，也可直接填写新名称。
+
 题目保存在 `QuestionTemplate`，同组织有效成员可读取，HR／招聘主管可维护；列表、职位筛选选项、统计和 CSV 导出均按当前组织隔离。删除只做软删除，操作人、动作与版本保存到 `QuestionTemplateEvent`。前端不保存独立题库副本。
 
 与 F17 数据基线的命名映射：`content` 对应 `question`，`dimension` 对应 `capability_label`，`deleted_at` 表示移出题库；本次按参考页面增加 `job_title`、`difficulty`、`reference_answer`。尚未建立 `InterviewGuide`／`GuideQuestion`。
@@ -57,7 +59,7 @@ docker compose --env-file apps/api/.env up -d postgres
 - `GET /api/v1/question-templates/` 返回 `{items, count, page, page_size, can_manage, job_titles}`，每页 20 条；支持 `q`、`job_title`、`dimension`、`difficulty`、`page`。
 - `POST /api/v1/question-templates/` 新增，提交 `content`、`job_title`、`dimension`、`difficulty`、`reference_answer` 和 UUID `request_key`；同一请求重试不重复建题。
 - `GET/PATCH/DELETE /api/v1/question-templates/:id/` 查看、编辑、软删除；编辑和删除须带当前 `version`，过期返回 409，不能覆盖他人的修改。
-- `GET /api/v1/question-templates/export/` 返回带 UTF-8 BOM 的 CSV，处理公式注入；支持与列表相同的筛选，但不受分页限制。网页“导出本模块”导出当前组织的完整有效题库。
+- `GET /api/v1/question-templates/export/` 返回带 UTF-8 BOM 的 CSV，处理公式注入；支持与列表相同的筛选，但不受分页限制。网页“导出全部”导出当前组织的完整有效题库；有筛选条件时可“导出筛选结果”，包含所有匹配题目，不仅是当前页。
 
 本次交付为题库管理。面试提纲、按场次固定题目版本与 AI 生成仍为后续能力，不因题库可用而视为已交付。
 

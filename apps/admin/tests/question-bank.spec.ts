@@ -45,7 +45,7 @@ function recordErrors(page: Page, testInfo: TestInfo) {
   };
 }
 
-test('题库新增和编辑真实保存，弹窗下拉支持点击与键盘并保留刷新结果', async ({ page }, testInfo) => {
+test('题库新增编辑和复制各自保存，弹窗下拉支持键盘且窄屏操作不溢出', async ({ page }, testInfo) => {
   const checkErrors = recordErrors(page, testInfo);
   const content = `创建验收 ${crypto.randomUUID()}：如何核实一个项目中的个人贡献？`;
   const answer = '请说明目标、本人职责、采取的行动和可验证结果。\n追问：哪些证据来自本人？';
@@ -60,7 +60,7 @@ test('题库新增和编辑真实保存，弹窗下拉支持点击与键盘并�
     });
   }
   await page.getByRole('button', { name: '新增题目', exact: true }).click();
-  const dialog = page.getByRole('dialog');
+  const dialog = page.locator('dialog.question-bank-dialog');
   await expect(dialog).toBeVisible();
   expect(
     await dialog.evaluate((element) => element.tagName === 'DIALOG' && element.matches(':modal')),
@@ -101,6 +101,7 @@ test('题库新增和编辑真实保存，弹窗下拉支持点击与键盘并�
     fullPage: true,
   });
   await row.getByRole('button', { name: '编辑', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: '保存并继续', exact: true })).toHaveCount(0);
   await expect(dialog.getByLabel('参考答案要点', { exact: true })).toHaveValue(answer);
   const editedAnswer = `${answer}\n补充：核对团队分工和本人交付物。`;
   await dialog.getByLabel('参考答案要点', { exact: true }).fill(editedAnswer);
@@ -112,8 +113,39 @@ test('题库新增和编辑真实保存，弹窗下拉支持点击与键盘并�
   await expect(dialog.getByLabel('题目内容', { exact: false })).toHaveValue(content);
   await expect(dialog.getByLabel('参考答案要点', { exact: true })).toHaveValue(editedAnswer);
   await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  const originalResponse = await page.request.get('/api/v1/question-templates/', {
+    params: { q: content },
+  });
+  const original = (await originalResponse.json()).items[0];
+  await row.getByRole('button', { name: '复制', exact: true }).click();
+  await expect(dialog).toHaveAccessibleName('复制题目');
+  await expect(dialog.getByLabel('题目内容', { exact: false })).toHaveValue(content);
+  await expect(dialog.getByLabel('参考答案要点', { exact: true })).toHaveValue(editedAnswer);
+  await expect(dialog.getByRole('button', { name: '保存并继续', exact: true })).toBeVisible();
+  const copiedContent = `复制验收-${crypto.randomUUID()}`;
+  const customJob = `自由输入职位-${crypto.randomUUID()}`;
+  await dialog.getByLabel('题目内容', { exact: false }).fill(copiedContent);
+  await dialog.getByLabel('适用职位', { exact: true }).fill(customJob);
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  const copiedResponse = await page.request.get('/api/v1/question-templates/', {
+    params: { q: copiedContent },
+  });
+  const copied = await copiedResponse.json();
+  expect(copied.count).toBe(1);
+  expect(copied.items[0]).toMatchObject({
+    content: copiedContent,
+    reference_answer: editedAnswer,
+    job_title: customJob,
+    dimension: '专业能力',
+    difficulty: '中等',
+  });
+  expect(copied.items[0].id).not.toBe(original.id);
+  const unchanged = await page.request.get(`/api/v1/question-templates/${original.id}/`);
+  expect(await unchanged.json()).toEqual(original);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: '新增题目', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: '保存并继续', exact: true })).toBeVisible();
   const mobileBox = await dialog.boundingBox();
   if (!mobileBox) throw new Error('窄屏新增题目弹窗应当可见。');
   expect(mobileBox.x).toBeGreaterThanOrEqual(0);
@@ -125,7 +157,9 @@ test('题库新增和编辑真实保存，弹窗下拉支持点击与键盘并�
   await checkErrors();
 });
 
-test('题库组合筛选、重置和无匹配真实生效，导出包含筛选外的完整题目', async ({ page }, testInfo) => {
+test('题库组合筛选和重置真实生效，筛选导出与全部导出各自包含正确题目', async ({
+  page,
+}, testInfo) => {
   const checkErrors = recordErrors(page, testInfo);
   await login(page);
   const run = `筛选验收-${crypto.randomUUID()}`;
@@ -140,6 +174,7 @@ test('题库组合筛选、重置和无匹配真实生效，导出包含筛选�
   ];
   for (const values of rows) await createQuestion(page, values);
   await page.getByRole('link', { name: '面试题库', exact: true }).click();
+  await expect(page.getByRole('button', { name: '导出筛选结果', exact: true })).toHaveCount(0);
   const search = page.getByRole('searchbox', { name: '搜索题目', exact: true });
   await search.fill(`${run}匹配`);
   for (const [label, value] of [
@@ -155,8 +190,22 @@ test('题库组合筛选、重置和无匹配真实生效，导出包含筛选�
   });
   await expect(dataRows).toHaveCount(1);
   await expect(dataRows).toContainText(rows[0].content);
+  await page.screenshot({
+    path: testInfo.outputPath('面试题库-筛选与两种导出-1596x1476.png'),
+    fullPage: true,
+  });
+  const filteredDownloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '导出筛选结果', exact: true }).click();
+  const filteredDownload = await filteredDownloadPromise;
+  expect(filteredDownload.suggestedFilename()).toBe('面试题库-筛选结果.csv');
+  const filteredCsvPath = testInfo.outputPath('面试题库-筛选结果.csv');
+  await filteredDownload.saveAs(filteredCsvPath);
+  const filteredCsv = await readFile(filteredCsvPath, 'utf8');
+  expect(filteredCsv).toContain(rows[0].content);
+  expect(filteredCsv).toContain(fullAnswer.replaceAll('"', '""'));
+  for (const values of rows.slice(1)) expect(filteredCsv).not.toContain(values.content);
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: '导出本模块', exact: true }).click();
+  await page.getByRole('button', { name: '导出全部', exact: true }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe('面试题库.csv');
   const csvPath = testInfo.outputPath('面试题库-完整导出.csv');
@@ -166,9 +215,16 @@ test('题库组合筛选、重置和无匹配真实生效，导出包含筛选�
   expect(csv).toContain(fullAnswer.replaceAll('"', '""'));
   await page.getByRole('button', { name: '重置', exact: true }).click();
   await expect(search).toHaveValue('');
-  for (const label of ['适用职位筛选', '考察维度筛选', '难度筛选']) {
-    await expect(page.getByRole('combobox', { name: label, exact: true })).toContainText('全部');
+  for (const [label, placeholder] of [
+    ['适用职位筛选', '全部职位'],
+    ['考察维度筛选', '全部维度'],
+    ['难度筛选', '全部难度'],
+  ]) {
+    await expect(page.getByRole('combobox', { name: label, exact: true })).toContainText(
+      placeholder,
+    );
   }
+  await expect(page.getByRole('button', { name: '导出筛选结果', exact: true })).toHaveCount(0);
   await search.fill(run);
   await expect(dataRows).toHaveCount(5);
   await search.fill(`不存在的题目-${crypto.randomUUID()}`);
@@ -177,15 +233,25 @@ test('题库组合筛选、重置和无匹配真实生效，导出包含筛选�
   await checkErrors();
 });
 
-test('题目保存失败保留输入可重试，删除须确认且刷新后不再出现', async ({ page }, testInfo) => {
+test('职位联想可键盘选择，连续保存保留分类且失败重试不重复，删除须确认', async ({
+  page,
+}, testInfo) => {
   const checkErrors = recordErrors(page, testInfo);
   await login(page);
   const content = `失败重试验收-${crypto.randomUUID()}`;
+  const secondContent = `连续录入验收-${crypto.randomUUID()}`;
   const answer = '这是失败后必须完整保留的参考答案。';
+  const job = `联想选用岗-${crypto.randomUUID()}`;
+  await createQuestion(page, { content: '职位联想用的虚构题目', job_title: job });
+  const submitted: Array<{ request_key: string; content: string }> = [];
   let failed = false;
   await page.route('**/api/v1/question-templates/', async (route) => {
+    if (route.request().method() === 'POST') submitted.push(route.request().postDataJSON());
     if (route.request().method() === 'POST' && !failed) {
       failed = true;
+      // 后端已写入但页面未收到成功响应；重试同一请求不能多建一题。
+      const committed = await route.fetch();
+      expect(committed.ok(), await committed.text()).toBeTruthy();
       await route.fulfill({
         status: 503,
         json: { errors: { detail: '题目暂时未保存，请重试。' } },
@@ -196,23 +262,83 @@ test('题目保存失败保留输入可重试，删除须确认且刷新后不�
   });
   await page.getByRole('link', { name: '面试题库', exact: true }).click();
   await page.getByRole('button', { name: '新增题目', exact: true }).click();
-  const dialog = page.getByRole('dialog');
+  const dialog = page.locator('dialog.question-bank-dialog');
   await dialog.getByLabel('题目内容', { exact: false }).fill(content);
+  const jobInput = dialog.getByLabel('适用职位', { exact: true });
+  await jobInput.fill(job.slice(0, -3));
+  await expect(page.getByRole('option', { name: job })).toBeVisible();
+  await jobInput.press('ArrowDown');
+  await jobInput.press('Enter');
+  await expect(jobInput).toHaveValue(job);
+  await expect(dialog).toBeVisible();
+  for (const [label, value] of [
+    ['考察维度', '团队协作'],
+    ['难度', '困难'],
+  ]) {
+    await dialog.getByRole('combobox', { name: label, exact: true }).click();
+    await page.getByRole('option', { name: value }).click();
+  }
   await dialog.getByLabel('参考答案要点', { exact: true }).fill(answer);
-  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await dialog.getByRole('button', { name: '保存并继续', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('题目暂时未保存，请重试。');
   await expect(dialog.getByLabel('题目内容', { exact: false })).toHaveValue(content);
   await expect(dialog.getByLabel('参考答案要点', { exact: true })).toHaveValue(answer);
+  await expect(jobInput).toHaveValue(job);
+  await expect(dialog.getByRole('combobox', { name: '考察维度', exact: true })).toContainText(
+    '团队协作',
+  );
+  await expect(dialog.getByRole('combobox', { name: '难度', exact: true })).toContainText('困难');
   const beforeRetry = await page.request.get('/api/v1/question-templates/', {
     params: { q: content },
   });
-  expect((await beforeRetry.json()).count).toBe(0);
-  await dialog.getByRole('button', { name: '保存', exact: true }).click();
-  await expect(dialog).not.toBeVisible();
+  const committedResult = await beforeRetry.json();
+  expect(committedResult.count).toBe(1);
+  expect(committedResult.items[0]).toMatchObject({
+    job_title: job,
+    dimension: '团队协作',
+    difficulty: '困难',
+  });
+  await dialog.getByRole('button', { name: '保存并继续', exact: true }).click();
+  await expect(dialog.getByLabel('题目内容', { exact: false })).toHaveValue('');
+  await expect(dialog.getByLabel('参考答案要点', { exact: true })).toHaveValue('');
+  await expect(jobInput).toHaveValue(job);
+  await expect(dialog.getByRole('combobox', { name: '考察维度', exact: true })).toContainText(
+    '团队协作',
+  );
+  await expect(dialog.getByRole('combobox', { name: '难度', exact: true })).toContainText('困难');
+  await expect(dialog.getByLabel('题目内容', { exact: false })).toBeFocused();
+  expect(submitted).toHaveLength(2);
+  expect(submitted[0].request_key).toBe(submitted[1].request_key);
   const saved = await page.request.get('/api/v1/question-templates/', { params: { q: content } });
   const result = await saved.json();
   expect(result.count).toBe(1);
+  expect(result.items[0].id).toBe(committedResult.items[0].id);
   expect(result.items[0].reference_answer).toBe(answer);
+  await dialog.getByLabel('题目内容', { exact: false }).fill(secondContent);
+  await dialog.getByLabel('参考答案要点', { exact: true }).fill('第二题的独立参考答案。');
+  await dialog.getByRole('button', { name: '保存并继续', exact: true }).click();
+  await expect(dialog.getByLabel('题目内容', { exact: false })).toHaveValue('');
+  await expect(dialog.getByLabel('参考答案要点', { exact: true })).toHaveValue('');
+  expect(submitted).toHaveLength(3);
+  expect(submitted[2].request_key).not.toBe(submitted[1].request_key);
+  const secondSaved = await page.request.get('/api/v1/question-templates/', {
+    params: { q: secondContent },
+  });
+  const secondResult = await secondSaved.json();
+  expect(secondResult.count).toBe(1);
+  expect(secondResult.items[0]).toMatchObject({
+    content: secondContent,
+    reference_answer: '第二题的独立参考答案。',
+    job_title: job,
+    dimension: '团队协作',
+    difficulty: '困难',
+  });
+  await page.screenshot({
+    path: testInfo.outputPath('面试题库-保存并继续-1596x1476.png'),
+    fullPage: true,
+  });
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
   await page.getByRole('searchbox', { name: '搜索题目', exact: true }).fill(content);
   const row = page.getByRole('row').filter({ hasText: content });
   const cancelledPrompt = page.waitForEvent('dialog');
@@ -257,6 +383,7 @@ test('只读角色可查看导出但不能写入，窄屏列表和详情不溢�
     expect(result.items.some((item: { id: number }) => item.id === question.id)).toBe(true);
     await expect(reader.getByRole('button', { name: '新增题目', exact: true })).toHaveCount(0);
     await expect(reader.getByRole('button', { name: '编辑', exact: true })).toHaveCount(0);
+    await expect(reader.getByRole('button', { name: '复制', exact: true })).toHaveCount(0);
     await expect(reader.getByRole('button', { name: '删除', exact: true })).toHaveCount(0);
     await reader.getByRole('searchbox', { name: '搜索题目', exact: true }).fill(content);
     const row = reader.getByRole('row').filter({ hasText: content });
@@ -269,13 +396,13 @@ test('只读角色可查看导出但不能写入，窄屏列表和详情不溢�
       fullPage: true,
     });
     const downloadPromise = reader.waitForEvent('download');
-    await reader.getByRole('button', { name: '导出本模块', exact: true }).click();
+    await reader.getByRole('button', { name: '导出全部', exact: true }).click();
     const download = await downloadPromise;
     const csvPath = testInfo.outputPath('面试题库-只读导出.csv');
     await download.saveAs(csvPath);
     expect(await readFile(csvPath, 'utf8')).toContain(answer);
     await row.getByRole('button', { name: '查看', exact: true }).click();
-    const dialog = reader.getByRole('dialog');
+    const dialog = reader.locator('dialog.question-bank-dialog');
     await expect(dialog).toContainText(content);
     await expect(dialog).toContainText(answer);
     const box = await dialog.boundingBox();

@@ -2,6 +2,15 @@
   min-width: 0;
 }
 
+.question-bank .page-heading,
+.question-bank .page-actions {
+  flex-wrap: wrap;
+}
+
+.question-bank .page-actions {
+  max-width: 100%;
+}
+
 .question-bank-notice {
   margin-bottom: 12px;
   color: var(--primary);
@@ -122,7 +131,7 @@
 }
 
 .question-bank-table th:last-child {
-  width: 178px;
+  width: 222px;
 }
 
 .question-bank-table tbody tr:last-child td {
@@ -227,6 +236,47 @@
 
 .question-bank-dialog-body [data-slot="input"] {
   height: 42px;
+}
+
+.question-bank-job-title,
+.question-bank-job-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.question-bank-job-input {
+  position: relative;
+}
+
+.question-bank-job-input input {
+  padding-right: 38px;
+  border-radius: 10px;
+}
+
+.question-bank-job-input > svg {
+  position: absolute;
+  top: 14px;
+  right: 13px;
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+.question-bank-job-options .semi-autocomplete-option {
+  min-height: 38px;
+  margin: 2px 4px;
+  border-radius: 7px;
+}
+
+.question-bank-job-options .semi-autocomplete-option-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.question-bank-form-notice {
+  color: var(--primary);
+  font-size: 13px;
 }
 
 .question-bank-dialog-body textarea {

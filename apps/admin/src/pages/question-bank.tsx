@@ -1,5 +1,6 @@
+import AutoComplete from '@douyinfe/semi-ui/lib/es/autoComplete';
 import Select from '@douyinfe/semi-ui/lib/es/select';
-import { Download, Inbox, Plus, Search, X } from 'lucide-react';
+import { ChevronDown, Download, Inbox, Plus, Search, X } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -49,6 +50,7 @@ type QuestionModal = {
   initial: QuestionDraft;
   request_key: string;
   readOnly: boolean;
+  isCopy: boolean;
 };
 const emptyFilters = { q: '', job_title: '', dimension: '', difficulty: '' };
 
@@ -63,10 +65,15 @@ export function QuestionBank() {
   const [notice, setNotice] = useState('');
   const [modal, setModal] = useState<QuestionModal | null>(null);
   const [formError, setFormError] = useState('');
+  const [formNotice, setFormNotice] = useState('');
   const [busy, setBusy] = useState('');
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
   const busyRef = useRef(false);
-  const dirty = modal !== null && JSON.stringify(modal.draft) !== JSON.stringify(modal.initial);
+  const modalRequestKey = modal?.request_key;
+  const dirty =
+    modal !== null &&
+    (modal.isCopy || JSON.stringify(modal.draft) !== JSON.stringify(modal.initial));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -115,6 +122,10 @@ export function QuestionBank() {
   }, [modal]);
 
   useEffect(() => {
+    if (modalRequestKey) contentRef.current?.focus();
+  }, [modalRequestKey]);
+
+  useEffect(() => {
     if (!dirty) return;
     const preventUnload = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener('beforeunload', preventUnload);
@@ -126,7 +137,7 @@ export function QuestionBank() {
     setPage(1);
   }
 
-  function openQuestion(question?: Question, readOnly = false) {
+  function openQuestion(question?: Question, mode: 'edit' | 'view' | 'copy' = 'edit') {
     const draft: QuestionDraft = {
       content: question?.content ?? '',
       job_title: question?.job_title ?? '',
@@ -135,7 +146,15 @@ export function QuestionBank() {
       reference_answer: question?.reference_answer ?? '',
     };
     setFormError('');
-    setModal({ question, draft, initial: draft, request_key: crypto.randomUUID(), readOnly });
+    setFormNotice('');
+    setModal({
+      question: mode === 'copy' ? undefined : question,
+      draft,
+      initial: draft,
+      request_key: crypto.randomUUID(),
+      readOnly: mode === 'view',
+      isCopy: mode === 'copy',
+    });
   }
 
   function closeModal() {
@@ -154,6 +173,9 @@ export function QuestionBank() {
   async function saveQuestion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!modal || modal.readOnly || !data?.can_manage || busyRef.current) return;
+    const continueAdding =
+      !modal.question &&
+      (event.nativeEvent as SubmitEvent).submitter?.getAttribute('value') === 'continue';
     if (!modal.draft.content.trim()) {
       setFormError('请填写题目内容。');
       return;
@@ -161,6 +183,7 @@ export function QuestionBank() {
     busyRef.current = true;
     setBusy('save');
     setFormError('');
+    setFormNotice('');
     setActionError('');
     setNotice('');
     try {
@@ -183,7 +206,19 @@ export function QuestionBank() {
         setPage(1);
       }
       setNotice(modal.question ? '题目已更新。' : '题目已新增。');
-      setModal(null);
+      if (continueAdding) {
+        const nextDraft = { ...draft, content: '', reference_answer: '' };
+        setModal({
+          draft: nextDraft,
+          initial: nextDraft,
+          request_key: crypto.randomUUID(),
+          readOnly: false,
+          isCopy: false,
+        });
+        setFormNotice('题目已保存，可以继续录入下一题。');
+      } else {
+        setModal(null);
+      }
       setRevision((current) => current + 1);
     } catch (error) {
       setFormError((error as Error).message);
@@ -218,15 +253,19 @@ export function QuestionBank() {
     }
   }
 
-  async function exportModule() {
+  async function exportModule(filtered = false) {
     if (busyRef.current) return;
     busyRef.current = true;
-    setBusy('export');
+    setBusy(filtered ? 'export-filtered' : 'export');
     setActionError('');
     setNotice('');
     try {
-      await downloadApi('question-templates/export/', '面试题库.csv');
-      setNotice('已导出当前可访问的全部题目。');
+      const query = filtered ? `?${new URLSearchParams({ ...filters, q: filters.q.trim() })}` : '';
+      await downloadApi(
+        `question-templates/export/${query}`,
+        filtered ? '面试题库-筛选结果.csv' : '面试题库.csv',
+      );
+      setNotice(filtered ? '已导出所有符合当前筛选条件的题目。' : '已导出当前可访问的全部题目。');
     } catch (error) {
       setActionError((error as Error).message);
     } finally {
@@ -237,9 +276,14 @@ export function QuestionBank() {
 
   const hasFilters = Object.values(filters).some((value) => value.trim());
   const filterOptions = [
-    { key: 'job_title', label: '适用职位筛选', options: data?.job_titles ?? [] },
-    { key: 'dimension', label: '考察维度筛选', options: dimensions },
-    { key: 'difficulty', label: '难度筛选', options: difficulties },
+    {
+      key: 'job_title',
+      label: '适用职位筛选',
+      allLabel: '全部职位',
+      options: data?.job_titles ?? [],
+    },
+    { key: 'dimension', label: '考察维度筛选', allLabel: '全部维度', options: dimensions },
+    { key: 'difficulty', label: '难度筛选', allLabel: '全部难度', options: difficulties },
   ] as const;
 
   return (
@@ -257,8 +301,18 @@ export function QuestionBank() {
             onClick={() => void exportModule()}
           >
             <Download data-icon="inline-start" />
-            {busy === 'export' ? '导出中…' : '导出本模块'}
+            {busy === 'export' ? '导出中…' : '导出全部'}
           </Button>
+          {hasFilters && (
+            <Button
+              variant="outline"
+              disabled={!data || loading || !!loadError || !!busy}
+              onClick={() => void exportModule(true)}
+            >
+              <Download data-icon="inline-start" />
+              {busy === 'export-filtered' ? '导出中…' : '导出筛选结果'}
+            </Button>
+          )}
           {data?.can_manage && (
             <Button disabled={!!busy} onClick={() => openQuestion()}>
               <Plus data-icon="inline-start" />
@@ -287,7 +341,7 @@ export function QuestionBank() {
               onChange={(event) => changeFilter('q', event.target.value)}
             />
           </div>
-          {filterOptions.map(({ key, label, options }) => (
+          {filterOptions.map(({ key, label, allLabel, options }) => (
             <div className="question-bank-filter" key={key}>
               <span className="sr-only" id={`question-filter-${key}`}>
                 {label}
@@ -299,10 +353,10 @@ export function QuestionBank() {
                 value={filters[key]}
                 clickToHide
                 optionList={[
-                  { value: '', label: '全部' },
+                  { value: '', label: allLabel },
                   ...options.map((value) => ({ value, label: value })),
                 ]}
-                onChange={(value) => changeFilter(key, typeof value === 'string' ? value : '')}
+                onSelect={(value) => changeFilter(key, typeof value === 'string' ? value : '')}
               />
             </div>
           ))}
@@ -345,7 +399,7 @@ export function QuestionBank() {
                         <button
                           type="button"
                           className="question-bank-question"
-                          onClick={() => openQuestion(question, true)}
+                          onClick={() => openQuestion(question, 'view')}
                         >
                           {question.content}
                         </button>
@@ -363,7 +417,7 @@ export function QuestionBank() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => openQuestion(question, true)}
+                            onClick={() => openQuestion(question, 'view')}
                           >
                             查看
                           </Button>
@@ -376,6 +430,14 @@ export function QuestionBank() {
                                 onClick={() => openQuestion(question)}
                               >
                                 编辑
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={!!busy}
+                                onClick={() => openQuestion(question, 'copy')}
+                              >
+                                复制
                               </Button>
                               <Button
                                 size="sm"
@@ -428,7 +490,13 @@ export function QuestionBank() {
           <form onSubmit={(event) => void saveQuestion(event)}>
             <div className="question-bank-dialog-heading">
               <h2 id="question-dialog-title">
-                {modal.readOnly ? '查看题目' : modal.question ? '编辑题目' : '新增题目'}
+                {modal.readOnly
+                  ? '查看题目'
+                  : modal.question
+                    ? '编辑题目'
+                    : modal.isCopy
+                      ? '复制题目'
+                      : '新增题目'}
               </h2>
               <Button
                 type="button"
@@ -442,6 +510,11 @@ export function QuestionBank() {
               </Button>
             </div>
             <div className="question-bank-dialog-body">
+              {formNotice && (
+                <p className="question-bank-form-notice" role="status">
+                  {formNotice}
+                </p>
+              )}
               {formError && (
                 <Alert variant="destructive">
                   <AlertDescription>{formError}</AlertDescription>
@@ -480,6 +553,7 @@ export function QuestionBank() {
                         题目内容 <span className="question-bank-required">*</span>
                       </FieldLabel>
                       <Textarea
+                        ref={contentRef}
                         id="question-content"
                         required
                         autoFocus
@@ -492,12 +566,36 @@ export function QuestionBank() {
                     <div className="question-bank-form-columns">
                       <Field>
                         <FieldLabel htmlFor="question-job-title">适用职位</FieldLabel>
-                        <Input
-                          id="question-job-title"
-                          maxLength={120}
-                          placeholder="填职位名称，如：招聘专员"
+                        <AutoComplete
+                          className="question-bank-job-title"
+                          dropdownClassName="question-bank-job-options"
+                          data={(data?.job_titles ?? []).filter((title) =>
+                            title
+                              .toLocaleLowerCase()
+                              .includes(modal.draft.job_title.trim().toLocaleLowerCase()),
+                          )}
                           value={modal.draft.job_title}
-                          onChange={(event) => changeDraft('job_title', event.target.value)}
+                          disabled={busy === 'save'}
+                          maxHeight={220}
+                          getPopupContainer={() => dialogRef.current ?? document.body}
+                          onChange={(value) =>
+                            changeDraft('job_title', String(value).slice(0, 120))
+                          }
+                          triggerRender={({ inputValue, onChange, onFocus, onBlur }) => (
+                            <div className="question-bank-job-input">
+                              <Input
+                                id="question-job-title"
+                                maxLength={120}
+                                placeholder="填写或选择已有职位"
+                                disabled={busy === 'save'}
+                                value={inputValue}
+                                onChange={(event) => onChange(event.target.value)}
+                                onFocus={onFocus}
+                                onBlur={onBlur}
+                              />
+                              <ChevronDown aria-hidden="true" />
+                            </div>
+                          )}
                         />
                       </Field>
                       <Field>
@@ -518,7 +616,7 @@ export function QuestionBank() {
                             { value: '', label: '请选择' },
                             ...dimensions.map((value) => ({ value, label: value })),
                           ]}
-                          onChange={(value) =>
+                          onSelect={(value) =>
                             changeDraft('dimension', typeof value === 'string' ? value : '')
                           }
                         />
@@ -537,7 +635,7 @@ export function QuestionBank() {
                           clickToHide
                           getPopupContainer={() => dialogRef.current ?? document.body}
                           optionList={difficulties.map((value) => ({ value, label: value }))}
-                          onChange={(value) =>
+                          onSelect={(value) =>
                             changeDraft('difficulty', typeof value === 'string' ? value : '中等')
                           }
                         />
@@ -568,6 +666,11 @@ export function QuestionBank() {
               {!modal.readOnly && (
                 <Button type="submit" disabled={busy === 'save'}>
                   {busy === 'save' ? '保存中…' : '保存'}
+                </Button>
+              )}
+              {!modal.readOnly && !modal.question && (
+                <Button type="submit" variant="outline" value="continue" disabled={busy === 'save'}>
+                  保存并继续
                 </Button>
               )}
             </div>
