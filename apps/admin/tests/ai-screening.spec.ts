@@ -28,6 +28,16 @@ const savedAnalysis = {
   follow_up_direction: '重点核实测试样本来源与个人负责的实现细节。',
   limitations: '请结合原始项目材料人工复核。',
 };
+const savedQuestionDraft = {
+  index: 0,
+  content: savedAnalysis.questions[0].question,
+  job_title: savedAnalysis.job_title,
+  dimension: '',
+  difficulty: '中等',
+  reference_answer: savedAnalysis.questions[0].answer_points.join('\n'),
+  saved: false,
+  deleted: false,
+};
 
 test.beforeEach(async ({ page }) => {
   await page.route(screeningCollection, (route) =>
@@ -149,7 +159,7 @@ test('初面提纲包含题目、追问和回答要点，重新分析失败可�
   await expect(page.locator('.ai-result-content')).toContainText('待复核');
   await expect(page.locator('.ai-report-score')).toContainText('—');
   await expect(page.locator('.ai-result-content')).not.toContainText('undefined');
-  await expect(page.getByRole('button', { name: '一键存入面试题库' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '挑选题目入库' })).toBeDisabled();
   await page.getByRole('button', { name: '复制提纲' }).click();
   await expect(page.locator('.ai-result-content').getByRole('status')).toContainText(
     '已复制面试提纲',
@@ -190,7 +200,8 @@ test('完整分析按参考结构呈现，题目经确认入库且失败可重�
   );
   await page.route('**/api/v1/ai-screenings/901/questions/', async (route) => {
     expect(route.request().method()).toBe('POST');
-    expect(route.request().postDataJSON()).toEqual({ confirmed: true });
+    const { saved: _saved, deleted: _deleted, ...question } = savedQuestionDraft;
+    expect(route.request().postDataJSON()).toEqual({ confirmed: true, questions: [question] });
     saveRequests += 1;
     if (saveRequests === 1) {
       await savePending;
@@ -199,6 +210,16 @@ test('完整分析按参考结构呈现，题目经确认入库且失败可重�
     savedCount = 1;
     return route.fulfill({ json: { saved_question_count: 1, question_ids: [1001] } });
   });
+  await page.route('**/api/v1/ai-screenings/901/', (route) =>
+    route.fulfill({
+      json: {
+        ...savedAnalysis,
+        saved_question_count: savedCount,
+        questions_saved: savedCount > 0,
+        question_drafts: [{ ...savedQuestionDraft, saved: savedCount > 0 }],
+      },
+    }),
+  );
   await login(page);
   await page.getByRole('link', { name: 'AI 初面' }).click();
   await page.getByRole('textbox', { name: '简历内容' }).fill('虚构简历：开发内部检索工具。');
@@ -226,27 +247,37 @@ test('完整分析按参考结构呈现，题目经确认入库且失败可重�
   await expect(result).toContainText(savedAnalysis.follow_up_direction);
   await expect(result.getByRole('button', { name: '复制提纲' })).toBeEnabled();
 
-  const save = result.getByRole('button', { name: '一键存入面试题库' });
+  const save = result.getByRole('button', { name: '挑选题目入库' });
   await save.click();
-  const confirmation = page.getByRole('dialog', { name: '存入面试题库' });
-  await expect(confirmation).toContainText('组织面试题库');
-  await expect(confirmation).toContainText('个人信息');
-  await confirmation.getByRole('button', { name: '取消', exact: true }).click();
+  const confirmation = page.locator('dialog.ai-question-selection-dialog');
+  await expect(confirmation).toContainText('本组织题库');
+  await confirmation.getByRole('button', { name: '关闭', exact: true }).click();
   await expect(confirmation).toBeHidden();
   expect(saveRequests).toBe(0);
   await save.click();
-  await confirmation.getByRole('button', { name: '确认存入', exact: true }).click();
+  await confirmation.getByRole('checkbox', { name: '第 1 题', exact: true }).check();
+  await confirmation.getByRole('button', { name: '预览已选题目（1）', exact: true }).click();
+  await expect(confirmation).toHaveAccessibleName('预览入库题目');
+  await expect(confirmation).toContainText('本组织有题库查看权限的成员可见');
+  await confirmation.getByRole('button', { name: '确认存入（1 题）', exact: true }).click();
   await expect(confirmation.getByRole('button', { name: '正在存入…' })).toBeDisabled();
-  await expect(confirmation.getByRole('button', { name: '取消', exact: true })).toBeDisabled();
+  await expect(confirmation.getByRole('button', { name: '返回修改', exact: true })).toBeDisabled();
   await confirmation.press('Escape');
   await expect(confirmation).toBeVisible();
   releaseSave();
-  await expect(confirmation.getByRole('alert')).toContainText('题库保存失败，请重试。');
-  await expect(result.locator('article')).toContainText(savedAnalysis.questions[0].question);
-  await confirmation.getByRole('button', { name: '确认存入', exact: true }).click();
+  await expect(confirmation.getByRole('alert').filter({ hasText: '操作暂未完成' })).toContainText(
+    '题库保存失败，请重试。',
+  );
+  await expect(result.getByRole('article', { name: '第 1 题', includeHidden: true })).toContainText(
+    savedAnalysis.questions[0].question,
+  );
+  await confirmation.getByRole('button', { name: '确认存入（1 题）', exact: true }).click();
+  await expect(confirmation.getByRole('status')).toContainText('已存入 1 道题');
+  await expect(confirmation.getByRole('checkbox', { name: '第 1 题', exact: true })).toBeDisabled();
+  await confirmation.getByRole('button', { name: '关闭', exact: true }).click();
   await expect(confirmation).toBeHidden();
   await expect(result.getByRole('alert')).toHaveCount(0);
-  await expect(result.getByRole('button', { name: /已存入题库/ })).toBeDisabled();
+  await expect(result.getByRole('button', { name: '挑选题目入库' })).toBeEnabled();
   expect(saveRequests).toBe(2);
   const bankLink = result.getByRole('link', { name: '查看面试题库' });
   await expect(bankLink).toHaveCSS('display', 'inline-block');
@@ -557,13 +588,13 @@ test('附件识别失败保留简历和已有报告，成功替换附件才清�
     mimeType: 'application/pdf',
     buffer: Buffer.from('fake PDF'),
   });
-  await expect(result.getByRole('button', { name: '一键存入面试题库' })).toBeDisabled();
+  await expect(result.getByRole('button', { name: '挑选题目入库' })).toBeDisabled();
   await expect(result).toContainText(savedAnalysis.summary);
   releaseImport();
   await expect(page.getByRole('alert')).toContainText('附件识别暂时失败');
   await expect(editor).toHaveText('原有虚构简历：开发内部检索工具。');
   await expect(result).toContainText(savedAnalysis.summary);
-  await expect(result.getByRole('button', { name: '一键存入面试题库' })).toBeEnabled();
+  await expect(result.getByRole('button', { name: '挑选题目入库' })).toBeEnabled();
   await expect(page.getByRole('button', { name: '重新分析', exact: true })).toBeEnabled();
   await page.getByLabel('导入简历附件').setInputFiles({
     name: 'new-resume.txt',
@@ -583,7 +614,12 @@ test('历史题目全部在题库删除后不允许再次入库，仍可前往�
   );
   await page.route('**/api/v1/ai-screenings/901/', (route) =>
     route.fulfill({
-      json: { ...savedAnalysis, questions_saved: true, saved_question_count: 0 },
+      json: {
+        ...savedAnalysis,
+        questions_saved: true,
+        saved_question_count: 0,
+        question_drafts: [{ ...savedQuestionDraft, deleted: true }],
+      },
     }),
   );
   await login(page);
@@ -593,10 +629,14 @@ test('历史题目全部在题库删除后不允许再次入库，仍可前往�
     .getByRole('button', { name: '查看', exact: true })
     .click();
   const result = page.locator('.ai-result-content');
+  await result.getByRole('button', { name: '挑选题目入库', exact: true }).click();
+  const selection = page.locator('dialog.ai-question-selection-dialog');
+  await expect(selection.getByRole('checkbox', { name: '第 1 题', exact: true })).toBeDisabled();
+  await expect(selection).toContainText('已从题库删除，不可重复入库');
   await expect(
-    result.getByRole('button', { name: '已入库（题库中的题目已删除）', exact: true }),
+    selection.getByRole('button', { name: '预览已选题目（0）', exact: true }),
   ).toBeDisabled();
-  await expect(result.getByRole('button', { name: '一键存入面试题库' })).toHaveCount(0);
+  await selection.getByRole('button', { name: '关闭', exact: true }).click();
   await expect(result.getByRole('link', { name: '查看面试题库' })).toHaveAttribute(
     'href',
     '#question-bank',

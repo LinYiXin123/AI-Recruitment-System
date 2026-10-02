@@ -6,6 +6,7 @@ import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Empty,
   EmptyDescription,
@@ -17,6 +18,7 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError, api, downloadApi } from '@/lib/api';
+import { type GuideEntry, QuestionGuide } from './question-guide';
 import './question-bank.css';
 
 const dimensions = [
@@ -67,6 +69,9 @@ export function QuestionBank() {
   const [formError, setFormError] = useState('');
   const [formNotice, setFormNotice] = useState('');
   const [busy, setBusy] = useState('');
+  const [guideEntries, setGuideEntries] = useState<GuideEntry[]>([]);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const hasGuide = guideEntries.length > 0;
   const dialogRef = useRef<HTMLDialogElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const busyRef = useRef(false);
@@ -126,11 +131,11 @@ export function QuestionBank() {
   }, [modalRequestKey]);
 
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty && !hasGuide) return;
     const preventUnload = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener('beforeunload', preventUnload);
     return () => window.removeEventListener('beforeunload', preventUnload);
-  }, [dirty]);
+  }, [dirty, hasGuide]);
 
   function changeFilter(key: keyof typeof filters, value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -244,6 +249,7 @@ export function QuestionBank() {
         'DELETE',
       );
       setNotice('题目已删除。');
+      setGuideEntries((current) => current.filter((entry) => entry.id !== question.id));
       setRevision((current) => current + 1);
     } catch (error) {
       setActionError((error as Error).message);
@@ -275,6 +281,8 @@ export function QuestionBank() {
   }
 
   const hasFilters = Object.values(filters).some((value) => value.trim());
+  const selectedIds = new Set(guideEntries.map((entry) => entry.id));
+  const selectedOnPage = data?.items.filter((question) => selectedIds.has(question.id)).length ?? 0;
   const filterOptions = [
     {
       key: 'job_title',
@@ -294,6 +302,13 @@ export function QuestionBank() {
           <p>按职位与考察维度分类管理</p>
         </div>
         <div className="page-actions">
+          <Button
+            variant="outline"
+            disabled={!hasGuide || !!busy}
+            onClick={() => setGuideOpen(true)}
+          >
+            整理面试提纲（{guideEntries.length}）
+          </Button>
           <Button
             variant="outline"
             disabled={!data || !!busy}
@@ -328,6 +343,20 @@ export function QuestionBank() {
         </p>
       )}
       {actionError && <ErrorNotice message={actionError} />}
+      {hasGuide && (
+        <div className="question-bank-selection">
+          <span>已选 {guideEntries.length} 题，切换筛选和分页后保留。</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              if (window.confirm('确定清空已选题目和临时追问吗？')) setGuideEntries([]);
+            }}
+          >
+            清空选择
+          </Button>
+        </div>
+      )}
       <div className="question-bank-panel">
         <div className="question-bank-filters">
           <div className="question-bank-search">
@@ -385,6 +414,28 @@ export function QuestionBank() {
                 <caption className="sr-only">面试题库题目列表</caption>
                 <thead>
                   <tr>
+                    <th scope="col" className="question-bank-select-column">
+                      <Checkbox
+                        aria-label="全选本页题目"
+                        checked={selectedOnPage === data.items.length}
+                        indeterminate={selectedOnPage > 0 && selectedOnPage < data.items.length}
+                        onCheckedChange={(checked) =>
+                          setGuideEntries((current) =>
+                            checked
+                              ? [
+                                  ...current,
+                                  ...data.items
+                                    .filter((question) => !selectedIds.has(question.id))
+                                    .map((question) => ({ ...question, follow_up: '' })),
+                                ]
+                              : current.filter(
+                                  (entry) =>
+                                    !data.items.some((question) => question.id === entry.id),
+                                ),
+                          )
+                        }
+                      />
+                    </th>
                     <th scope="col">题目内容</th>
                     <th scope="col">适用职位</th>
                     <th scope="col">考察维度</th>
@@ -395,6 +446,19 @@ export function QuestionBank() {
                 <tbody>
                   {data.items.map((question) => (
                     <tr key={question.id}>
+                      <td className="question-bank-select-column">
+                        <Checkbox
+                          aria-label={`选择题目：${question.content}`}
+                          checked={selectedIds.has(question.id)}
+                          onCheckedChange={(checked) =>
+                            setGuideEntries((current) =>
+                              checked
+                                ? [...current, { ...question, follow_up: '' }]
+                                : current.filter((entry) => entry.id !== question.id),
+                            )
+                          }
+                        />
+                      </td>
                       <td>
                         <button
                           type="button"
@@ -477,6 +541,12 @@ export function QuestionBank() {
         )}
       </div>
 
+      <QuestionGuide
+        open={guideOpen}
+        entries={guideEntries}
+        setEntries={setGuideEntries}
+        onClose={() => setGuideOpen(false)}
+      />
       <dialog
         ref={dialogRef}
         className="question-bank-dialog"

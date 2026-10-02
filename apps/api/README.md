@@ -52,6 +52,10 @@ docker compose --env-file apps/api/.env up -d postgres
 
 新增或复制题目时可“保存并继续”：保存成功后清空题目内容和参考答案，保留职位、维度与难度；失败时保留输入并使用同一请求标识重试。复制会另建题目，不修改原题。职位输入会提示同组织题库中已有的名称，也可直接填写新名称。
 
+勾选题目后可“整理面试提纲”，跨筛选和分页保留选择，支持上下调整顺序、移除、填写临时追问，以及选择是否包含参考答案。提纲可复制为纯文本或打印；操作前重新检查题目访问权限和版本，旧题需重新选择。本次提纲只在当前题库页面保留，离开前须复制或打印，不修改共享原题，也不创建或推进应聘、面试场次。
+
+AI 初面报告支持“挑选题目入库”：逐题勾选、修改、预览并确认组织共享范围后保存，未选题目仍留在原报告。报告详情返回 `question_drafts`，每项包含原报告 `index`、题库五字段及 `saved/deleted` 状态；入库接口接受 `confirmed: true` 与选中的 `questions` 数组，按报告题目标识防重，支持以后继续保存剩余题目，已存题不会被覆盖、已删除题不会自动恢复。此流程不代表已接通飞书题库。
+
 题目保存在 `QuestionTemplate`，同组织有效成员可读取，HR／招聘主管可维护；列表、职位筛选选项、统计和 CSV 导出均按当前组织隔离。删除只做软删除，操作人、动作与版本保存到 `QuestionTemplateEvent`。前端不保存独立题库副本。
 
 与 F17 数据基线的命名映射：`content` 对应 `question`，`dimension` 对应 `capability_label`，`deleted_at` 表示移出题库；本次按参考页面增加 `job_title`、`difficulty`、`reference_answer`。尚未建立 `InterviewGuide`／`GuideQuestion`。
@@ -61,7 +65,7 @@ docker compose --env-file apps/api/.env up -d postgres
 - `GET/PATCH/DELETE /api/v1/question-templates/:id/` 查看、编辑、软删除；编辑和删除须带当前 `version`，过期返回 409，不能覆盖他人的修改。
 - `GET /api/v1/question-templates/export/` 返回带 UTF-8 BOM 的 CSV，处理公式注入；支持与列表相同的筛选，但不受分页限制。网页“导出全部”导出当前组织的完整有效题库；有筛选条件时可“导出筛选结果”，包含所有匹配题目，不仅是当前页。
 
-本次交付为题库管理。面试提纲、按场次固定题目版本与 AI 生成仍为后续能力，不因题库可用而视为已交付。
+本次交付包括题库管理、页面内的面试准备提纲和 AI 初面选题入库。正式按场次保存提纲、固定画像及题目版本仍为后续能力，不因准备清单可用而视为已交付。
 
 `Organization → Department / Membership → DepartmentRole` 定义组织和部门职责；`Job` 明确 HR 负责人及要求确认人，`JobMember` 保存 HR 协作者。`ProfileVersion → ProfileRequirement` 保留 JD 快照、来源和逐项要求；`Task` 关联明确画像版本，分别表示确认、补充或确认后启动招聘；`AuditEvent` 保存操作者和动作。
 

@@ -115,18 +115,22 @@
 }
 
 .question-bank-table th:first-child {
-  width: 40%;
+  width: 44px;
 }
 
 .question-bank-table th:nth-child(2) {
-  width: 16%;
+  width: auto;
 }
 
 .question-bank-table th:nth-child(3) {
-  width: 13%;
+  width: 16%;
 }
 
 .question-bank-table th:nth-child(4) {
+  width: 13%;
+}
+
+.question-bank-table th:nth-child(5) {
   width: 10%;
 }
 
@@ -316,6 +320,101 @@
 .question-bank-details dd {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.question-bank-selection,
+.question-guide-entry-heading,
+.question-guide-entry-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.question-bank-selection {
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.question-bank-table .question-bank-select-column {
+  padding-right: 0;
+}
+
+.question-guide-dialog {
+  width: min(800px, calc(100vw - 32px));
+}
+
+.question-guide-layout {
+  display: flex;
+  max-height: inherit;
+  flex-direction: column;
+}
+
+.question-guide-entry {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.question-guide-entry h3 {
+  font-weight: 600;
+}
+
+.question-guide-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+.question-guide-hint {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.question-guide-dialog summary {
+  cursor: pointer;
+  color: var(--primary);
+}
+
+.question-guide-dialog details > :not(summary) {
+  margin-top: 10px;
+}
+
+.question-guide-dialog .question-bank-dialog-footer {
+  flex-wrap: wrap;
+}
+
+.question-bank-print {
+  display: none;
+}
+
+@media print {
+  body:has(> .question-bank-print) {
+    background: white;
+  }
+
+  body:has(> .question-bank-print) > :not(.question-bank-print) {
+    display: none;
+  }
+
+  .question-bank-print {
+    display: block;
+    padding: 10mm;
+    color: black;
+    background: white;
+  }
+
+  .question-bank-print pre {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: 11pt / 1.8 sans-serif;
+  }
 }
 
 .question-bank-detail-meta {

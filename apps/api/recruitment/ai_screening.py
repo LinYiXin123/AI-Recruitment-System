@@ -257,7 +257,7 @@ def _saved_questions(screening):
 
 def _report_data(screening, detail=True):
     result = screening.result
-    saved_questions = list(_saved_questions(screening).values_list("deleted_at", flat=True))
+    saved_questions = list(_saved_questions(screening))
     data = {
         "id": screening.id,
         "code": f"AIS-{screening.id:04d}",
@@ -274,13 +274,14 @@ def _report_data(screening, detail=True):
         "follow_up_direction": result.get("follow_up_direction", ""),
         "question_count": len(result.get("questions", [])),
         "questions_saved": bool(saved_questions),
-        "saved_question_count": sum(deleted_at is None for deleted_at in saved_questions),
+        "saved_question_count": sum(item.deleted_at is None for item in saved_questions),
     }
     if detail:
         data.update(
             evidence=result.get("evidence", []),
             gaps=result.get("gaps", []),
             questions=result.get("questions", []),
+            question_drafts=_question_drafts(screening, saved_questions),
             limitations=result.get("limitations", ""),
         )
     return data
@@ -501,7 +502,7 @@ def detail(request, pk):
 
 
 def _shared_question_text(value, candidate_name):
-    text = _text(value, 4000)
+    text = _text(value, 10000)
     if candidate_name:
         text = text.replace(candidate_name, "候选人")
     text = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[邮箱已移除]", text)
@@ -510,6 +511,63 @@ def _shared_question_text(value, candidate_name):
         r"(?<!\d)(?:\+\d{1,3}[- ]?)?\(?0\d{2,3}\)?[- ]?\d{7,8}(?!\d)", "[电话已移除]", text
     )
     return text
+
+
+def _question_draft(screening, index, item, *, require_complete=False):
+    if not isinstance(item, dict):
+        if require_complete:
+            raise serializers.ValidationError("报告中的题目格式异常，请重新生成后保存。")
+        item = {}
+    question, reason, follow_up = (
+        _shared_question_text(item.get(field), screening.candidate_name)
+        for field in ("question", "reason", "follow_up")
+    )
+    answers = item.get("answer_points")
+    points = (
+        [
+            _shared_question_text(point, screening.candidate_name)
+            for point in answers
+            if isinstance(point, str) and point.strip()
+        ]
+        if isinstance(answers, list)
+        else []
+    )
+    if require_complete and (not question or not reason or not follow_up or not points):
+        raise serializers.ValidationError(
+            "题目、考察点、追问或合格回答要点不完整，请重新生成后保存。"
+        )
+    return {
+        "index": index,
+        "content": "\n".join(
+            f"{label}：{value}"
+            for label, value in (("题目", question), ("考察点", reason), ("追问", follow_up))
+            if value
+        ),
+        "job_title": _shared_question_text(screening.job_title, screening.candidate_name),
+        "dimension": "",
+        "difficulty": QuestionTemplate.Difficulty.MEDIUM,
+        "reference_answer": "\n".join(
+            f"{number + 1}. {point}" for number, point in enumerate(points)
+        ),
+    }
+
+
+def _question_drafts(screening, saved_questions):
+    saved_by_key = {item.request_key: item for item in saved_questions}
+    drafts = []
+    for index, (key, item) in enumerate(
+        zip(_question_keys(screening), screening.result.get("questions", []), strict=True)
+    ):
+        draft = _question_draft(screening, index, item)
+        saved = saved_by_key.get(key)
+        if saved:
+            for field in ("content", "job_title", "dimension", "difficulty", "reference_answer"):
+                draft[field] = getattr(saved, field)
+        draft.update(
+            saved=bool(saved and not saved.deleted_at), deleted=bool(saved and saved.deleted_at)
+        )
+        drafts.append(draft)
+    return drafts
 
 
 @api_view(["POST"])
@@ -527,33 +585,34 @@ def save_questions(request, pk):
         questions = screening.result.get("questions", [])
         if not isinstance(questions, list) or not questions:
             raise serializers.ValidationError("本次报告没有可保存的面试题目。")
-        for request_key, item in zip(_question_keys(screening), questions, strict=True):
-            if not isinstance(item, dict):
-                raise serializers.ValidationError("报告中的题目格式异常，请重新生成后保存。")
-            question = _shared_question_text(item.get("question"), screening.candidate_name)
-            follow_up = _shared_question_text(item.get("follow_up"), screening.candidate_name)
-            answers = item.get("answer_points")
-            points = (
-                [_shared_question_text(point, screening.candidate_name) for point in answers]
-                if isinstance(answers, list)
-                else []
-            )
-            points = [point for point in points if point]
-            reason = _shared_question_text(item.get("reason"), screening.candidate_name)
-            if not question or not reason or not follow_up or not points:
-                raise serializers.ValidationError(
-                    "题目、考察点、追问或合格回答要点不完整，请重新生成后保存。"
-                )
-            serializer = QuestionSerializer(
-                data={
-                    "request_key": str(request_key),
-                    "content": f"题目：{question}\n考察点：{reason}\n追问：{follow_up}",
-                    "job_title": screening.job_title,
-                    "reference_answer": "\n".join(
-                        f"{index + 1}. {point}" for index, point in enumerate(points)
-                    ),
-                }
-            )
+        selected = (
+            request.data.get("questions")
+            if "questions" in request.data
+            else [
+                _question_draft(screening, index, item, require_complete=True)
+                for index, item in enumerate(questions)
+            ]
+        )
+        if not isinstance(selected, list) or not selected or len(selected) > len(questions):
+            raise serializers.ValidationError({"questions": "请选择至少一道报告中的题目。"})
+        seen = set()
+        keys = _question_keys(screening)
+        for item in selected:
+            index = item.get("index") if isinstance(item, dict) else None
+            if type(index) is not int or not 0 <= index < len(questions) or index in seen:
+                raise serializers.ValidationError({"questions": "题目序号无效或重复，请重新选择。"})
+            seen.add(index)
+            request_key = keys[index]
+            serializer = QuestionSerializer(data={**item, "request_key": str(request_key)})
+            serializer.is_valid(raise_exception=True)
+            # 先校验原始字段，避免脱敏时截断超限输入或把非文本转换为合法文本。
+            cleaned = {
+                field: _shared_question_text(value, screening.candidate_name)
+                if isinstance(value, str)
+                else value
+                for field, value in serializer.validated_data.items()
+            }
+            serializer = QuestionSerializer(data=cleaned)
             serializer.is_valid(raise_exception=True)
             defaults = dict(serializer.validated_data)
             defaults.pop("request_key")
@@ -562,6 +621,10 @@ def save_questions(request, pk):
             )
             if saved.deleted_at:
                 raise Conflict("这份报告曾保存的题目已在题库删除，不会自动恢复；请到题库确认。")
+            if not created and any(
+                getattr(saved, field) != value for field, value in defaults.items()
+            ):
+                raise Conflict("这道题已入库且内容不同，不会覆盖；请刷新并到题库核对。")
             if created:
                 QuestionTemplateEvent.objects.create(
                     question=saved, actor=current_member, action="created", version=saved.version
@@ -569,6 +632,12 @@ def save_questions(request, pk):
         ids = list(
             _saved_questions(screening).filter(deleted_at__isnull=True).values_list("id", flat=True)
         )
+        drafts = _question_drafts(screening, list(_saved_questions(screening)))
     return Response(
-        {"questions_saved": True, "saved_question_count": len(ids), "question_ids": ids}
+        {
+            "questions_saved": True,
+            "saved_question_count": len(ids),
+            "question_ids": ids,
+            "question_drafts": drafts,
+        }
     )

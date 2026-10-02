@@ -16,6 +16,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { ApiError, api, type Job, type Page } from '@/lib/api';
 import type { Application } from '@/lib/intake';
+import { AiQuestionSelection } from './ai-question-selection';
 
 type ApplicationOption = Pick<Application, 'id' | 'candidate' | 'name'>;
 type JobOption = Pick<Job, 'id' | 'title'>;
@@ -225,10 +226,10 @@ export function AiScreeningPage() {
   const [historyBusy, setHistoryBusy] = useState(false);
   const [savingQuestions, setSavingQuestions] = useState(false);
   const [questionNotice, setQuestionNotice] = useState('');
-  const [questionError, setQuestionError] = useState('');
-  const [confirmation, setConfirmation] = useState<
-    { kind: 'questions' } | { kind: 'delete'; row: ScreeningHistory } | null
-  >(null);
+  const [confirmation, setConfirmation] = useState<{
+    kind: 'delete';
+    row: ScreeningHistory;
+  } | null>(null);
   const [dragging, setDragging] = useState(false);
   const resumeInput = useRef<HTMLInputElement>(null);
   const resumeEditor = useRef<HTMLDivElement>(null);
@@ -258,7 +259,6 @@ export function AiScreeningPage() {
   useEffect(() => setCopyNotice(''), [analysis]);
   useEffect(() => {
     setQuestionNotice('');
-    setQuestionError('');
   }, [analysis?.id]);
 
   useEffect(() => {
@@ -526,50 +526,12 @@ export function AiScreeningPage() {
     }
   }
 
-  async function saveQuestions() {
-    if (
-      !analysis?.id ||
-      !analysis.questions.length ||
-      questionsSaved ||
-      savingQuestions ||
-      analyzing ||
-      historyBusy ||
-      importing ||
-      loadingResume
-    )
-      return;
-    const reportId = analysis.id;
-    setSavingQuestions(true);
-    setQuestionError('');
-    setQuestionNotice('');
-    try {
-      const result = await api<{ saved_question_count: number }>(
-        `ai-screenings/${reportId}/questions/`,
-        { confirmed: true },
-      );
-      setAnalysis((current) =>
-        current?.id === reportId
-          ? { ...current, saved_question_count: result.saved_question_count, questions_saved: true }
-          : current,
-      );
-      setQuestionNotice(
-        `已存入 ${result.saved_question_count} 道题，可到面试题库查看。重复点击不会重复入库。`,
-      );
-      setConfirmation(null);
-    } catch (error) {
-      setQuestionError((error as Error).message);
-    } finally {
-      setSavingQuestions(false);
-    }
-  }
-
   async function confirmAction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!confirmation || confirmationBusy.current) return;
     confirmationBusy.current = true;
     try {
-      if (confirmation.kind === 'questions') await saveQuestions();
-      else await deleteHistory(confirmation.row);
+      await deleteHistory(confirmation.row);
     } finally {
       confirmationBusy.current = false;
     }
@@ -1007,21 +969,11 @@ export function AiScreeningPage() {
                         historyBusy ||
                         savingQuestions ||
                         importing ||
-                        loadingResume ||
-                        questionsSaved
+                        loadingResume
                       }
-                      onClick={() => {
-                        setQuestionError('');
-                        setConfirmation({ kind: 'questions' });
-                      }}
+                      onClick={() => setSavingQuestions(true)}
                     >
-                      {savingQuestions
-                        ? '正在存入…'
-                        : questionsSaved
-                          ? (analysis.saved_question_count ?? 0) > 0
-                            ? `已存入题库（${analysis.saved_question_count} 题）`
-                            : '已入库（题库中的题目已删除）'
-                          : '一键存入面试题库'}
+                      挑选题目入库
                     </Button>
                     <Button
                       type="button"
@@ -1034,10 +986,11 @@ export function AiScreeningPage() {
                       复制提纲
                     </Button>
                   </div>
-                  {questionError && <ErrorNotice message={questionError} />}
                   {(questionNotice || questionsSaved) && (
                     <p className="ai-screening-notice" role="status">
-                      {questionNotice} <a href="#question-bank">查看面试题库</a>
+                      {questionNotice ||
+                        `本报告已有 ${analysis.saved_question_count ?? 0} 道题在题库中。`}{' '}
+                      <a href="#question-bank">查看面试题库</a>
                     </p>
                   )}
                   {copyNotice && (
@@ -1181,6 +1134,24 @@ export function AiScreeningPage() {
           </Empty>
         ) : null}
       </section>
+      {savingQuestions && analysis?.id && (
+        <AiQuestionSelection
+          reportId={analysis.id}
+          onClose={() => setSavingQuestions(false)}
+          onSaved={(state, message) => {
+            setAnalysis((current) =>
+              current && current.id === analysis.id
+                ? {
+                    ...current,
+                    saved_question_count: state.saved_question_count,
+                    questions_saved: state.questions_saved,
+                  }
+                : current,
+            );
+            setQuestionNotice(message);
+          }}
+        />
+      )}
       <dialog
         ref={confirmationDialog}
         className="enterprise-dialog enterprise-profile-dialog"
@@ -1194,19 +1165,13 @@ export function AiScreeningPage() {
         {confirmation && (
           <form onSubmit={(event) => void confirmAction(event)}>
             <div className="enterprise-dialog-heading">
-              <h2 id="ai-confirm-title">
-                {confirmation.kind === 'questions' ? '存入面试题库' : '删除分析记录'}
-              </h2>
+              <h2 id="ai-confirm-title">删除分析记录</h2>
             </div>
             <div className="enterprise-dialog-body">
               <p id="ai-confirm-description">
-                {confirmation.kind === 'questions'
-                  ? `确认将这 ${analysis?.questions.length ?? 0} 道题存入组织面试题库？题目、追问和合格回答要点将对本组织可查看题库的成员可见，请先确认没有不宜共享的个人信息。`
-                  : `确定删除分析记录 ${confirmation.row.code} 吗？此操作不会删除已存入题库的题目。`}
+                {`确定删除分析记录 ${confirmation.row.code} 吗？此操作不会删除已存入题库的题目。`}
               </p>
-              {confirmation.kind === 'questions'
-                ? questionError && <ErrorNotice message={questionError} />
-                : historyError && <ErrorNotice message={historyError} />}
+              {historyError && <ErrorNotice message={historyError} />}
             </div>
             <div className="enterprise-dialog-footer">
               <Button
@@ -1219,18 +1184,8 @@ export function AiScreeningPage() {
               >
                 取消
               </Button>
-              <Button
-                type="submit"
-                variant={confirmation.kind === 'delete' ? 'destructive' : 'default'}
-                disabled={savingQuestions || historyBusy}
-              >
-                {confirmation.kind === 'questions'
-                  ? savingQuestions
-                    ? '正在存入…'
-                    : '确认存入'
-                  : historyBusy
-                    ? '正在删除…'
-                    : '确认删除'}
+              <Button type="submit" variant="destructive" disabled={savingQuestions || historyBusy}>
+                {historyBusy ? '正在删除…' : '确认删除'}
               </Button>
             </div>
           </form>

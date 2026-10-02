@@ -566,6 +566,123 @@ def test_saving_questions_requires_confirmation_is_idempotent_and_excludes_priva
     assert QuestionTemplate.objects.count() == 1
 
 
+def selectable_question_report(membership, job):
+    result = complete_report()
+    result["questions"].append({**result["questions"][0], "question": "如何处理协作分歧？"})
+    return AIScreening.objects.create(
+        organization=membership.organization,
+        creator=membership,
+        job=job,
+        job_title=job.title,
+        candidate_name="测试候选人",
+        request_key=uuid.uuid4(),
+        input_digest="question-selection-test",
+        result=result,
+    )
+
+
+def test_selected_questions_preserve_edits_allow_later_selection_and_never_overwrite_or_revive():
+    client, membership, job = hr_context()
+    report = selectable_question_report(membership, job)
+    url = f"/api/v1/ai-screenings/{report.id}/"
+    drafts = client.get(url).data["question_drafts"]
+    assert [item["index"] for item in drafts] == [0, 1]
+    assert all(not item["saved"] and not item["deleted"] for item in drafts)
+    assert "负责产品上线" not in drafts[0]["content"]  # 原始引用只保留在个人报告。
+    selected = {
+        **drafts[1],
+        "content": "测试候选人如何联系 test@example.com、13800000000 核实协作分歧？",
+        "job_title": "产品负责人",
+        "dimension": "团队协作",
+        "difficulty": "困难",
+        "reference_answer": "测试候选人提供个人贡献与可核查记录。\n" + "已核实的事实。\n" * 700,
+    }
+    payload = {"confirmed": True, "questions": [selected]}
+    saved = client.post(f"{url}questions/", payload, format="json")
+    retried = client.post(f"{url}questions/", payload, format="json")
+    assert saved.status_code == retried.status_code == 200
+    assert saved.data == retried.data
+    assert saved.data["saved_question_count"] == 1
+    assert [item["saved"] for item in saved.data["question_drafts"]] == [False, True]
+    question = QuestionTemplate.objects.get()
+    assert question.job_title == "产品负责人"
+    assert question.dimension == "团队协作" and question.difficulty == "困难"
+    assert "协作分歧" in question.content and "个人贡献" in question.reference_answer
+    assert question.reference_answer == (
+        selected["reference_answer"].replace("测试候选人", "候选人").strip()
+    )
+    for private in ("测试候选人", "test@example.com", "13800000000"):
+        assert private not in question.content + question.reference_answer
+    assert QuestionTemplateEvent.objects.count() == 1
+    changed = client.post(
+        f"{url}questions/",
+        {"confirmed": True, "questions": [{**selected, "content": "不能覆盖已存题目"}]},
+        format="json",
+    )
+    assert changed.status_code == 409
+    question.refresh_from_db()
+    assert "不能覆盖" not in question.content and question.version == 1
+    later = client.post(
+        f"{url}questions/", {"confirmed": True, "questions": [drafts[0]]}, format="json"
+    )
+    assert later.status_code == 200 and later.data["saved_question_count"] == 2
+    assert QuestionTemplate.objects.count() == QuestionTemplateEvent.objects.count() == 2
+    assert (
+        client.delete(
+            f"/api/v1/question-templates/{question.id}/", {"version": 1}, format="json"
+        ).status_code
+        == 200
+    )
+    detail = client.get(url).data
+    assert detail["saved_question_count"] == 1
+    assert detail["question_drafts"][1]["deleted"] is True
+    assert detail["question_drafts"][1]["saved"] is False
+    assert client.post(f"{url}questions/", payload, format="json").status_code == 409
+    assert QuestionTemplate.objects.count() == 2
+    report.refresh_from_db()
+    assert report.result["questions"][1]["question"] == "如何处理协作分歧？"
+
+
+def test_selected_questions_validate_whole_batch_and_keep_owner_scope():
+    client, membership, job = hr_context()
+    report = selectable_question_report(membership, job)
+    url = f"/api/v1/ai-screenings/{report.id}/"
+    drafts = client.get(url).data["question_drafts"]
+    invalid_selections = [[], None, {}, [None], [drafts[0], drafts[0]]]
+    invalid_selections.extend([{**drafts[0], "index": index}] for index in (True, "0", 0.5, -1, 2))
+    invalid_selections.extend(
+        [drafts[0], {**drafts[1], field: value}]
+        for field, value in (
+            ("content", "   "),
+            ("content", None),
+            ("content", 123),
+            ("content", "题" * 10001),
+            ("job_title", "岗" * 121),
+            ("reference_answer", "答" * 10001),
+            ("difficulty", "极难"),
+            ("dimension", "不支持的维度"),
+        )
+    )
+    for selection in invalid_selections:
+        response = client.post(
+            f"{url}questions/", {"confirmed": True, "questions": selection}, format="json"
+        )
+        assert response.status_code == 400, response.data
+        assert not QuestionTemplate.objects.exists() and not QuestionTemplateEvent.objects.exists()
+    peer_user = get_user_model().objects.create_user("selection-peer")
+    peer = Membership.objects.create(user=peer_user, organization=membership.organization)
+    DepartmentRole.objects.create(membership=peer, department=job.department, role="hr")
+    payload = {"confirmed": True, "questions": [drafts[0]]}
+    assert (
+        client_for_member(peer).post(f"{url}questions/", payload, format="json").status_code == 404
+    )
+    foreign, _, _ = hr_context("selection-foreign")
+    assert foreign.post(f"{url}questions/", payload, format="json").status_code == 404
+    membership.roles.all().delete()
+    assert client.post(f"{url}questions/", payload, format="json").status_code == 403
+    assert not QuestionTemplate.objects.exists()
+
+
 @pytest.mark.parametrize("operation", ["retry", "save", "delete"])
 def test_membership_revoked_while_waiting_for_lock_cannot_reuse_or_change_report(operation):
     client, membership, _ = hr_context()

@@ -60,7 +60,7 @@ test('题库新增编辑和复制各自保存，弹窗下拉支持键盘且窄�
     });
   }
   await page.getByRole('button', { name: '新增题目', exact: true }).click();
-  const dialog = page.locator('dialog.question-bank-dialog');
+  const dialog = page.locator('dialog.question-bank-dialog:not(.question-guide-dialog)');
   await expect(dialog).toBeVisible();
   expect(
     await dialog.evaluate((element) => element.tagName === 'DIALOG' && element.matches(':modal')),
@@ -262,7 +262,7 @@ test('职位联想可键盘选择，连续保存保留分类且失败重试不�
   });
   await page.getByRole('link', { name: '面试题库', exact: true }).click();
   await page.getByRole('button', { name: '新增题目', exact: true }).click();
-  const dialog = page.locator('dialog.question-bank-dialog');
+  const dialog = page.locator('dialog.question-bank-dialog:not(.question-guide-dialog)');
   await dialog.getByLabel('题目内容', { exact: false }).fill(content);
   const jobInput = dialog.getByLabel('适用职位', { exact: true });
   await jobInput.fill(job.slice(0, -3));
@@ -402,7 +402,7 @@ test('只读角色可查看导出但不能写入，窄屏列表和详情不溢�
     await download.saveAs(csvPath);
     expect(await readFile(csvPath, 'utf8')).toContain(answer);
     await row.getByRole('button', { name: '查看', exact: true }).click();
-    const dialog = reader.locator('dialog.question-bank-dialog');
+    const dialog = reader.locator('dialog.question-bank-dialog:not(.question-guide-dialog)');
     await expect(dialog).toContainText(content);
     await expect(dialog).toContainText(answer);
     const box = await dialog.boundingBox();
@@ -430,4 +430,121 @@ test('只读角色可查看导出但不能写入，窄屏列表和详情不溢�
   } finally {
     await context.close();
   }
+});
+
+test('题目跨页筛选后可整理提纲，复制打印保留顺序且失败不丢追问', async ({
+  page,
+  context,
+}, testInfo) => {
+  const checkErrors = recordErrors(page, testInfo);
+  await login(page);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const run = `提纲验收-${crypto.randomUUID()}`;
+  const questions = [];
+  for (let index = 0; index < 21; index += 1) {
+    questions.push(
+      await createQuestion(page, {
+        content: `${run}-${String(index).padStart(2, '0')} ${index === 20 ? '<img src=x onerror="alert(1)">' : '如何核实项目结果？'}`,
+        reference_answer: `参考要点-${index}：列出验证依据。`,
+      }),
+    );
+  }
+  const oldest = questions[0];
+  const newest = questions[20];
+  const removed = questions[10];
+  await page.getByRole('link', { name: '面试题库', exact: true }).click();
+  const search = page.getByRole('searchbox', { name: '搜索题目' });
+  await search.fill(run);
+  await page.getByRole('checkbox', { name: `选择题目：${newest.content}`, exact: true }).check();
+  await page.getByRole('button', { name: '下一页', exact: true }).click();
+  await expect(
+    page.getByRole('checkbox', { name: `选择题目：${oldest.content}`, exact: true }),
+  ).toBeVisible();
+  await page.getByRole('checkbox', { name: '全选本页题目', exact: true }).check();
+  await search.fill(removed.content);
+  await page.getByRole('checkbox', { name: `选择题目：${removed.content}`, exact: true }).check();
+  await page.getByRole('button', { name: '整理面试提纲（3）', exact: true }).click();
+
+  const guide = page.locator('dialog.question-guide-dialog');
+  await expect(guide.getByRole('article')).toHaveCount(3);
+  await guide.getByRole('button', { name: '移除第 3 题', exact: true }).click();
+  await guide.getByRole('button', { name: '下移第 1 题', exact: true }).click();
+  await expect(guide.getByRole('article', { name: '第 1 题', exact: true })).toContainText(
+    oldest.content,
+  );
+  await guide.getByRole('button', { name: '上移第 2 题', exact: true }).click();
+  await expect(guide.getByRole('article', { name: '第 1 题', exact: true })).toContainText(
+    newest.content,
+  );
+  await guide.getByRole('button', { name: '下移第 1 题', exact: true }).click();
+  const followUp = '临时核实 <script>alert("仅文本")</script>：还有哪些证据？';
+  await guide.getByLabel('提纲名称', { exact: true }).fill('虚构岗位面试准备');
+  await guide.getByLabel('第 1 题临时追问', { exact: true }).fill(followUp);
+  await guide.getByRole('checkbox', { name: '包含参考答案', exact: true }).uncheck();
+
+  const unavailable = `**/api/v1/question-templates/${oldest.id}/`;
+  await page.route(unavailable, (route) =>
+    route.fulfill({ status: 503, json: { errors: { detail: '题目核验暂时失败。' } } }),
+  );
+  await guide.getByRole('button', { name: '复制提纲', exact: true }).click();
+  await expect(guide.getByRole('alert')).toContainText('题目核验暂时失败');
+  await expect(guide.getByLabel('第 1 题临时追问', { exact: true })).toHaveValue(followUp);
+  await page.unroute(unavailable);
+  await guide.getByRole('button', { name: '复制提纲', exact: true }).click();
+  await expect(guide.getByRole('status')).toContainText('提纲已复制');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).not.toContain('参考要点-');
+  await guide.getByRole('checkbox', { name: '包含参考答案', exact: true }).check();
+  await guide.getByRole('button', { name: '复制提纲', exact: true }).click();
+  await expect(guide.getByRole('status')).toContainText('提纲已复制');
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain(followUp);
+  expect(copied).toContain(newest.content);
+  expect(copied).toContain(oldest.reference_answer);
+  expect(copied.indexOf(oldest.content)).toBeLessThan(copied.indexOf(newest.content));
+  expect(copied).not.toContain(removed.content);
+  await expect(guide.locator('img, script')).toHaveCount(0);
+
+  await page.evaluate(() => {
+    window.print = () => {
+      document.body.dataset.outlinePrinted = 'true';
+    };
+  });
+  await guide.getByRole('button', { name: '打印提纲', exact: true }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-outline-printed', 'true');
+  const printable = page.locator('body > .question-bank-print');
+  await expect(printable).toBeHidden();
+  expect(await printable.locator('pre').textContent()).toBe(copied.replaceAll('\r\n', '\n'));
+  await expect(printable.locator('img, script')).toHaveCount(0);
+  await page.emulateMedia({ media: 'print' });
+  await expect(printable).toBeVisible();
+  await expect(page.locator('#root')).toBeHidden();
+  await expect(guide).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath('面试提纲-打印.png'), fullPage: true });
+  await page.pdf({
+    path: testInfo.outputPath('面试提纲.pdf'),
+    format: 'A4',
+    printBackground: true,
+  });
+  await page.emulateMedia({ media: 'screen' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await guide.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('面试提纲-390x844.png'), fullPage: true });
+
+  const csrf = await (await page.request.get('/api/v1/auth/csrf/')).json();
+  const changed = await page.request.patch(`/api/v1/question-templates/${oldest.id}/`, {
+    data: { version: oldest.version, reference_answer: '原题已由其他编辑更新。' },
+    headers: { 'X-CSRFToken': csrf.csrfToken },
+  });
+  expect(changed.ok()).toBeTruthy();
+  await guide.getByRole('button', { name: '复制提纲', exact: true }).click();
+  await expect(guide.getByRole('alert')).toContainText('已更新，请移除后从题库重新选择');
+  await expect(guide.getByLabel('第 1 题临时追问', { exact: true })).toHaveValue(followUp);
+  expect(
+    (await (await page.request.get(`/api/v1/question-templates/${newest.id}/`)).json())
+      .reference_answer,
+  ).toBe(newest.reference_answer);
+  await guide.getByRole('button', { name: '继续选题', exact: true }).click();
+  await expect(printable).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '整理面试提纲（2）', exact: true })).toBeVisible();
+  await checkErrors(true);
 });
