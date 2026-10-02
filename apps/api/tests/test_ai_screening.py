@@ -11,6 +11,7 @@ from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from rest_framework.test import APIClient
 
+from recruitment.ai_screening import _parse_analysis
 from recruitment.models import (
     Application,
     Candidate,
@@ -157,7 +158,18 @@ def test_analysis_returns_only_verifiable_resume_quotes_and_job_context():
             },
         ],
         "gaps": [{"criterion": "结果指标", "note": "简历未说明改版前后的数据变化。"}],
-        "questions": [{"question": "上线后如何验证效果？", "reason": "核实结果评估方式。"}],
+        "questions": [
+            {
+                "question": "审批模块上线后如何验证效果？",
+                "reason": "核实结果评估方式及本人贡献。",
+                "follow_up": "请说明你负责的指标、观察周期和上线前后的对照数据。",
+                "answer_points": [
+                    "区分本人负责和团队负责的部分。",
+                    "提供指标口径、数据来源与验证过程。",
+                ],
+                "quote": "与研发团队完成上线",
+            }
+        ],
     }
     with patch(
         "recruitment.ai_screening.chat_completion", return_value=json.dumps(model_result)
@@ -171,7 +183,7 @@ def test_analysis_returns_only_verifiable_resume_quotes_and_job_context():
     assert response.status_code == 200
     assert len(response.data["evidence"]) == 1
     assert response.data["evidence"][0]["quote"] == "与研发团队完成上线"
-    assert response.data["questions"][0]["question"] == "上线后如何验证效果？"
+    assert response.data["questions"] == model_result["questions"]
     sent_context = json.loads(complete.call_args.kwargs["user_text"])
     assert sent_context["resume"] == resume
     assert sent_context["target_job"]["title"] == "产品经理"
@@ -179,6 +191,79 @@ def test_analysis_returns_only_verifiable_resume_quotes_and_job_context():
     assert complete.call_args.kwargs["max_tokens"] == 393_216
     assert complete.call_args.kwargs["thinking"] == {"type": "disabled"}
     assert complete.call_args.kwargs["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.parametrize(
+    "optional_context", [{}, {"application_id": None, "job_id": None, "enterprise_id": None}]
+)
+def test_analysis_accepts_resume_without_optional_context(optional_context):
+    client, _, _ = hr_context()
+    result = {"summary": "有产品交付经历，具体结果需核实。", "questions": []}
+    with patch(
+        "recruitment.ai_screening.chat_completion", return_value=json.dumps(result)
+    ) as complete:
+        response = client.post(
+            "/api/v1/ai-screenings/",
+            {"resume": "独立负责过产品上线。", **optional_context},
+            format="json",
+        )
+
+    assert response.status_code == 200
+    context = json.loads(complete.call_args.kwargs["user_text"])
+    assert context["target_job"] is None and context["target_enterprise"] is None
+
+
+def test_question_details_preserve_legacy_questions_and_discard_invalid_fields_and_quotes():
+    result = _parse_analysis(
+        json.dumps(
+            {
+                "summary": "具体结果需核实。",
+                "questions": [
+                    {"question": "如何验证上线效果？", "reason": "结果验证。"},
+                    {
+                        "question": "如何划分团队职责？",
+                        "reason": {"invalid": "不是文本"},
+                        "follow_up": ["不是文本"],
+                        "answer_points": [None, 123, {}, " ", "  说明本人职责与交付物。  "],
+                        "quote": "与研发团队\n完成上线",
+                    },
+                    {
+                        "question": "有无量化结果？",
+                        "follow_up": "请提供数据来源。",
+                        "answer_points": "应当返回数组",
+                        "quote": "提升转化率 30%",
+                    },
+                    {"question": ["不是文本"]},
+                    "不是问题对象",
+                ],
+            }
+        ),
+        "负责审批模块，并与研发团队 完成上线。",
+    )
+
+    assert result["questions"] == [
+        {
+            "question": "如何验证上线效果？",
+            "reason": "结果验证。",
+            "follow_up": "",
+            "answer_points": [],
+            "quote": "",
+        },
+        {
+            "question": "如何划分团队职责？",
+            "reason": "",
+            "follow_up": "",
+            "answer_points": ["说明本人职责与交付物。"],
+            "quote": "与研发团队\n完成上线",
+        },
+        {
+            "question": "有无量化结果？",
+            "reason": "",
+            "follow_up": "请提供数据来源。",
+            "answer_points": [],
+            "quote": "",
+        },
+    ]
 
 
 @pytest.mark.parametrize(

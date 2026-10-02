@@ -1,7 +1,8 @@
 import Select from '@douyinfe/semi-ui/lib/es/select';
-import { Bot, Crosshair, Sparkles, Trash2, Upload } from 'lucide-react';
+import { Bot, Copy, Crosshair, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { ErrorNotice } from '@/components/feedback';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
@@ -22,7 +23,13 @@ type ScreeningResult = {
   summary: string;
   evidence: { criterion: string; quote: string; reason: string }[];
   gaps: { criterion: string; note: string }[];
-  questions: { question: string; reason: string }[];
+  questions: {
+    question: string;
+    reason: string;
+    follow_up: string;
+    answer_points: string[];
+    quote: string;
+  }[];
   limitations: string;
 };
 
@@ -113,7 +120,12 @@ function resumeTextFromEditor(editor: HTMLElement) {
       link.append(document.createTextNode(` (${href})`));
     }
   }
-  return (copy.innerText || copy.textContent || '').trim();
+  for (const lineBreak of Array.from(copy.querySelectorAll('br'))) lineBreak.replaceWith('\n');
+  for (const block of Array.from(copy.querySelectorAll('div, p, li, ul, ol'))) {
+    block.before('\n');
+    block.after('\n');
+  }
+  return (copy.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function insertResumePlainText(editor: HTMLElement, transfer: DataTransfer) {
@@ -165,9 +177,15 @@ export function AiScreeningPage() {
   const [analysisError, setAnalysisError] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [loadingResume, setLoadingResume] = useState(false);
+  const [copyNotice, setCopyNotice] = useState('');
   const [dragging, setDragging] = useState(false);
   const resumeInput = useRef<HTMLInputElement>(null);
   const resumeEditor = useRef<HTMLDivElement>(null);
+  const analysisRequest = useRef<AbortController | null>(null);
+
+  useEffect(() => () => analysisRequest.current?.abort(), []);
+  useEffect(() => setCopyNotice(''), [analysis]);
 
   const setResumeContent = useCallback((text: string, markup = '') => {
     setResume(text);
@@ -214,8 +232,12 @@ export function AiScreeningPage() {
   }, [optionsRevision]);
 
   useEffect(() => {
-    if (selectedApplication === null) return;
+    if (selectedApplication === null) {
+      setLoadingResume(false);
+      return;
+    }
     const controller = new AbortController();
+    setLoadingResume(true);
     setAnalysis(null);
     setAnalysisError('');
     setResumeContent('');
@@ -233,12 +255,15 @@ export function AiScreeningPage() {
       .catch((error: Error) => {
         if (error.name !== 'AbortError')
           setResumeNotice('简历原文暂时无法读取，请直接粘贴简历内容。');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingResume(false);
       });
     return () => controller.abort();
   }, [selectedApplication, setResumeContent]);
 
   async function importResume(file?: File) {
-    if (!file || analyzing || importing) return;
+    if (!file || analyzing || importing || loadingResume) return;
     setResumeNotice('');
     setResumeError('');
     if (!file.size || file.size > 10 * 1024 * 1024) {
@@ -289,29 +314,69 @@ export function AiScreeningPage() {
     if (resumeInput.current) resumeInput.current.value = '';
   }
 
-  async function startAnalysis(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (analyzing || importing) return;
-    if (!resume.trim()) {
+  async function startAnalysis(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    if (analysisRequest.current || importing || loadingResume) return;
+    const text = resumeEditor.current ? resumeTextFromEditor(resumeEditor.current) : resume;
+    if (!text.trim()) {
       setAnalysisError('请先填写或导入简历内容。');
+      resumeEditor.current?.focus();
       return;
     }
-    setAnalysis(null);
+    if (text.length > 30_000) {
+      setAnalysisError('简历内容超过 30,000 字，请精简后再分析。');
+      resumeEditor.current?.focus();
+      return;
+    }
+    const controller = new AbortController();
+    analysisRequest.current = controller;
     setAnalysisError('');
+    setCopyNotice('');
     setAnalyzing(true);
     try {
       setAnalysis(
-        await api<ScreeningResult>('ai-screenings/', {
-          application_id: selectedApplication,
-          job_id: selectedJob ? Number(selectedJob) : null,
-          enterprise_id: selectedEnterprise ? Number(selectedEnterprise) : null,
-          resume,
-        }),
+        await api<ScreeningResult>(
+          'ai-screenings/',
+          {
+            application_id: selectedApplication,
+            job_id: selectedJob ? Number(selectedJob) : null,
+            enterprise_id: selectedEnterprise ? Number(selectedEnterprise) : null,
+            resume: text,
+          },
+          controller.signal,
+        ),
       );
     } catch (error) {
-      setAnalysisError((error as Error).message);
+      if (!controller.signal.aborted) setAnalysisError((error as Error).message);
     } finally {
-      setAnalyzing(false);
+      if (analysisRequest.current === controller) analysisRequest.current = null;
+      if (!controller.signal.aborted) setAnalyzing(false);
+    }
+  }
+
+  async function copyQuestions() {
+    if (!analysis?.questions.length) return;
+    const text = analysis.questions
+      .map((item, index) =>
+        [
+          `${index + 1}. 题目：${item.question}`,
+          `考察点：${item.reason || '未提供'}`,
+          item.quote ? `简历依据：${item.quote}` : '',
+          `追问：${item.follow_up || '模型未提供，请补充'}`,
+          '合格回答要点：',
+          ...(item.answer_points?.length
+            ? item.answer_points.map((point) => `- ${point}`)
+            : ['- 模型未提供，请补充']),
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      )
+      .join('\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyNotice('已复制面试提纲，包含题目、追问和合格回答要点。');
+    } catch {
+      setCopyNotice('复制未成功，请选中下方提纲手动复制。');
     }
   }
 
@@ -330,6 +395,7 @@ export function AiScreeningPage() {
           </header>
           <form className="ai-screening-form" onSubmit={startAnalysis}>
             <FieldGroup className="ai-screening-fields">
+              <p className="ai-screening-help">候选人、职位和企业均可留空，仅导入简历也能分析。</p>
               <Field>
                 <FieldLabel id="ai-candidate-label" htmlFor="ai-candidate">
                   选择候选人
@@ -426,7 +492,7 @@ export function AiScreeningPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={analyzing || importing}
+                    disabled={analyzing || importing || loadingResume}
                     onClick={() => resumeInput.current?.click()}
                   >
                     <Upload data-icon="inline-start" />
@@ -460,7 +526,7 @@ export function AiScreeningPage() {
                   onDrop={(event) => {
                     event.preventDefault();
                     setDragging(false);
-                    if (analyzing || importing) return;
+                    if (analyzing || importing || loadingResume) return;
                     void importResume(event.dataTransfer.files[0]);
                   }}
                 >
@@ -475,11 +541,11 @@ export function AiScreeningPage() {
                     role="textbox"
                     aria-labelledby="ai-resume-label"
                     aria-multiline="true"
-                    aria-disabled={analyzing || importing}
+                    aria-disabled={analyzing || importing || loadingResume}
                     aria-describedby="ai-resume-help"
                     aria-placeholder="选择候选人后会自动带出其简历原文，也可直接粘贴新内容"
                     data-placeholder="选择候选人后会自动带出其简历原文，也可直接粘贴新内容"
-                    contentEditable={!analyzing && !importing}
+                    contentEditable={!analyzing && !importing && !loadingResume}
                     suppressContentEditableWarning
                     spellCheck
                     onInput={(event) => {
@@ -506,11 +572,13 @@ export function AiScreeningPage() {
                     }}
                     onPaste={(event) => {
                       event.preventDefault();
+                      if (analyzing || importing || loadingResume) return;
                       insertResumePlainText(event.currentTarget, event.clipboardData);
                     }}
                     onDrop={(event) => {
                       if (event.dataTransfer.files.length) return;
                       event.preventDefault();
+                      if (analyzing || importing || loadingResume) return;
                       insertResumePlainText(event.currentTarget, event.dataTransfer);
                     }}
                   />
@@ -528,9 +596,9 @@ export function AiScreeningPage() {
               </Field>
             </FieldGroup>
             <div className="ai-screening-actions">
-              <Button type="submit" size="lg" disabled={analyzing || importing}>
+              <Button type="submit" size="lg" disabled={analyzing || importing || loadingResume}>
                 <Sparkles data-icon="inline-start" />
-                {analyzing ? '正在分析…' : '开始分析'}
+                {analyzing ? '正在分析…' : analysis ? '重新分析' : '开始分析'}
               </Button>
               <Button
                 type="button"
@@ -550,22 +618,39 @@ export function AiScreeningPage() {
           <header className="dashboard-card-head">
             <h2 id="ai-result-title">分析结果</h2>
           </header>
-          <div className="ai-result-content">
-            {analyzing ? (
+          <div className="ai-result-content" aria-busy={analyzing}>
+            {analyzing && (
               <p className="ai-screening-help p-6 text-center" role="status">
-                正在分析简历与职位要求，请稍候…
+                正在整理简历依据并生成面试提纲，请稍候…
               </p>
-            ) : analysisError ? (
-              <p className="p-6 text-center text-destructive" role="alert">
-                {analysisError}
-              </p>
-            ) : analysis ? (
-              <div className="space-y-5 p-5">
+            )}
+            {analysisError && (
+              <div className="p-5">
+                <Alert variant="destructive">
+                  <AlertTitle>本次分析未完成</AlertTitle>
+                  <AlertDescription>
+                    <p>{analysisError}</p>
+                    {analysis && <p>上次分析结果仍保留在下方。</p>}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={analyzing || importing || loadingResume}
+                      onClick={() => void startAnalysis()}
+                    >
+                      <RotateCcw data-icon="inline-start" />
+                      重试分析
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
+            {analysis ? (
+              <div className="flex flex-col gap-5 p-5">
                 <p className="rounded-lg border bg-secondary px-3 py-2 text-sm font-medium text-foreground">
                   AI 辅助整理 · 请由 HR 复核
                 </p>
                 <p className="text-sm leading-7 text-foreground">{analysis.summary}</p>
-                <section className="space-y-2">
+                <section className="flex flex-col gap-2">
                   <h3 className="text-sm font-semibold text-foreground">简历依据</h3>
                   {analysis.evidence.length ? (
                     analysis.evidence.map((item) => (
@@ -586,7 +671,7 @@ export function AiScreeningPage() {
                     </p>
                   )}
                 </section>
-                <section className="space-y-2">
+                <section className="flex flex-col gap-2">
                   <h3 className="text-sm font-semibold text-foreground">待核实信息</h3>
                   {analysis.gaps.length ? (
                     analysis.gaps.map((item) => (
@@ -602,14 +687,63 @@ export function AiScreeningPage() {
                     <p className="text-sm text-muted-foreground">模型未列出待核实信息。</p>
                   )}
                 </section>
-                <section className="space-y-2">
-                  <h3 className="text-sm font-semibold text-foreground">建议面试追问</h3>
+                <section className="flex flex-col gap-3" aria-labelledby="ai-questions-title">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 id="ai-questions-title" className="text-sm font-semibold text-foreground">
+                      面试提纲 · {analysis.questions.length} 题
+                    </h3>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!analysis.questions.length || analyzing}
+                      onClick={() => void copyQuestions()}
+                    >
+                      <Copy data-icon="inline-start" />
+                      复制提纲
+                    </Button>
+                  </div>
+                  {copyNotice && (
+                    <p className="text-xs text-muted-foreground" role="status">
+                      {copyNotice}
+                    </p>
+                  )}
                   {analysis.questions.length ? (
-                    analysis.questions.map((item) => (
-                      <div key={`${item.question}-${item.reason}`} className="text-sm">
-                        <p className="font-medium text-foreground">{item.question}</p>
-                        <p className="text-muted-foreground">{item.reason}</p>
-                      </div>
+                    analysis.questions.map((item, index) => (
+                      <article
+                        key={`${item.question}-${item.reason}`}
+                        className="flex flex-col gap-3 rounded-lg border p-3 text-sm leading-6"
+                        aria-label={`第 ${index + 1} 题`}
+                      >
+                        <h4 className="font-semibold text-foreground">
+                          {index + 1}. {item.question}
+                        </h4>
+                        <p className="text-muted-foreground">
+                          <span className="font-medium text-foreground">考察点：</span>
+                          {item.reason || '模型未提供'}
+                        </p>
+                        {item.quote && (
+                          <blockquote className="border-l-2 pl-3 text-muted-foreground">
+                            简历依据：{item.quote}
+                          </blockquote>
+                        )}
+                        <p className="text-muted-foreground">
+                          <span className="font-medium text-foreground">追问：</span>
+                          {item.follow_up || '模型未提供，请补充。'}
+                        </p>
+                        <div>
+                          <p className="font-medium text-foreground">合格回答要点</p>
+                          {item.answer_points?.length ? (
+                            <ul className="list-disc pl-5 text-muted-foreground">
+                              {item.answer_points.map((point) => (
+                                <li key={point}>{point}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-muted-foreground">模型未提供，请补充。</p>
+                          )}
+                        </div>
+                      </article>
                     ))
                   ) : (
                     <p className="text-sm text-muted-foreground">模型未返回面试追问。</p>
@@ -619,7 +753,7 @@ export function AiScreeningPage() {
                   {analysis.limitations}
                 </p>
               </div>
-            ) : (
+            ) : !analyzing && !analysisError ? (
               <Empty className="ai-result-empty">
                 <EmptyHeader>
                   <EmptyMedia className="ai-empty-icon">
@@ -629,7 +763,7 @@ export function AiScreeningPage() {
                   <EmptyDescription>左侧填写后点击「开始分析」</EmptyDescription>
                 </EmptyHeader>
               </Empty>
-            )}
+            ) : null}
           </div>
         </section>
       </div>

@@ -28,11 +28,16 @@ test('AI 初面表单与结果区等高，操作按钮和附件说明符合页�
   await expect(clearButton).toHaveCSS('height', '36px');
 });
 
-test('导入简历附件后将识别出的文字填入简历内容', async ({ page }) => {
+test('导入简历附件后保留格式，分析时保留段落和链接地址', async ({ page }) => {
   await login(page);
   await page.getByRole('link', { name: 'AI 初面' }).click();
   await page.route('**/api/v1/ai-screenings/extract/', (route) =>
-    route.fulfill({ json: { text: '已识别的简历正文。' } }),
+    route.fulfill({
+      json: {
+        text: '项目经历\n开发检索工具。\n独立编写测试。\n项目文档',
+        html: '<p><strong>项目经历</strong></p><div>开发检索工具。<br>独立编写测试。</div><p><a href="https://example.com/project">项目文档</a></p>',
+      },
+    }),
   );
 
   await page.getByLabel('导入简历附件').setInputFiles({
@@ -41,8 +46,82 @@ test('导入简历附件后将识别出的文字填入简历内容', async ({ pa
     buffer: Buffer.from('fake DOCX'),
   });
 
-  await expect(page.getByLabel('简历内容')).toHaveValue('已识别的简历正文。');
+  const editor = page.getByRole('textbox', { name: '简历内容' });
+  await expect(editor.locator('strong')).toHaveText('项目经历');
+  await expect(editor.getByRole('link', { name: '项目文档' })).toHaveAttribute('target', '_blank');
   await expect(page.getByRole('status')).toContainText('已识别 resume.docx');
+  await page.route('**/api/v1/ai-screenings/', (route) =>
+    route.fulfill({
+      json: { summary: '已完成', evidence: [], gaps: [], questions: [], limitations: '' },
+    }),
+  );
+  const submitted = page.waitForRequest('**/api/v1/ai-screenings/');
+  await page.getByRole('button', { name: '开始分析', exact: true }).click();
+  const text = (await submitted).postDataJSON().resume;
+  expect(text).toContain('项目经历\n');
+  expect(text).toContain('开发检索工具。\n独立编写测试。');
+  expect(text).toContain('项目文档 (https://example.com/project)');
+  await expect(page.getByText('已完成', { exact: true })).toBeVisible();
+});
+
+test('初面提纲包含题目、追问和回答要点，重新分析失败可保留结果并重试', async ({
+  page,
+  context,
+}) => {
+  await login(page);
+  await page.getByRole('link', { name: 'AI 初面' }).click();
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const result = {
+    summary: '虚构简历：有内部检索工具开发经验。',
+    evidence: [{ criterion: '检索开发', quote: '开发内部检索工具', reason: '可核实项目实现。' }],
+    gaps: [],
+    questions: [
+      {
+        question: '如何验证检索结果的准确性？',
+        reason: '核实评估方法。',
+        follow_up: '测试样本如何选取，如何避免偏差？',
+        answer_points: ['说明样本来源和标注方法。', '给出基线与改进结果。'],
+        quote: '开发内部检索工具',
+      },
+    ],
+    limitations: '请对照简历原文复核。',
+  };
+  let requests = 0;
+  await page.route('**/api/v1/ai-screenings/', (route) => {
+    requests += 1;
+    expect(route.request().postDataJSON()).toMatchObject({
+      application_id: null,
+      job_id: null,
+      enterprise_id: null,
+      resume: '虚构简历：开发内部检索工具。',
+    });
+    return requests === 2
+      ? route.fulfill({ status: 503, json: { errors: { detail: '模型服务网络连接失败或超时' } } })
+      : route.fulfill({ json: result });
+  });
+  const resume = page.getByRole('textbox', { name: '简历内容' });
+  await resume.fill('虚构简历：开发内部检索工具。');
+  await page.getByRole('button', { name: '开始分析', exact: true }).click();
+  const question = page.getByRole('article', { name: '第 1 题' });
+  await expect(question).toContainText(result.questions[0].question);
+  await expect(question).toContainText(result.questions[0].follow_up);
+  await expect(question).toContainText('合格回答要点');
+  await expect(question).toContainText(result.questions[0].answer_points[0]);
+  await page.getByRole('button', { name: '复制提纲' }).click();
+  await expect(page.getByRole('status')).toContainText('已复制面试提纲');
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain('追问：测试样本如何选取，如何避免偏差？');
+  expect(copied).toContain('给出基线与改进结果。');
+  await page.getByRole('button', { name: '重新分析', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('模型服务网络连接失败或超时');
+  await expect(page.getByRole('alert')).toContainText('上次分析结果仍保留');
+  await expect(question).toBeVisible();
+  await expect(resume).toHaveText('虚构简历：开发内部检索工具。');
+  await page.getByRole('button', { name: '重试分析' }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '重新分析', exact: true })).toBeEnabled();
+  await expect(question).toBeVisible();
+  expect(requests).toBe(3);
 });
 
 test('简历中的网址可单击并在新标签页打开', async ({ page, context }) => {

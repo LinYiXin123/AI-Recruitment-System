@@ -25,7 +25,14 @@ SYSTEM_PROMPT = "\n".join(
         "只输出 JSON 对象，含 summary 概览和 evidence 依据数组。",
         "每项含 criterion、quote、reason；quote 须逐字摘自简历原文。",
         "gaps（数组，每项含 criterion、note；只描述材料未提及或不清楚之处，不得据此判定不合格）。",
-        "questions（数组，每项含 question、reason；用于面试核实）。每个数组最多 5 项。",
+        "questions（数组，每项完整包含 question、reason、follow_up、answer_points、quote）。",
+        "每个数组最多 5 项。",
+        "问题围绕简历中的具体项目、本人职责、量化成果和评测口径，优先核实贡献边界、实施细节和结果依据，不编造经历。",
+        "question 是可直接提问的具体题目；reason 是考察点；follow_up 是进一步核验细节的追问。",
+        "answer_points 是 1 至 5 条字符串组成的合格回答要点，描述需提供的过程、证据或验证方法。",
+        "不能把尚未核实的简历说法当作标准答案，也不能用这些要点给候选人作出合格、录用或淘汰结论。",
+        "问题的 quote 须逐字摘自简历；用于补充缺失信息且没有原文依据时返回空字符串。",
+        "未选择候选人、目标职位或企业时仍可分析简历；没有职位要求时不假设目标职位。",
         "没有直接证据时 evidence 返回空数组。不得输出 JSON 以外的解释。",
     ]
 )
@@ -93,13 +100,18 @@ def _parse_analysis(content, resume):
         raise AnalysisFormatError("模型返回格式错误：缺少字符串类型的 summary 摘要字段。")
 
     normalized_resume = " ".join(resume.split())
+
+    def verified_quote(value):
+        quote = _text(value, 1200)
+        return quote if quote and " ".join(quote.split()) in normalized_resume else ""
+
     evidence = []
     evidence_items = data.get("evidence")
     for item in evidence_items[:5] if isinstance(evidence_items, list) else []:
         if not isinstance(item, dict):
             continue
-        quote = _text(item.get("quote"), 600)
-        if not quote or " ".join(quote.split()) not in normalized_resume:
+        quote = verified_quote(item.get("quote"))
+        if not quote:
             continue
         evidence.append(
             {
@@ -119,6 +131,29 @@ def _parse_analysis(content, resume):
             if isinstance(item, dict) and _text(item.get(first), 400)
         ]
 
+    questions = []
+    question_items = data.get("questions")
+    for item in question_items[:5] if isinstance(question_items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        question = _text(item.get("question"), 800)
+        if not question:
+            continue
+        answer_points = item.get("answer_points")
+        if not isinstance(answer_points, list):
+            answer_points = []
+        questions.append(
+            {
+                "question": question,
+                "reason": _text(item.get("reason"), 800),
+                "follow_up": _text(item.get("follow_up"), 800),
+                "answer_points": [
+                    point for value in answer_points[:5] if (point := _text(value, 800))
+                ],
+                "quote": verified_quote(item.get("quote")),
+            }
+        )
+
     summary = _text(data["summary"], 800)
     if not summary:
         raise AnalysisFormatError("模型返回格式错误：summary 摘要为空。")
@@ -126,7 +161,7 @@ def _parse_analysis(content, resume):
         "summary": summary,
         "evidence": evidence,
         "gaps": notes("gaps", "criterion", "note"),
-        "questions": notes("questions", "question", "reason"),
+        "questions": questions,
         "limitations": "AI 结果仅供参考；请对照简历原文复核，并由 HR 独立作出判断。",
     }
 
