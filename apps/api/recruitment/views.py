@@ -31,7 +31,7 @@ from .models import (
     QuestionTemplate,
     Task,
 )
-from .profile_ai import generate_profile, requirement_sources
+from .profile_ai import bind_preview, generate_profile, requirement_sources, same_creation_profile
 from .serializers import (
     AuditSerializer,
     ClarificationAnswerSerializer,
@@ -270,6 +270,9 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 {"status": "新建职位需先以草稿保存，HR 使用招人要求后才能开启招聘。"}
             )
         Membership.objects.select_for_update().get(pk=m.pk)
+        m = member(request)
+        if not m.user.is_active:
+            raise PermissionDenied("当前账号已停用。")
         existing = Job.objects.filter(owner=m, request_id=data["request_id"]).first()
         if existing:
             if not can_edit(m, existing):
@@ -300,6 +303,7 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             same = same and set(
                 existing.collaborators.values_list("membership_id", flat=True)
             ) == set(data["collaborators"])
+            same = same and same_creation_profile(existing, data.get("profile"))
             if not same:
                 raise Conflict("此前提交的职位已保存，请关闭表单并从职位列表查看，不要重复创建。")
             return Response(self.get_serializer(existing).data)
@@ -356,6 +360,11 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         )
         JobMember.objects.bulk_create([JobMember(job=job, membership=p) for p in collaborators])
         AuditEvent.objects.create(job=job, actor=m, action="创建职位", job_version=job.version)
+        if "profile" in data:
+            profile_data = {**data["profile"], "jd": data["jd"]}
+            if profile_data["generation_id"]:
+                bind_preview(job, profile_data, m)
+            self.save_profile(job, profile_data, m, created_with_job=True)
         return Response(self.get_serializer(job).data, status=201)
 
     @action(detail=True, methods=["get", "post"])
@@ -368,43 +377,52 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         with transaction.atomic():
             job = self.locked_job(data)
             m = self.editable(job)
-            last = job.profiles.first()
-            generation, requirements = requirement_sources(job, data, m)
-            if data["activate"] and (
-                any(r["kind"] == "must" and r["needs_verification"] for r in requirements)
-                or (last and last.clarifications.filter(status="pending").exists())
-            ):
-                raise ValidationError("仍有待核实的必须项或未回答的澄清，请先明确再使用。")
-            if last and last.status == ProfileVersion.Status.PENDING:
-                last.status = ProfileVersion.Status.WITHDRAWN
-                last.save()
-            if last:
-                last.clarifications.filter(status="pending").update(
-                    status="withdrawn", updated_at=timezone.now()
-                )
-                Task.objects.filter(
-                    profile=last, status="pending", kind__in=["revise", "clarify_followup"]
-                ).update(status="done", completed_at=timezone.now())
-                Task.objects.filter(profile=last, status="pending").update(
-                    status="cancelled", completed_at=timezone.now()
-                )
-            profile = ProfileVersion.objects.create(
-                job=job,
-                number=last.number + 1 if last else 1,
-                jd_snapshot=data["jd"],
-                source=data["source"],
-                business_goal=data.get("business_goal", last.business_goal if last else ""),
-                generation=generation,
-                created_by=m,
-            )
-            for position, requirement in enumerate(requirements):
-                profile.requirements.create(position=position, **requirement)
-            job.jd = data["jd"]
-            if data["activate"]:
-                self.use_profile(job, profile, m)
-            else:
-                record(job, m, f"保存招人要求 v{profile.number}")
+            self.save_profile(job, data, m)
             return Response(self.get_serializer(job).data, status=201)
+
+    def save_profile(self, job, data, m, *, created_with_job=False):
+        self.editable(job)
+        last = job.profiles.first()
+        generation, requirements = requirement_sources(job, data, m)
+        if data["activate"] and (
+            any(r["kind"] == "must" and r["needs_verification"] for r in requirements)
+            or (last and last.clarifications.filter(status="pending").exists())
+        ):
+            raise ValidationError("仍有待核实的必须项或未回答的澄清，请先明确再使用。")
+        if last and last.status == ProfileVersion.Status.PENDING:
+            last.status = ProfileVersion.Status.WITHDRAWN
+            last.save()
+        if last:
+            last.clarifications.filter(status="pending").update(
+                status="withdrawn", updated_at=timezone.now()
+            )
+            Task.objects.filter(
+                profile=last, status="pending", kind__in=["revise", "clarify_followup"]
+            ).update(status="done", completed_at=timezone.now())
+            Task.objects.filter(profile=last, status="pending").update(
+                status="cancelled", completed_at=timezone.now()
+            )
+        profile = ProfileVersion.objects.create(
+            job=job,
+            number=last.number + 1 if last else 1,
+            jd_snapshot=data["jd"],
+            source=data["source"],
+            business_goal=data.get("business_goal", last.business_goal if last else ""),
+            generation=generation,
+            created_by=m,
+            created_with_job=created_with_job,
+        )
+        for position, requirement in enumerate(requirements):
+            profile.requirements.create(position=position, **requirement)
+        job.jd = data["jd"]
+        if data["activate"]:
+            self.use_profile(job, profile, m)
+        else:
+            record(job, m, f"保存招人要求 v{profile.number}")
+
+    @action(detail=False, methods=["get", "post"], url_path="profile-ai")
+    def profile_ai_preview(self, request):
+        return generate_profile(request)
 
     @action(detail=True, methods=["get", "post"], url_path="profile-ai")
     def profile_ai(self, request, pk=None):
@@ -426,7 +444,9 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         )
         if job.status in [Job.Status.DRAFT, Job.Status.PAUSED]:
             Task.objects.update_or_create(
-                profile=profile, kind="start", clarification=None,
+                profile=profile,
+                kind="start",
+                clarification=None,
                 defaults={"assignee": job.owner, "status": "pending", "completed_at": None},
             )
         record(job, m, f"HR 直接使用招人要求 v{profile.number}")

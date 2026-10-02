@@ -134,6 +134,29 @@ class JobSerializer(serializers.ModelSerializer):
         ]
 
 
+class ProfileContentSerializer(serializers.Serializer):
+    source = serializers.CharField(max_length=500)
+    business_goal = serializers.CharField(max_length=5000, allow_blank=True, required=False)
+    generation_id = serializers.IntegerField(min_value=1, allow_null=True, default=None)
+    activate = serializers.BooleanField(default=False)
+    requirements = RequirementSerializer(many=True, allow_empty=False)
+
+    def validate_requirements(self, value):
+        if len(value) > 50:
+            raise serializers.ValidationError("每个版本最多保存 50 项要求。")
+        return value
+
+
+class NewJobProfileSerializer(ProfileContentSerializer):
+    business_goal = serializers.CharField(max_length=5000, allow_blank=True, default="")
+    activate = serializers.BooleanField(default=True)
+
+    def validate(self, attrs):
+        if any(item.get("id") for item in attrs["requirements"]):
+            raise serializers.ValidationError("新岗位不能引用其他岗位的要求编号。")
+        return attrs
+
+
 class NewJobSerializer(serializers.Serializer):
     request_id = serializers.UUIDField()
     title = serializers.CharField(max_length=100)
@@ -154,6 +177,12 @@ class NewJobSerializer(serializers.Serializer):
     collaborators = serializers.ListField(
         child=serializers.IntegerField(min_value=1), max_length=30, default=list
     )
+    profile = NewJobProfileSerializer(required=False)
+
+    def validate(self, attrs):
+        if "profile" in attrs and not attrs["jd"]:
+            raise serializers.ValidationError({"jd": "请保留用于 AI 起草的岗位需求。"})
+        return attrs
 
 
 class VersionSerializer(serializers.Serializer):
@@ -209,18 +238,8 @@ class ClarificationSerializer(serializers.ModelSerializer):
         ]
 
 
-class SaveProfileSerializer(VersionSerializer):
+class SaveProfileSerializer(ProfileContentSerializer, VersionSerializer):
     jd = serializers.CharField(max_length=30000)
-    source = serializers.CharField(max_length=500)
-    business_goal = serializers.CharField(max_length=5000, allow_blank=True, required=False)
-    generation_id = serializers.IntegerField(min_value=1, allow_null=True, default=None)
-    activate = serializers.BooleanField(default=False)
-    requirements = RequirementSerializer(many=True, allow_empty=False)
-
-    def validate_requirements(self, value):
-        if len(value) > 50:
-            raise serializers.ValidationError("每个版本最多保存 50 项要求。")
-        return value
 
 
 class ReviewSerializer(VersionSerializer):

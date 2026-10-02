@@ -47,6 +47,7 @@ import { EmployerBrandPage } from '@/pages/employer-brand';
 import { ApplicationDetail, type CandidateLibraryActions, Candidates } from '@/pages/intake';
 import { type InterviewActions, Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
+import { ProfileDraft } from '@/pages/profile-draft';
 import { QuestionBank } from '@/pages/question-bank';
 import { TalentProfiles } from '@/pages/talent-profiles';
 import { Jobs, type JobsActions, Today } from '@/pages/workspace';
@@ -143,7 +144,8 @@ export default function App() {
   const [applicationId, setApplicationId] = useState<number | null>(null);
   const [jobId, setJobId] = useState<number | null>(null);
   const [jobTab, setJobTab] = useState('requirements');
-  const [creating, setCreating] = useState(false);
+  const [jobEditing, setJobEditing] = useState(false);
+  const [creating, setCreating] = useState<'job' | 'profile' | null>(null);
   const [revision, setRevision] = useState(0);
   const [leaving, setLeaving] = useState(false);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -151,8 +153,9 @@ export default function App() {
   const interviewRef = useRef<InterviewActions>(null);
   const jobsRef = useRef<JobsActions>(null);
 
-  function openJob(id: number, tab = 'requirements') {
+  function openJob(id: number, tab = 'requirements', edit = false) {
     setJobTab(tab);
+    setJobEditing(edit);
     setJobId(id);
   }
 
@@ -361,7 +364,7 @@ export default function App() {
                       导出本模块
                     </Button>
                     {me.departments.length > 0 && (
-                      <Button onClick={() => setCreating(true)}>
+                      <Button onClick={() => setCreating('job')}>
                         <Plus data-icon="inline-start" />
                         新建职位
                       </Button>
@@ -434,8 +437,8 @@ export default function App() {
           ) : route === 'talent-profiles' ? (
             <TalentProfiles
               revision={revision}
-              openJob={openJob}
-              createJob={me.departments.length > 0 ? () => setCreating(true) : undefined}
+              openJob={(id, edit) => openJob(id, 'requirements', edit)}
+              createJob={me.departments.length > 0 ? () => setCreating('profile') : undefined}
             />
           ) : (
             <UnavailablePage route={route} />
@@ -573,12 +576,23 @@ export default function App() {
           changed={() => setRevision((value) => value + 1)}
         />
       )}
-      {creating && (
+      {creating === 'job' && (
         <CreateJob
           me={me}
-          close={() => setCreating(false)}
+          close={() => setCreating(null)}
           created={(job) => {
-            setCreating(false);
+            setCreating(null);
+            openJob(job.id);
+            setRevision((value) => value + 1);
+          }}
+        />
+      )}
+      {creating === 'profile' && (
+        <ProfileDraft
+          me={me}
+          close={() => setCreating(null)}
+          created={(job) => {
+            setCreating(null);
             openJob(job.id);
             setRevision((value) => value + 1);
           }}
@@ -586,8 +600,10 @@ export default function App() {
       )}
       {jobId !== null && (
         <JobDetail
+          key={jobId}
           id={jobId}
           initialTab={jobTab}
+          initialEditing={jobEditing}
           close={() => setJobId(null)}
           changed={() => setRevision((value) => value + 1)}
         />

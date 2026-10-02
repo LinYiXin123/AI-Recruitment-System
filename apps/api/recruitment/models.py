@@ -134,6 +134,7 @@ class ProfileVersion(Timestamped):
     )
     confirmed_at = models.DateTimeField(null=True, blank=True)
     activated_by_hr = models.BooleanField(default=False)
+    created_with_job = models.BooleanField(default=False)
     review_note = models.TextField(blank=True)
     submitted_by = models.ForeignKey(
         Membership, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
@@ -190,10 +191,12 @@ class ProfileRequirement(models.Model):
 
 
 class ProfileGeneration(Timestamped):
-    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="profile_generations")
+    job = models.ForeignKey(
+        Job, on_delete=models.PROTECT, related_name="profile_generations", null=True, blank=True
+    )
     creator = models.ForeignKey(Membership, on_delete=models.PROTECT)
     request_key = models.UUIDField()
-    job_version = models.PositiveIntegerField()
+    job_version = models.PositiveIntegerField(null=True, blank=True)
     purpose = models.CharField(max_length=32, default="job_profile_draft")
     model = models.CharField(max_length=200)
     prompt_version = models.CharField(max_length=40)
@@ -207,6 +210,18 @@ class ProfileGeneration(Timestamped):
         constraints = [
             models.UniqueConstraint(
                 fields=["job", "creator", "request_key"], name="one_profile_generation_request"
+            ),
+            models.UniqueConstraint(
+                fields=["creator", "request_key"],
+                condition=Q(purpose="job_profile_preview"),
+                name="one_profile_preview_request",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    job__isnull=True, job_version__isnull=True, purpose="job_profile_preview"
+                )
+                | Q(job__isnull=False, job_version__isnull=False, job_version__gte=1),
+                name="profile_generation_job_version",
             ),
             models.CheckConstraint(
                 condition=Q(status__in=["running", "succeeded", "failed", "stale"]),

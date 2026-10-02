@@ -11,10 +11,10 @@ from rest_framework import serializers
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from .access import can_edit, member, visible_jobs
+from .access import can_edit, department_ids, member, visible_jobs
 from .errors import Conflict
 from .llm import LLMServiceError, chat_completion
-from .models import Job, ProfileGeneration, ProfileRequirement
+from .models import Job, Membership, ProfileGeneration, ProfileRequirement
 
 PROMPT_VERSION = "job-profile-v1"
 PROMPT = """你是岗位要求整理助手，只处理岗位职责、技能和可核验经验。
@@ -29,11 +29,14 @@ source_reference（sources 中对应的键）。引用必须逐字来自对应�
 在 rationale 写出需澄清的问题。不得声称要求已经确认，不做候选人判断。"""
 
 
-class GenerationInput(serializers.Serializer):
-    version = serializers.IntegerField(min_value=1)
+class PreviewInput(serializers.Serializer):
     request_key = serializers.UUIDField()
     jd = serializers.CharField(max_length=30000)
     business_goal = serializers.CharField(max_length=5000, allow_blank=True, default="")
+
+
+class GenerationInput(PreviewInput):
+    version = serializers.IntegerField(min_value=1)
 
 
 def editable_job(request, pk, *, lock=False):
@@ -52,12 +55,13 @@ def editable_job(request, pk, *, lock=False):
 def generation_data(row, job):
     return {
         "id": row.id,
+        "job": row.job_id,
         "status": row.status,
         "error": row.error,
         "input": row.input_snapshot,
         "requirements": row.result,
         "job_version": row.job_version,
-        "is_current": row.job_version == job.version,
+        "is_current": job is None or row.job_version == job.version,
         "model": row.model,
         "prompt_version": row.prompt_version,
         "created_at": row.created_at,
@@ -121,39 +125,63 @@ def parse_result(content, sources):
     return result
 
 
-def generate_profile(request, pk):
+def generation_context(request, pk=None, *, lock=False):
+    if pk is not None:
+        return editable_job(request, pk, lock=lock)
+    m = member(request)
+    if lock:
+        Membership.objects.select_for_update().get(pk=m.pk)
+        m = member(request)
+    if not m.user.is_active or not department_ids(m, ["hr"]).exists():
+        raise PermissionDenied("仅当前有效的 HR 可以起草新岗位画像。")
+    return m, None
+
+
+def check_generation(request, generation, *, lock=False):
+    m, job = generation_context(request, generation.job_id, lock=lock)
+    if m.pk != generation.creator_id:
+        raise PermissionDenied("当前身份已变化，请重新查看后生成。")
+    if job is not None and job.version != generation.job_version:
+        raise Conflict()
+    return job
+
+
+def generate_profile(request, pk=None):
     if request.method == "GET":
-        m, job = editable_job(request, pk)
+        m, job = generation_context(request, pk)
         expire_interrupted(job, m)
-        rows = job.profile_generations.filter(creator=m)[:20]
+        rows = ProfileGeneration.objects.filter(job=job, creator=m)[:20]
         return Response({"items": [generation_data(row, job) for row in rows]})
 
-    form = GenerationInput(data=request.data)
+    form = (GenerationInput if pk is not None else PreviewInput)(data=request.data)
     form.is_valid(raise_exception=True)
     data = form.validated_data
     with transaction.atomic():
-        m, job = editable_job(request, pk, lock=True)
+        m, job = generation_context(request, pk, lock=True)
         expire_interrupted(job, m)
-        existing = job.profile_generations.filter(
-            creator=m, request_key=data["request_key"]
+        scope = {"job": job} if job else {"purpose": "job_profile_preview"}
+        existing = ProfileGeneration.objects.filter(
+            creator=m, request_key=data["request_key"], **scope
         ).first()
         if existing:
             if (
-                existing.job_version != data["version"]
+                (job is not None and existing.job_version != data["version"])
                 or existing.input_snapshot["jd"] != data["jd"]
                 or existing.input_snapshot["business_goal"] != data["business_goal"]
             ):
                 raise Conflict("该生成请求已用于其他输入，请重新生成。")
+            if job is None and existing.job_id:
+                _, job = editable_job(request, existing.job_id)
             return Response(generation_data(existing, job))
-        if job.version != data["version"]:
+        if job is not None and job.version != data["version"]:
             raise Conflict()
         sources = {"jd": data["jd"], "business_goal": data["business_goal"]}
-        latest = job.profiles.first()
+        latest = job.profiles.first() if job else None
         if latest:
             for answer in latest.clarifications.filter(status="answered"):
                 sources[f"clarification:{answer.id}"] = answer.answer
         snapshot = {
-            "title": job.title,
+            "title": job.title if job else "",
             "jd": data["jd"],
             "business_goal": data["business_goal"],
             "sources": sources,
@@ -162,7 +190,8 @@ def generate_profile(request, pk):
             job=job,
             creator=m,
             request_key=data["request_key"],
-            job_version=job.version,
+            job_version=job.version if job else None,
+            purpose="job_profile_draft" if job else "job_profile_preview",
             model=settings.LLM_MODEL,
             prompt_version=PROMPT_VERSION,
             input_snapshot=snapshot,
@@ -170,9 +199,7 @@ def generate_profile(request, pk):
     # ponytail: 同步单次调用，超过当前请求时长需要时再接持久任务队列；不持有岗位锁。
     try:
         # 提交生成记录后重新检查，撤销的权限不用于发送模型请求。
-        _, current_job = editable_job(request, pk)
-        if current_job.version != generation.job_version:
-            raise Conflict()
+        check_generation(request, generation)
         result = parse_result(
             chat_completion(
                 base_url=settings.LLM_API_BASE_URL,
@@ -202,9 +229,7 @@ def generate_profile(request, pk):
     else:
         try:
             with transaction.atomic():
-                _, current_job = editable_job(request, pk, lock=True)
-                if current_job.version != generation.job_version:
-                    raise Conflict()
+                check_generation(request, generation, lock=True)
                 ProfileGeneration.objects.filter(pk=generation.pk, status="running").update(
                     result=result, status="succeeded", updated_at=timezone.now()
                 )
@@ -214,15 +239,63 @@ def generate_profile(request, pk):
             )
             raise
     # 失败也需重新鉴权，不能把输入在权限撤销后返回。
-    _, job = editable_job(request, pk)
     generation.refresh_from_db()
+    job = check_generation(request, generation)
     return Response(generation_data(generation, job))
 
 
 def expire_interrupted(job, creator):
-    job.profile_generations.filter(
-        creator=creator, status="running", updated_at__lt=timezone.now() - timedelta(minutes=2)
+    ProfileGeneration.objects.filter(
+        job=job,
+        creator=creator,
+        status="running",
+        updated_at__lt=timezone.now() - timedelta(minutes=2),
     ).update(status="failed", error="上次生成中断，输入已保留，请重新生成。")
+
+
+def bind_preview(job, data, m):
+    generation = get_object_or_404(
+        ProfileGeneration.objects.select_for_update(),
+        pk=data["generation_id"],
+        creator=m,
+        purpose="job_profile_preview",
+        status="succeeded",
+    )
+    if generation.job_id is not None:
+        raise Conflict("这份 AI 草稿已用于创建职位，请打开已有职位，不要重复创建。")
+    if generation.input_snapshot["jd"] != data["jd"] or generation.input_snapshot[
+        "business_goal"
+    ] != data.get("business_goal", ""):
+        raise Conflict("岗位需求或业务目标已改变，请重新生成后再保存，原内容已保留。")
+    generation.job = job
+    generation.job_version = job.version
+    generation.save(update_fields=["job", "job_version", "updated_at"])
+
+
+def same_creation_profile(job, data):
+    original = job.profiles.filter(created_with_job=True).first()
+    if data is None:
+        return original is None
+    if (
+        original is None
+        or original.generation_id != data["generation_id"]
+        or original.source != data["source"]
+        or original.business_goal != data["business_goal"]
+        or original.activated_by_hr != data["activate"]
+    ):
+        return False
+    fields = {
+        "kind": "",
+        "text": "",
+        "rationale": "",
+        "needs_verification": False,
+        "generation_index": None,
+    }
+    requested = [
+        {key: item.get(key, default) for key, default in fields.items()}
+        for item in data["requirements"]
+    ]
+    return list(original.requirements.values(*fields)) == requested
 
 
 def requirement_sources(job, data, member):

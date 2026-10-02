@@ -1,11 +1,18 @@
 import Table from '@douyinfe/semi-ui/lib/es/table';
-import { Sparkles } from 'lucide-react';
+import { BriefcaseBusiness, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Blank, ErrorNotice, Loading, Pager } from '@/components/feedback';
+import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
@@ -25,7 +32,7 @@ export function TalentProfiles({
   createJob,
 }: {
   revision: number;
-  openJob: (id: number) => void;
+  openJob: (id: number, edit?: boolean) => void;
   createJob?: () => void;
 }) {
   const [search, setSearch] = useState('');
@@ -51,11 +58,12 @@ export function TalentProfiles({
       <div className="section-heading">
         <div>
           <h2>岗位画像</h2>
-          <p>选一个职位，AI 帮你整理招人要求。修改后保存并使用，由你直接定稿。</p>
+          <p>选择职位，点击「AI 起草画像」，从职位描述整理招人标准，再由你核对使用。</p>
         </div>
         {createJob && (
           <Button variant="outline" onClick={createJob}>
-            新建职位
+            <Sparkles data-icon="inline-start" />
+            AI 起草画像
           </Button>
         )}
       </div>
@@ -101,22 +109,26 @@ export function TalentProfiles({
       ) : !data ? (
         <Loading />
       ) : data.count === 0 ? (
-        <Blank
-          title={
-            search || status
-              ? '没有符合条件的职位'
-              : createJob
-                ? '从第一个职位开始'
-                : '暂无可查看的职位'
-          }
-          description={
-            search || status
-              ? '调整筛选后再试，已保存的画像不会改变。'
-              : createJob
-                ? '新建职位并填写职位描述，即可用 AI 起草画像。'
-                : '获得职位查看权限后，可在这里查看岗位标准。'
-          }
-        >
+        <Empty className="candidate-library-empty">
+          <EmptyHeader>
+            <EmptyMedia className="candidate-library-empty-icon">
+              <BriefcaseBusiness aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyTitle>{search || status ? '没有符合条件的职位' : '还没有数据'}</EmptyTitle>
+            <EmptyDescription>
+              {search || status
+                ? '调整筛选后再试，已保存的画像不会改变。'
+                : createJob
+                  ? '粘贴招聘需求，让 AI 整理岗位要求；核对后再保存为职位画像。'
+                  : '获得职位查看权限后，可在这里查看岗位标准。'}
+            </EmptyDescription>
+          </EmptyHeader>
+          {!search && !status && createJob && (
+            <Button onClick={createJob}>
+              <Sparkles data-icon="inline-start" />
+              AI 起草第一份画像
+            </Button>
+          )}
           {(search || status) && (
             <Button
               variant="outline"
@@ -129,7 +141,7 @@ export function TalentProfiles({
               清空筛选
             </Button>
           )}
-        </Blank>
+        </Empty>
       ) : (
         <>
           <div className="table-container">
@@ -176,9 +188,17 @@ export function TalentProfiles({
                   title: '下一步',
                   dataIndex: 'id',
                   render: (_value, job) => (
-                    <Button variant="outline" onClick={() => openJob(job.id)}>
-                      {job.permissions.edit && job.status !== 'closed' ? '编辑画像' : '查看画像'}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      {job.permissions.edit && job.status !== 'closed' && (
+                        <Button onClick={() => openJob(job.id, true)}>
+                          <Sparkles data-icon="inline-start" />
+                          AI 起草画像
+                        </Button>
+                      )}
+                      <Button variant="outline" onClick={() => openJob(job.id)}>
+                        查看画像
+                      </Button>
+                    </div>
                   ),
                 },
               ]}
@@ -198,7 +218,7 @@ export type ProfileGeneration = {
   input: { jd: string; business_goal: string };
   requirements: Requirement[];
   created_at: string;
-  job_version?: number;
+  job_version?: number | null;
 };
 
 export function ProfileAi({
@@ -210,7 +230,7 @@ export function ProfileAi({
   restoreInput,
   adopt,
 }: {
-  job: Job;
+  job?: Job;
   jd: string;
   businessGoal: string;
   busy: boolean;
@@ -223,6 +243,7 @@ export function ProfileAi({
   const [error, setError] = useState('');
   const [request, setRequest] = useState<{ key: string; input: string } | null>(null);
   const [history, setHistory] = useState<ProfileGeneration[] | null>(null);
+  const endpoint = job ? `jobs/${job.id}/profile-ai/` : 'jobs/profile-ai/';
   function show(generation: ProfileGeneration) {
     setResult(generation);
     setSelected(generation.requirements.map((_, i) => i));
@@ -231,12 +252,12 @@ export function ProfileAi({
     if (busy || !jd.trim()) return;
     setBusy(true);
     setError('');
-    const input = JSON.stringify([job.version, jd, businessGoal]);
+    const input = JSON.stringify([job?.version, jd, businessGoal]);
     const key = request?.input === input ? request.key : crypto.randomUUID();
     setRequest({ key, input });
     try {
-      const generated = await api<ProfileGeneration>(`jobs/${job.id}/profile-ai/`, {
-        version: job.version,
+      const generated = await api<ProfileGeneration>(endpoint, {
+        ...(job ? { version: job.version } : {}),
         request_key: key,
         jd,
         business_goal: businessGoal,
@@ -253,7 +274,9 @@ export function ProfileAi({
   }
   const inputChanged =
     result && (result.input.jd !== jd.trim() || result.input.business_goal !== businessGoal.trim());
-  const outdated = result?.job_version !== undefined && result.job_version !== job.version;
+  const outdated = Boolean(
+    job && result?.job_version != null && result.job_version !== job.version,
+  );
   return (
     <section className="flex flex-col gap-4" aria-label="AI 岗位画像助手">
       <div className="flex flex-wrap gap-2">
@@ -269,9 +292,7 @@ export function ProfileAi({
             setBusy(true);
             setError('');
             try {
-              setHistory(
-                (await api<{ items: ProfileGeneration[] }>(`jobs/${job.id}/profile-ai/`)).items,
-              );
+              setHistory((await api<{ items: ProfileGeneration[] }>(endpoint)).items);
             } catch (e) {
               setError((e as Error).message);
             } finally {
@@ -283,7 +304,9 @@ export function ProfileAi({
         </Button>
       </div>
       <FieldDescription>
-        根据上方职位描述和业务目标生成；你选择采用、修改后再保存。AI 不会自动启用画像。
+        {jd.trim()
+          ? '根据职位描述和业务目标生成；选择采用、修改后再保存。AI 不会自动启用画像。'
+          : '先填写招聘需求，即可生成 AI 草稿。'}
       </FieldDescription>
       {error && <ErrorNotice message={error} />}
       {history && (

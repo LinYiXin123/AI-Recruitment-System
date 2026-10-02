@@ -1,6 +1,7 @@
-import { Check, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Check, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Blank, ErrorNotice, Loading, Pager } from '@/components/feedback';
+import { ProfileRequirements } from '@/components/profile-requirements';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -343,6 +344,7 @@ export function CreateJob({
           <Button
             variant="outline"
             type="button"
+            disabled={busy}
             onClick={() => {
               if (!dirty || window.confirm('放弃尚未保存的职位内容？')) close();
             }}
@@ -361,11 +363,13 @@ export function CreateJob({
 export function JobDetail({
   id,
   initialTab = 'requirements',
+  initialEditing = false,
   close,
   changed,
 }: {
   id: number;
   initialTab?: string;
+  initialEditing?: boolean;
   close: () => void;
   changed: () => void;
 }) {
@@ -373,7 +377,8 @@ export function JobDetail({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(initialEditing);
+  const [profileDirty, setProfileDirty] = useState(false);
   const [tab, setTab] = useState(initialTab);
   const [clarificationDirty, setClarificationDirty] = useState(false);
   const [nextStatus, setNextStatus] = useState('');
@@ -382,7 +387,9 @@ export function JobDetail({
   const load = useCallback(async () => {
     setError('');
     try {
-      setJob(await api<Job>(`jobs/${id}/`));
+      const loaded = await api<Job>(`jobs/${id}/`);
+      setJob(loaded);
+      if (!loaded.permissions.edit || loaded.status === 'closed') setEditing(false);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -408,7 +415,7 @@ export function JobDetail({
     }
   }
   function requestClose() {
-    const unsaved = editing || clarificationDirty || reason.trim();
+    const unsaved = profileDirty || clarificationDirty || reason.trim();
     if (!busy && (!unsaved || window.confirm('还有尚未保存的内容，确定关闭吗？'))) {
       close();
       returnFocus.current?.focus();
@@ -451,10 +458,11 @@ export function JobDetail({
               message={error}
               retry={() => {
                 if (
-                  (!editing && !clarificationDirty) ||
+                  (!profileDirty && !clarificationDirty) ||
                   window.confirm('重新加载会放弃未保存的编辑，是否继续？')
                 ) {
                   setEditing(false);
+                  setProfileDirty(false);
                   setClarificationDirty(false);
                   setTab('requirements');
                   void load();
@@ -469,12 +477,17 @@ export function JobDetail({
               job={job}
               busy={busy}
               setBusy={setBusy}
+              onDirty={() => setProfileDirty(true)}
               cancel={() => {
-                if (window.confirm('放弃本次未保存的招人要求？')) setEditing(false);
+                if (!profileDirty || window.confirm('放弃本次未保存的招人要求？')) {
+                  setEditing(false);
+                  setProfileDirty(false);
+                }
               }}
               saved={(j) => {
                 setJob(j);
                 setEditing(false);
+                setProfileDirty(false);
                 setNotice(
                   j.latest_profile?.status === 'confirmed'
                     ? '岗位画像已保存并使用，无需另外审批。'
@@ -789,12 +802,14 @@ function ProfileEditor({
   job,
   busy,
   setBusy,
+  onDirty,
   cancel,
   saved,
 }: {
   job: Job;
   busy: boolean;
   setBusy: (busy: boolean) => void;
+  onDirty: () => void;
   cancel: () => void;
   saved: (j: Job) => void;
 }) {
@@ -810,11 +825,9 @@ function ProfileEditor({
   const [source, setSource] = useState(job.latest_profile?.source || '');
   const [businessGoal, setBusinessGoal] = useState(job.latest_profile?.business_goal || '');
   const [generationId, setGenerationId] = useState<number | null>(null);
-  function update(key: string, change: Partial<Requirement>) {
-    setRequirements((rs) => rs.map((r) => (r.key === key ? { ...r, ...change } : r)));
-  }
   return (
     <form
+      onChange={onDirty}
       onSubmit={async (e) => {
         e.preventDefault();
         const activate =
@@ -844,10 +857,29 @@ function ProfileEditor({
         <FieldGroup>
           <div className="section-heading">
             <div>
-              <h2>{job.latest_profile ? '调整招人要求' : '填写招人要求'}</h2>
+              <h2>AI 辅助整理岗位要求</h2>
               <p>本次保存为 v{(job.latest_profile?.number || 0) + 1}，历史版本会保留。</p>
             </div>
           </div>
+          <ProfileAi
+            job={job}
+            jd={jd}
+            businessGoal={businessGoal}
+            busy={busy}
+            setBusy={setBusy}
+            restoreInput={(input) => {
+              onDirty();
+              setJd(input.jd);
+              setBusinessGoal(input.business_goal);
+            }}
+            adopt={(generation, items) => {
+              onDirty();
+              setRequirements(items.map((r) => ({ ...r, key: crypto.randomUUID() })));
+              setGenerationId(generation.id);
+              setSource('AI 起草，HR 核对');
+              setError('');
+            }}
+          />
           <Field>
             <FieldLabel htmlFor="profile-jd">对外职位描述</FieldLabel>
             <Textarea
@@ -870,23 +902,6 @@ function ProfileEditor({
               onChange={(e) => setBusinessGoal(e.target.value)}
             />
           </Field>
-          <ProfileAi
-            job={job}
-            jd={jd}
-            businessGoal={businessGoal}
-            busy={busy}
-            setBusy={setBusy}
-            restoreInput={(input) => {
-              setJd(input.jd);
-              setBusinessGoal(input.business_goal);
-            }}
-            adopt={(generation, items) => {
-              setRequirements(items.map((r) => ({ ...r, key: crypto.randomUUID() })));
-              setGenerationId(generation.id);
-              setSource('AI 起草，HR 核对');
-              setError('');
-            }}
-          />
           <Field>
             <FieldLabel htmlFor="profile-source">要求来源</FieldLabel>
             <Input
@@ -898,88 +913,14 @@ function ProfileEditor({
               required
             />
           </Field>
-          {requirements.map((r, i) => (
-            <FieldSet key={r.key} className="requirement-editor">
-              <FieldLegend>要求 {i + 1}</FieldLegend>
-              <div className="flex items-center justify-between gap-3">
-                <NativeSelect
-                  aria-label={`要求 ${i + 1} 类型`}
-                  disabled={busy}
-                  value={r.kind}
-                  onChange={(e) => update(r.key, { kind: e.target.value as Requirement['kind'] })}
-                >
-                  {Object.entries(kindLabel).map(([v, l]) => (
-                    <NativeSelectOption key={v} value={v}>
-                      {l}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`删除要求 ${i + 1}`}
-                  disabled={requirements.length <= 1}
-                  onClick={() => setRequirements((rs) => rs.filter((x) => x.key !== r.key))}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-              <Field>
-                <FieldLabel htmlFor={`req-${r.key}`}>具体要求 {i + 1}</FieldLabel>
-                <Textarea
-                  id={`req-${r.key}`}
-                  value={r.text}
-                  onChange={(e) => update(r.key, { text: e.target.value })}
-                  maxLength={1000}
-                  required
-                  placeholder="写清楚可核对的能力、经历或工作条件。"
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor={`why-${r.key}`}>
-                  岗位关系与依据{r.kind !== 'exclusion' ? '（可选）' : ''}
-                </FieldLabel>
-                <Input
-                  id={`why-${r.key}`}
-                  value={r.rationale}
-                  onChange={(e) => update(r.key, { rationale: e.target.value })}
-                  maxLength={1000}
-                  required={r.kind === 'exclusion'}
-                />
-              </Field>
-              <Field orientation="horizontal">
-                <input
-                  id={`verify-${r.key}`}
-                  type="checkbox"
-                  checked={r.needs_verification}
-                  onChange={(e) => update(r.key, { needs_verification: e.target.checked })}
-                />
-                <FieldLabel htmlFor={`verify-${r.key}`}>
-                  此项仍需核实，不能直接作为淘汰依据
-                </FieldLabel>
-              </Field>
-              {r.source_quote && <p className="source-note">原始依据：{r.source_quote}</p>}
-            </FieldSet>
-          ))}
-          <Button
-            variant="outline"
-            disabled={requirements.length >= 50}
-            onClick={() =>
-              setRequirements((rs) => [
-                ...rs,
-                {
-                  key: crypto.randomUUID(),
-                  kind: 'preferred',
-                  text: '',
-                  rationale: '',
-                  needs_verification: false,
-                },
-              ])
-            }
-          >
-            <Plus data-icon="inline-start" />
-            添加一项要求
-          </Button>
+          <ProfileRequirements
+            requirements={requirements}
+            busy={busy}
+            onChange={(next) => {
+              onDirty();
+              setRequirements(next);
+            }}
+          />
           {error && <ErrorNotice message={error} />}
           <div className="form-actions">
             <Button variant="outline" onClick={cancel}>
