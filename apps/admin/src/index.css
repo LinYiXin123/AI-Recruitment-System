@@ -2456,6 +2456,130 @@ body {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
+.ai-report {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-top: 18px;
+  font-size: 13px;
+  line-height: 1.85;
+}
+.ai-report h3 {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ai-report-overview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 20px;
+  line-height: 1.6;
+}
+.ai-report-score {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  --semi-color-text-0: var(--foreground);
+}
+.ai-report-score .semi-progress-circle-text {
+  color: var(--foreground);
+  font-size: 20px;
+  font-weight: 500;
+}
+.ai-report-meta {
+  flex: 1;
+  min-width: 180px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.ai-report-meta,
+.ai-history-table td:nth-child(4) {
+  --secondary: color-mix(in srgb, var(--warning) 12%, var(--card));
+  --secondary-foreground: var(--warning);
+}
+.ai-report-meta [data-slot="badge"] {
+  margin-bottom: 4px;
+}
+.ai-report-evidence {
+  margin-top: 8px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.ai-report-evidence summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--primary);
+}
+.ai-report-evidence > div {
+  margin-top: 10px;
+}
+.ai-report-evidence h4 {
+  font-weight: 500;
+  color: var(--foreground);
+}
+.ai-report-evidence blockquote {
+  margin-block: 4px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+.ai-report-risks,
+.ai-report-questions {
+  list-style: decimal;
+  padding-left: 20px;
+}
+.ai-report-risks {
+  color: var(--destructive);
+}
+.ai-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  margin-bottom: 6px;
+}
+.ai-report a {
+  display: inline-block;
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ai-history-scroll {
+  overflow-x: auto;
+}
+.ai-history-table {
+  width: 100%;
+  min-width: 850px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.ai-history-table th,
+.ai-history-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.ai-history-table th {
+  color: var(--muted-foreground);
+  background: var(--background);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.ai-history-table td {
+  max-width: 220px;
+  overflow-wrap: anywhere;
+}
+.ai-history-table small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.ai-history-table tbody tr:hover,
+.ai-history-table tr[aria-selected="true"] {
+  background: var(--accent);
+}
 .ai-result-empty {
   min-height: 310px;
   gap: 10px;

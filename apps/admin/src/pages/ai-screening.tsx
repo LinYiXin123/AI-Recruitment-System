@@ -1,8 +1,10 @@
+import Progress from '@douyinfe/semi-ui/lib/es/progress';
 import Select from '@douyinfe/semi-ui/lib/es/select';
 import { Bot, Copy, Crosshair, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { ErrorNotice } from '@/components/feedback';
+import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Empty,
@@ -20,6 +22,16 @@ type JobOption = Pick<Job, 'id' | 'title'>;
 type EnterpriseOption = { id: number; name: string; industry: string };
 type CandidateOption = { id: number; name: string; applicationId: number };
 type ScreeningResult = {
+  id?: number;
+  code?: string;
+  created_at?: string;
+  candidate_name?: string;
+  job_title?: string;
+  enterprise_name?: string;
+  saved_question_count?: number;
+  match_score?: number | null;
+  conclusion?: string;
+  follow_up_direction?: string;
   summary: string;
   evidence: { criterion: string; quote: string; reason: string }[];
   gaps: { criterion: string; note: string }[];
@@ -32,6 +44,30 @@ type ScreeningResult = {
   }[];
   limitations: string;
 };
+type ScreeningHistory = {
+  id: number;
+  code: string;
+  candidate_name: string;
+  job_title: string;
+  enterprise_name: string;
+  conclusion: string;
+  match_score: number | null;
+  created_at: string;
+  question_count: number;
+};
+type HistoryPage = { items: ScreeningHistory[]; count: number; page: number; page_size: number };
+
+function analysisTime(value?: string) {
+  if (!value) return '—';
+  return new Date(value).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
 
 function safeResumeUrl(value: string) {
   const href = value.trim();
@@ -179,13 +215,54 @@ export function AiScreeningPage() {
   const [importing, setImporting] = useState(false);
   const [loadingResume, setLoadingResume] = useState(false);
   const [copyNotice, setCopyNotice] = useState('');
+  const [history, setHistory] = useState<HistoryPage | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState('');
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [savingQuestions, setSavingQuestions] = useState(false);
+  const [questionNotice, setQuestionNotice] = useState('');
+  const [questionError, setQuestionError] = useState('');
+  const [confirmation, setConfirmation] = useState<
+    { kind: 'questions' } | { kind: 'delete'; row: ScreeningHistory } | null
+  >(null);
   const [dragging, setDragging] = useState(false);
   const resumeInput = useRef<HTMLInputElement>(null);
   const resumeEditor = useRef<HTMLDivElement>(null);
   const analysisRequest = useRef<AbortController | null>(null);
+  const resultRegion = useRef<HTMLElement>(null);
+  const analysisRetry = useRef<{ input: string; key: string } | null>(null);
+  const confirmationDialog = useRef<HTMLDialogElement>(null);
+  const confirmationBusy = useRef(false);
+
+  useEffect(() => {
+    const dialog = confirmationDialog.current;
+    if (confirmation && dialog && !dialog.open) dialog.showModal();
+    if (!confirmation && dialog?.open) dialog.close();
+  }, [confirmation]);
 
   useEffect(() => () => analysisRequest.current?.abort(), []);
   useEffect(() => setCopyNotice(''), [analysis]);
+  useEffect(() => {
+    setQuestionNotice('');
+    setQuestionError('');
+  }, [analysis?.id]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setHistoryLoading(true);
+    setHistoryError('');
+    api<HistoryPage>(`ai-screenings/?page=${historyPage}`, undefined, controller.signal)
+      .then(setHistory)
+      .catch((error: Error) => {
+        if (error.name !== 'AbortError') setHistoryError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setHistoryLoading(false);
+      });
+    return () => controller.abort();
+  }, [historyPage, historyRevision]);
 
   const setResumeContent = useCallback((text: string, markup = '') => {
     setResume(text);
@@ -302,6 +379,7 @@ export function AiScreeningPage() {
   }
 
   function clearForm() {
+    analysisRetry.current = null;
     setSelectedCandidate('');
     setSelectedApplication(null);
     setSelectedJob('');
@@ -316,7 +394,8 @@ export function AiScreeningPage() {
 
   async function startAnalysis(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-    if (analysisRequest.current || importing || loadingResume) return;
+    if (analysisRequest.current || importing || loadingResume || historyBusy || savingQuestions)
+      return;
     const text = resumeEditor.current ? resumeTextFromEditor(resumeEditor.current) : resume;
     if (!text.trim()) {
       setAnalysisError('请先填写或导入简历内容。');
@@ -333,24 +412,107 @@ export function AiScreeningPage() {
     setAnalysisError('');
     setCopyNotice('');
     setAnalyzing(true);
+    const input = {
+      application_id: selectedApplication,
+      job_id: selectedJob ? Number(selectedJob) : null,
+      enterprise_id: selectedEnterprise ? Number(selectedEnterprise) : null,
+      resume: text,
+    };
+    const serializedInput = JSON.stringify(input);
+    if (analysisRetry.current?.input !== serializedInput) {
+      analysisRetry.current = { input: serializedInput, key: crypto.randomUUID() };
+    }
     try {
       setAnalysis(
         await api<ScreeningResult>(
           'ai-screenings/',
-          {
-            application_id: selectedApplication,
-            job_id: selectedJob ? Number(selectedJob) : null,
-            enterprise_id: selectedEnterprise ? Number(selectedEnterprise) : null,
-            resume: text,
-          },
+          { ...input, request_key: analysisRetry.current.key },
           controller.signal,
         ),
       );
+      analysisRetry.current = null;
+      setHistoryPage(1);
+      setHistoryRevision((value) => value + 1);
+      resultRegion.current?.scrollTo({ top: 0 });
     } catch (error) {
       if (!controller.signal.aborted) setAnalysisError((error as Error).message);
     } finally {
       if (analysisRequest.current === controller) analysisRequest.current = null;
       if (!controller.signal.aborted) setAnalyzing(false);
+    }
+  }
+
+  async function viewHistory(row: ScreeningHistory) {
+    if (historyBusy || analyzing || savingQuestions) return;
+    setHistoryBusy(true);
+    setHistoryError('');
+    try {
+      const result = await api<ScreeningResult>(`ai-screenings/${row.id}/`);
+      setAnalysis(result);
+      setAnalysisError('');
+      resultRegion.current?.scrollTo({ top: 0 });
+      resultRegion.current?.focus();
+    } catch (error) {
+      setHistoryError((error as Error).message);
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
+  async function deleteHistory(row: ScreeningHistory) {
+    if (historyBusy || analyzing || savingQuestions) return;
+    setHistoryBusy(true);
+    setHistoryError('');
+    try {
+      await api(`ai-screenings/${row.id}/`, {}, undefined, 'DELETE');
+      if (analysis?.id === row.id) setAnalysis(null);
+      if (history?.items.length === 1 && historyPage > 1) setHistoryPage((value) => value - 1);
+      else setHistoryRevision((value) => value + 1);
+      setConfirmation(null);
+    } catch (error) {
+      setHistoryError((error as Error).message);
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
+  async function saveQuestions() {
+    if (!analysis?.id || !analysis.questions.length || savingQuestions || analyzing || historyBusy)
+      return;
+    const reportId = analysis.id;
+    setSavingQuestions(true);
+    setQuestionError('');
+    setQuestionNotice('');
+    try {
+      const result = await api<{ saved_question_count: number }>(
+        `ai-screenings/${reportId}/questions/`,
+        { confirmed: true },
+      );
+      setAnalysis((current) =>
+        current?.id === reportId
+          ? { ...current, saved_question_count: result.saved_question_count }
+          : current,
+      );
+      setQuestionNotice(
+        `已存入 ${result.saved_question_count} 道题，可到面试题库查看。重复点击不会重复入库。`,
+      );
+      setConfirmation(null);
+    } catch (error) {
+      setQuestionError((error as Error).message);
+    } finally {
+      setSavingQuestions(false);
+    }
+  }
+
+  async function confirmAction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!confirmation || confirmationBusy.current) return;
+    confirmationBusy.current = true;
+    try {
+      if (confirmation.kind === 'questions') await saveQuestions();
+      else await deleteHistory(confirmation.row);
+    } finally {
+      confirmationBusy.current = false;
     }
   }
 
@@ -619,6 +781,7 @@ export function AiScreeningPage() {
             <h2 id="ai-result-title">分析结果</h2>
           </header>
           <section
+            ref={resultRegion}
             className="ai-result-content"
             aria-label="分析结果内容"
             aria-busy={analyzing}
@@ -651,56 +814,118 @@ export function AiScreeningPage() {
               </div>
             )}
             {analysis ? (
-              <div className="flex flex-col gap-5 p-5">
-                <p className="rounded-lg border bg-secondary px-3 py-2 text-sm font-medium text-foreground">
-                  AI 辅助整理 · 请由 HR 复核
-                </p>
-                <p className="text-sm leading-7 text-foreground">{analysis.summary}</p>
-                <section className="flex flex-col gap-2">
-                  <h3 className="text-sm font-semibold text-foreground">简历依据</h3>
-                  {analysis.evidence.length ? (
-                    analysis.evidence.map((item) => (
-                      <div
-                        key={`${item.criterion}-${item.quote}`}
-                        className="rounded-lg border p-3"
-                      >
-                        <p className="text-sm font-medium">{item.criterion}</p>
-                        <blockquote className="my-2 border-l-2 pl-3 text-sm text-muted-foreground">
-                          {item.quote}
-                        </blockquote>
-                        <p className="text-sm text-muted-foreground">{item.reason}</p>
-                      </div>
-                    ))
+              <div className="ai-report">
+                <div className="ai-report-overview">
+                  <div className="ai-report-score">
+                    <Progress
+                      type="circle"
+                      width={64}
+                      strokeWidth={7}
+                      percent={analysis.match_score ?? 0}
+                      stroke="var(--warning)"
+                      orbitStroke="var(--border)"
+                      motion={false}
+                      showInfo
+                      format={() => analysis.match_score ?? '—'}
+                      aria-label="匹配度分值"
+                      aria-valuetext={
+                        analysis.match_score == null
+                          ? '未评分'
+                          : `${analysis.match_score} 分，满分 100`
+                      }
+                    />
+                    <div>
+                      <p className="text-muted-foreground">匹配度分值</p>
+                      <p>{analysis.match_score == null ? '未评分' : '满分 100'}</p>
+                    </div>
+                  </div>
+                  <div className="ai-report-meta">
+                    <Badge variant="secondary">{analysis.conclusion || '待复核'}</Badge>
+                    <p>目标职位：{analysis.job_title || '—'}</p>
+                    <p>分析时间：{analysisTime(analysis.created_at)}</p>
+                  </div>
+                </div>
+                <section>
+                  <h3>匹配理由</h3>
+                  <p>{analysis.summary}</p>
+                  <details className="ai-report-evidence">
+                    <summary>简历依据 · {analysis.evidence.length} 项</summary>
+                    {analysis.evidence.length ? (
+                      analysis.evidence.map((item) => (
+                        <div key={`${item.criterion}-${item.quote}`}>
+                          <h4>{item.criterion}</h4>
+                          <blockquote>{item.quote}</blockquote>
+                          <p>{item.reason}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p>模型未返回可核验的简历原文依据。</p>
+                    )}
+                  </details>
+                </section>
+                <section>
+                  <h3>风险点</h3>
+                  {analysis.gaps.length ? (
+                    <ol className="ai-report-risks">
+                      {analysis.gaps.map((item) => (
+                        <li key={`${item.criterion}-${item.note}`}>
+                          {item.criterion}：{item.note}
+                        </li>
+                      ))}
+                    </ol>
                   ) : (
-                    <p className="text-sm text-muted-foreground">
-                      模型未返回可核验的简历原文依据。
+                    <p className="text-muted-foreground">
+                      模型未列出待核实信息，不代表不存在风险。
                     </p>
                   )}
                 </section>
-                <section className="flex flex-col gap-2">
-                  <h3 className="text-sm font-semibold text-foreground">待核实信息</h3>
-                  {analysis.gaps.length ? (
-                    analysis.gaps.map((item) => (
-                      <p
-                        key={`${item.criterion}-${item.note}`}
-                        className="text-sm text-muted-foreground"
-                      >
-                        <span className="font-medium text-foreground">{item.criterion}：</span>
-                        {item.note}
-                      </p>
-                    ))
+                <section aria-labelledby="ai-questions-title">
+                  <h3 id="ai-questions-title">建议面试问题</h3>
+                  {analysis.questions.length ? (
+                    <ol className="ai-report-questions">
+                      {analysis.questions.map((item, index) => (
+                        <li key={`${item.question}-${item.reason}`}>
+                          <article aria-label={`第 ${index + 1} 题`}>
+                            {item.question}（考察点：{item.reason || '模型未提供'}）{' → 追问：'}
+                            {item.follow_up || '模型未提供，请补充。'}
+                            {' → 合格：'}
+                            {item.answer_points?.length
+                              ? item.answer_points.join('；')
+                              : '模型未提供，请补充。'}
+                          </article>
+                        </li>
+                      ))}
+                    </ol>
                   ) : (
-                    <p className="text-sm text-muted-foreground">模型未列出待核实信息。</p>
+                    <p className="text-muted-foreground">模型未返回面试追问。</p>
                   )}
-                </section>
-                <section className="flex flex-col gap-3" aria-labelledby="ai-questions-title">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 id="ai-questions-title" className="text-sm font-semibold text-foreground">
-                      面试提纲 · {analysis.questions.length} 题
-                    </h3>
+                  <div className="ai-report-actions">
                     <Button
                       type="button"
                       variant="outline"
+                      size="sm"
+                      disabled={
+                        !analysis.id ||
+                        !analysis.questions.length ||
+                        analyzing ||
+                        historyBusy ||
+                        savingQuestions ||
+                        (analysis.saved_question_count ?? 0) > 0
+                      }
+                      onClick={() => {
+                        setQuestionError('');
+                        setConfirmation({ kind: 'questions' });
+                      }}
+                    >
+                      {savingQuestions
+                        ? '正在存入…'
+                        : (analysis.saved_question_count ?? 0) > 0
+                          ? `已存入题库（${analysis.saved_question_count} 题）`
+                          : '一键存入面试题库'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
                       size="sm"
                       disabled={!analysis.questions.length || analyzing}
                       onClick={() => void copyQuestions()}
@@ -709,55 +934,25 @@ export function AiScreeningPage() {
                       复制提纲
                     </Button>
                   </div>
+                  {questionError && <ErrorNotice message={questionError} />}
+                  {questionNotice && (
+                    <p className="ai-screening-notice" role="status">
+                      {questionNotice} <a href="#question-bank">查看面试题库</a>
+                    </p>
+                  )}
                   {copyNotice && (
-                    <p className="text-xs text-muted-foreground" role="status">
+                    <p className="ai-screening-help" role="status">
                       {copyNotice}
                     </p>
                   )}
-                  {analysis.questions.length ? (
-                    analysis.questions.map((item, index) => (
-                      <article
-                        key={`${item.question}-${item.reason}`}
-                        className="flex flex-col gap-3 rounded-lg border p-3 text-sm leading-6"
-                        aria-label={`第 ${index + 1} 题`}
-                      >
-                        <h4 className="font-semibold text-foreground">
-                          {index + 1}. {item.question}
-                        </h4>
-                        <p className="text-muted-foreground">
-                          <span className="font-medium text-foreground">考察点：</span>
-                          {item.reason || '模型未提供'}
-                        </p>
-                        {item.quote && (
-                          <blockquote className="border-l-2 pl-3 text-muted-foreground">
-                            简历依据：{item.quote}
-                          </blockquote>
-                        )}
-                        <p className="text-muted-foreground">
-                          <span className="font-medium text-foreground">追问：</span>
-                          {item.follow_up || '模型未提供，请补充。'}
-                        </p>
-                        <div>
-                          <p className="font-medium text-foreground">合格回答要点</p>
-                          {item.answer_points?.length ? (
-                            <ul className="list-disc pl-5 text-muted-foreground">
-                              {item.answer_points.map((point) => (
-                                <li key={point}>{point}</li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="text-muted-foreground">模型未提供，请补充。</p>
-                          )}
-                        </div>
-                      </article>
-                    ))
-                  ) : (
-                    <p className="text-sm text-muted-foreground">模型未返回面试追问。</p>
-                  )}
                 </section>
-                <p className="border-t pt-3 text-xs leading-5 text-muted-foreground">
-                  {analysis.limitations}
-                </p>
+                <section>
+                  <h3>建议追问方向</h3>
+                  <p>
+                    {analysis.follow_up_direction || '模型未提供整体追问方向，请结合上方问题核实。'}
+                  </p>
+                </section>
+                <p className="ai-screening-help">{analysis.limitations}</p>
               </div>
             ) : !analyzing && !analysisError ? (
               <Empty className="ai-result-empty">
@@ -780,18 +975,161 @@ export function AiScreeningPage() {
       >
         <header className="dashboard-card-head">
           <h2 id="ai-history-title">历史分析记录</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={historyLoading || historyBusy}
+            onClick={() => setHistoryRevision((value) => value + 1)}
+          >
+            <RotateCcw data-icon="inline-start" />
+            刷新
+          </Button>
         </header>
-        <Empty className="ai-history-empty">
-          <EmptyHeader>
-            <EmptyMedia className="ai-empty-icon">
-              <Bot aria-hidden="true" />
-            </EmptyMedia>
-            <EmptyTitle>历史记录暂未保存</EmptyTitle>
-            <EmptyDescription>本次分析结果只在当前页面展示，刷新后不会保留。</EmptyDescription>
-          </EmptyHeader>
-          <p className="ai-screening-help">历史留存与访问范围确认后再接入。</p>
-        </Empty>
+        {historyError && (
+          <div className="p-4">
+            <ErrorNotice
+              message={historyError}
+              retry={() => setHistoryRevision((value) => value + 1)}
+            />
+          </div>
+        )}
+        {historyLoading ? (
+          <Loading />
+        ) : history?.items.length ? (
+          <>
+            <div className="ai-history-scroll">
+              <table className="ai-history-table">
+                <caption className="sr-only">历史分析记录列表</caption>
+                <thead>
+                  <tr>
+                    {[
+                      '候选人',
+                      '目标职位',
+                      '企业',
+                      '结论',
+                      '匹配度',
+                      '分析时间',
+                      '问题数',
+                      '操作',
+                    ].map((label) => (
+                      <th key={label} scope="col">
+                        {label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.items.map((row) => (
+                    <tr key={row.id} aria-selected={analysis?.id === row.id}>
+                      <td>
+                        {row.candidate_name || '—'}
+                        <small>{row.code}</small>
+                      </td>
+                      <td>{row.job_title || '—'}</td>
+                      <td>{row.enterprise_name || '—'}</td>
+                      <td>
+                        <Badge variant="secondary">{row.conclusion}</Badge>
+                      </td>
+                      <td>{row.match_score ?? '—'}</td>
+                      <td className="whitespace-nowrap">{analysisTime(row.created_at)}</td>
+                      <td>{row.question_count}</td>
+                      <td>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="link"
+                            size="sm"
+                            disabled={historyBusy || analyzing || savingQuestions}
+                            onClick={() => void viewHistory(row)}
+                          >
+                            查看
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={historyBusy || analyzing || savingQuestions}
+                            onClick={() => {
+                              setHistoryError('');
+                              setConfirmation({ kind: 'delete', row });
+                            }}
+                          >
+                            删除
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pager page={historyPage} count={history.count} onChange={setHistoryPage} />
+          </>
+        ) : !historyError ? (
+          <Empty className="ai-history-empty">
+            <EmptyHeader>
+              <EmptyMedia className="ai-empty-icon">
+                <Bot aria-hidden="true" />
+              </EmptyMedia>
+              <EmptyTitle>还没有 AI 初面记录</EmptyTitle>
+              <EmptyDescription>左侧发起一次分析，成功后的结果会保存在这里。</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : null}
       </section>
+      <dialog
+        ref={confirmationDialog}
+        className="enterprise-dialog enterprise-profile-dialog"
+        aria-labelledby="ai-confirm-title"
+        aria-describedby="ai-confirm-description"
+        onCancel={(event) => {
+          event.preventDefault();
+          if (!confirmationBusy.current) setConfirmation(null);
+        }}
+      >
+        {confirmation && (
+          <form onSubmit={(event) => void confirmAction(event)}>
+            <div className="enterprise-dialog-heading">
+              <h2 id="ai-confirm-title">
+                {confirmation.kind === 'questions' ? '存入面试题库' : '删除分析记录'}
+              </h2>
+            </div>
+            <div className="enterprise-dialog-body">
+              <p id="ai-confirm-description">
+                {confirmation.kind === 'questions'
+                  ? `确认将这 ${analysis?.questions.length ?? 0} 道题存入组织面试题库？题目、追问和合格回答要点将对本组织可查看题库的成员可见，请先确认没有不宜共享的个人信息。`
+                  : `确定删除分析记录 ${confirmation.row.code} 吗？此操作不会删除已存入题库的题目。`}
+              </p>
+              {confirmation.kind === 'questions'
+                ? questionError && <ErrorNotice message={questionError} />
+                : historyError && <ErrorNotice message={historyError} />}
+            </div>
+            <div className="enterprise-dialog-footer">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={savingQuestions || historyBusy}
+                onClick={() => {
+                  if (!confirmationBusy.current) setConfirmation(null);
+                }}
+              >
+                取消
+              </Button>
+              <Button
+                type="submit"
+                variant={confirmation.kind === 'delete' ? 'destructive' : 'default'}
+                disabled={savingQuestions || historyBusy}
+              >
+                {confirmation.kind === 'questions'
+                  ? savingQuestions
+                    ? '正在存入…'
+                    : '确认存入'
+                  : historyBusy
+                    ? '正在删除…'
+                    : '确认删除'}
+              </Button>
+            </div>
+          </form>
+        )}
+      </dialog>
     </div>
   );
 }

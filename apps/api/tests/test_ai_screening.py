@@ -1,18 +1,23 @@
 import io
 import json
+import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import close_old_connections, connection
 from django.test import override_settings
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from rest_framework.test import APIClient
 
-from recruitment.ai_screening import _parse_analysis
+from recruitment.ai_screening import _hr_member, _parse_analysis
 from recruitment.models import (
+    AIScreening,
     Application,
     Candidate,
     Department,
@@ -20,6 +25,8 @@ from recruitment.models import (
     Job,
     Membership,
     Organization,
+    QuestionTemplate,
+    QuestionTemplateEvent,
     ResumeDocument,
     ResumeParse,
 )
@@ -286,6 +293,7 @@ def test_analysis_exposes_safe_model_format_diagnostic(model_content, diagnostic
 
     assert response.status_code == 502
     assert diagnostic in response.data["errors"]["detail"]
+    assert not AIScreening.objects.exists()
 
 
 def test_selected_application_uses_its_authorized_job_without_sending_candidate_name():
@@ -363,3 +371,280 @@ def test_analysis_returns_service_unavailable_when_model_is_not_configured():
     assert response.status_code == 503
     assert "诊断：模型服务尚未配置" in response.data["errors"]["detail"]
     urlopen.assert_not_called()
+
+
+def complete_report():
+    return {
+        "summary": "有产品上线材料，仍需核实本人职责与结果。",
+        "match_score": 73,
+        "conclusion": "待复核",
+        "follow_up_direction": "核实测试样本和交付物。",
+        "evidence": [
+            {"criterion": "产品交付", "quote": "负责产品上线", "reason": "简历描述交付经历。"}
+        ],
+        "gaps": [],
+        "questions": [
+            {
+                "question": "如何验证产品上线结果？",
+                "reason": "核实结果评估方式。",
+                "follow_up": "请说明数据来源与对照方法。",
+                "answer_points": ["描述可核实的数据口径。", "区分本人工作与团队贡献。"],
+                "quote": "负责产品上线",
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize("score", [True, "90", -1, 101, float("nan"), None])
+def test_invalid_or_unverifiable_scores_are_not_published(score):
+    report = {**complete_report(), "match_score": score, "conclusion": "建议录用"}
+    parsed = _parse_analysis(json.dumps(report), "负责产品上线", has_job=True)
+    assert parsed["match_score"] is None
+    assert parsed["conclusion"] == "待复核"
+    valid = complete_report()
+    assert _parse_analysis(json.dumps(valid), "未提供项目证据", has_job=True)["match_score"] is None
+    generic = _parse_analysis(json.dumps(valid), "负责产品上线")
+    assert generic["match_score"] is None and generic["conclusion"] == "通用初判"
+
+
+def test_report_persists_snapshots_and_repeated_request_reuses_saved_result():
+    client, membership, job = hr_context()
+    candidate = Candidate.objects.create(
+        organization=membership.organization, display_name="测试候选人", created_by=membership
+    )
+    application = Application.objects.create(
+        organization=membership.organization,
+        candidate=candidate,
+        job=job,
+        owner=membership,
+        attempt_no=1,
+        source="测试",
+    )
+    payload = {
+        "request_key": str(uuid.uuid4()),
+        "application_id": application.id,
+        "resume": "完整原文不重复保存：负责产品上线。",
+    }
+    with patch(
+        "recruitment.ai_screening.chat_completion", return_value=json.dumps(complete_report())
+    ) as complete:
+        first = client.post("/api/v1/ai-screenings/", payload, format="json")
+        retry = client.post("/api/v1/ai-screenings/", payload, format="json")
+        changed = client.post(
+            "/api/v1/ai-screenings/", {**payload, "resume": "更换输入"}, format="json"
+        )
+    assert first.status_code == retry.status_code == 200
+    assert first.data == retry.data
+    assert changed.status_code == 409
+    assert complete.call_count == 1
+    assert AIScreening.objects.count() == 1
+    stored = AIScreening.objects.get()
+    assert len(stored.input_digest) == 64
+    assert "完整原文不重复保存" not in json.dumps(stored.result, ensure_ascii=False)
+    assert first.data["match_score"] == 73
+    assert first.data["candidate_name"] == "测试候选人"
+    assert first.data["job_title"] == "产品经理"
+    assert first.data["conclusion"] == "待复核"
+    assert first.data["saved_question_count"] == 0
+    assert first.data["code"] == f"AIS-{stored.id:04d}" and first.data["created_at"]
+    job.title = "修改后的职位名称"
+    job.save(update_fields=["title"])
+    detail_url = f"/api/v1/ai-screenings/{stored.id}/"
+    assert client.get(detail_url).data == first.data
+    listed = client.get("/api/v1/ai-screenings/").data
+    assert listed["count"] == 1 and listed["page"] == 1 and listed["page_size"] == 20
+    assert listed["items"][0]["question_count"] == 1
+    assert listed["items"][0]["job_title"] == "产品经理"
+    assert "questions" not in listed["items"][0]
+    assert client.delete(detail_url).status_code == 200
+    assert client.get(detail_url).status_code == 404
+    assert client.get("/api/v1/ai-screenings/").data["count"] == 0
+    assert AIScreening.objects.get().deleted_at is not None
+    assert (
+        client.post(f"{detail_url}questions/", {"confirmed": True}, format="json").status_code
+        == 404
+    )
+    assert client.post("/api/v1/ai-screenings/", payload, format="json").status_code == 409
+
+
+def client_for_member(membership):
+    client = APIClient()
+    client.force_login(membership.user)
+    session = client.session
+    session["membership_id"] = membership.id
+    session.save()
+    return client
+
+
+def test_history_requires_owner_current_hr_role_and_current_job_access():
+    client, membership, job = hr_context()
+    with patch(
+        "recruitment.ai_screening.chat_completion", return_value=json.dumps(complete_report())
+    ):
+        created = client.post(
+            "/api/v1/ai-screenings/", {"job_id": job.id, "resume": "负责产品上线"}, format="json"
+        ).data
+    url = f"/api/v1/ai-screenings/{created['id']}/"
+    other_user = get_user_model().objects.create_user("screening-peer")
+    peer = Membership.objects.create(user=other_user, organization=membership.organization)
+    DepartmentRole.objects.create(membership=peer, department=job.department, role="hr")
+    other_org_client, _, _ = hr_context("screening-other-org")
+    for outsider in (client_for_member(peer), other_org_client):
+        assert outsider.get("/api/v1/ai-screenings/").data["count"] == 0
+        assert outsider.get(url).status_code == outsider.delete(url).status_code == 404
+        assert (
+            outsider.post(f"{url}questions/", {"confirmed": True}, format="json").status_code == 404
+        )
+    job.owner = peer
+    job.save(update_fields=["owner"])
+    assert client.get("/api/v1/ai-screenings/").data["count"] == 0
+    assert client.get(url).status_code == client.delete(url).status_code == 404
+    assert client.post(f"{url}questions/", {"confirmed": True}, format="json").status_code == 404
+    membership.roles.all().delete()
+    assert client.get("/api/v1/ai-screenings/").status_code == 403
+    assert client.get(url).status_code == client.delete(url).status_code == 403
+    assert client.post(f"{url}questions/", {"confirmed": True}, format="json").status_code == 403
+
+
+def test_saving_questions_requires_confirmation_is_idempotent_and_excludes_private_quotes():
+    client, membership, _ = hr_context()
+    result = complete_report()
+    result["questions"][0]["question"] = "联系 test@example.com 或 13800000000 后，如何验证结果？"
+    result["questions"][0]["quote"] = "仅供报告查看的简历引用"
+    with patch("recruitment.ai_screening.chat_completion", return_value=json.dumps(result)):
+        report = client.post(
+            "/api/v1/ai-screenings/",
+            {"resume": "负责产品上线，仅供报告查看的简历引用"},
+            format="json",
+        ).data
+    url = f"/api/v1/ai-screenings/{report['id']}/"
+    for confirmed in (False, "true", 1, None):
+        assert (
+            client.post(f"{url}questions/", {"confirmed": confirmed}, format="json").status_code
+            == 400
+        )
+    assert not QuestionTemplate.objects.exists()
+    first = client.post(f"{url}questions/", {"confirmed": True}, format="json")
+    again = client.post(f"{url}questions/", {"confirmed": True}, format="json")
+    assert first.status_code == again.status_code == 200
+    assert first.data == again.data
+    assert first.data["saved_question_count"] == 1
+    assert QuestionTemplate.objects.count() == QuestionTemplateEvent.objects.count() == 1
+    question = QuestionTemplate.objects.get()
+    assert question.id in first.data["question_ids"]
+    assert "考察点：" in question.content and "追问：" in question.content
+    assert "可核实的数据口径" in question.reference_answer
+    assert "仅供报告查看的简历引用" not in question.content + question.reference_answer
+    assert "test@example.com" not in question.content and "13800000000" not in question.content
+    assert QuestionTemplateEvent.objects.get().actor == membership
+    assert client.get(url).data["saved_question_count"] == 1
+    deleted = client.delete(
+        f"/api/v1/question-templates/{question.id}/", {"version": 1}, format="json"
+    )
+    assert deleted.status_code == 200
+    assert client.get(url).data["saved_question_count"] == 0
+    assert client.post(f"{url}questions/", {"confirmed": True}, format="json").status_code == 409
+    assert QuestionTemplate.objects.count() == 1
+
+
+@pytest.mark.parametrize("operation", ["retry", "save", "delete"])
+def test_membership_revoked_while_waiting_for_lock_cannot_reuse_or_change_report(operation):
+    client, membership, _ = hr_context()
+    payload = {"request_key": str(uuid.uuid4()), "resume": "负责产品上线"}
+    with patch(
+        "recruitment.ai_screening.chat_completion", return_value=json.dumps(complete_report())
+    ):
+        report = client.post("/api/v1/ai-screenings/", payload, format="json").data
+    calls = 0
+
+    def check_member(request):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            Membership.objects.filter(pk=membership.pk).update(active=False)
+        return _hr_member(request)
+
+    url = f"/api/v1/ai-screenings/{report['id']}/"
+    with (
+        patch("recruitment.ai_screening._hr_member", side_effect=check_member),
+        patch("recruitment.ai_screening.chat_completion") as complete,
+    ):
+        if operation == "retry":
+            response = client.post("/api/v1/ai-screenings/", payload, format="json")
+        elif operation == "save":
+            response = client.post(f"{url}questions/", {"confirmed": True}, format="json")
+        else:
+            response = client.delete(url)
+    assert response.status_code == 403
+    assert calls == 2
+    complete.assert_not_called()
+    assert AIScreening.objects.get().deleted_at is None
+    assert not QuestionTemplate.objects.exists() and not QuestionTemplateEvent.objects.exists()
+
+
+@pytest.mark.parametrize("questions", [[], [{"question": "只有题目", "reason": "旧格式"}]])
+def test_empty_or_incomplete_questions_cannot_be_saved(questions):
+    client, _, _ = hr_context()
+    with patch(
+        "recruitment.ai_screening.chat_completion",
+        return_value=json.dumps({**complete_report(), "questions": questions}),
+    ):
+        report = client.post(
+            "/api/v1/ai-screenings/", {"resume": "负责产品上线"}, format="json"
+        ).data
+    response = client.post(
+        f"/api/v1/ai-screenings/{report['id']}/questions/", {"confirmed": True}, format="json"
+    )
+    assert response.status_code == 400
+    assert not QuestionTemplate.objects.exists() and not QuestionTemplateEvent.objects.exists()
+
+
+def test_saving_questions_rolls_back_earlier_questions_when_later_question_is_invalid():
+    client, _, _ = hr_context()
+    result = complete_report()
+    result["questions"].append({"question": "缺少追问与答案要点", "reason": "待完善"})
+    with patch("recruitment.ai_screening.chat_completion", return_value=json.dumps(result)):
+        report = client.post(
+            "/api/v1/ai-screenings/", {"resume": "负责产品上线"}, format="json"
+        ).data
+    url = f"/api/v1/ai-screenings/{report['id']}/"
+    response = client.post(f"{url}questions/", {"confirmed": True}, format="json")
+    assert response.status_code == 400
+    assert not QuestionTemplate.objects.exists() and not QuestionTemplateEvent.objects.exists()
+    assert client.get(url).data["saved_question_count"] == 0
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("operation", ["analyze", "save"])
+def test_concurrent_screening_requests_and_question_saves_do_not_duplicate(operation):
+    assert connection.vendor == "postgresql"
+    client, membership, _ = hr_context()
+    payload = {"request_key": str(uuid.uuid4()), "resume": "负责产品上线"}
+    with patch(
+        "recruitment.ai_screening.chat_completion", return_value=json.dumps(complete_report())
+    ) as complete:
+        url = "/api/v1/ai-screenings/"
+        if operation == "save":
+            report = client.post(url, payload, format="json").data
+            url = f"{url}{report['id']}/questions/"
+            payload = {"confirmed": True}
+        clients = [client_for_member(membership), client_for_member(membership)]
+        barrier = Barrier(2)
+
+        def perform(index):
+            close_old_connections()
+            try:
+                barrier.wait(timeout=10)
+                response = clients[index].post(url, payload, format="json")
+                assert response.status_code == 200, response.data
+                return response.data
+            finally:
+                close_old_connections()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            responses = list(pool.map(perform, range(2)))
+    assert responses[0] == responses[1]
+    assert complete.call_count == 1
+    assert AIScreening.objects.count() == 1
+    assert QuestionTemplate.objects.count() == (1 if operation == "save" else 0)
+    assert QuestionTemplateEvent.objects.count() == (1 if operation == "save" else 0)

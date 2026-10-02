@@ -732,3 +732,32 @@ class QuestionTemplateEvent(models.Model):
 
     class Meta:
         ordering = ["id"]
+
+
+class AIScreening(models.Model):
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    creator = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    application = models.ForeignKey(Application, on_delete=models.PROTECT, null=True, blank=True)
+    job = models.ForeignKey(Job, on_delete=models.PROTECT, null=True, blank=True)
+    enterprise = models.ForeignKey(Enterprise, on_delete=models.PROTECT, null=True, blank=True)
+    candidate_name = models.CharField(max_length=120, blank=True)
+    job_title = models.CharField(max_length=120, blank=True)
+    enterprise_name = models.CharField(max_length=100, blank=True)
+    request_key = models.UUIDField()
+    input_digest = models.CharField(max_length=64)
+    result = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["organization", "creator", "deleted_at"], name="ai_screening_owner"
+            )
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "creator", "request_key"], name="one_ai_screening_request"
+            )
+        ]
