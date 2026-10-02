@@ -1,5 +1,5 @@
 import Select from '@douyinfe/semi-ui/lib/es/select';
-import { ArrowLeft, Building2, Plus, Search } from 'lucide-react';
+import { ArrowLeft, Building2, Plus, Search, Trash2 } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorNotice, Loading } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { api } from '@/lib/api';
+import { api, dateTime } from '@/lib/api';
 
 const categories = [
   { value: 'company_introduction', label: '公司简介' },
@@ -80,6 +80,7 @@ type Workspace = {
   enterprises: Enterprise[];
   deleted_enterprises: Enterprise[];
   endorsements: Endorsement[];
+  deleted_endorsements: Endorsement[];
 };
 type EnterpriseForm = {
   id?: number;
@@ -163,6 +164,9 @@ export function EmployerBrandPage() {
   const [formError, setFormError] = useState('');
   const [aiNotice, setAiNotice] = useState('');
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const initialDraft = useRef('');
+  const suggestionRequest = useRef<AbortController | null>(null);
+  const dirty = !!modal && JSON.stringify(modal.draft) !== initialDraft.current;
 
   const load = useCallback(async () => {
     setError('');
@@ -186,9 +190,19 @@ export function EmployerBrandPage() {
     if (!modal && dialog.open) dialog.close();
   }, [modal]);
 
+  useEffect(() => () => suggestionRequest.current?.abort(), []);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [dirty]);
+
   const enterprises = workspace?.enterprises ?? [];
   const deletedEnterprises = workspace?.deleted_enterprises ?? [];
   const endorsements = workspace?.endorsements ?? [];
+  const deletedEndorsements = workspace?.deleted_endorsements ?? [];
   const selectedEnterprise = enterprises.find((item) => item.id === selectedEnterpriseId) ?? null;
   const visibleEnterprises = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
@@ -204,10 +218,16 @@ export function EmployerBrandPage() {
     });
   }, [enterprises, search, status]);
 
-  function openEnterpriseForm(item?: Enterprise) {
+  function openModal(next: NonNullable<ModalState>) {
+    if (busy) return;
     setFormError('');
     setAiNotice('');
-    setModal({
+    initialDraft.current = JSON.stringify(next.draft);
+    setModal(next);
+  }
+
+  function openEnterpriseForm(item?: Enterprise) {
+    openModal({
       kind: 'enterprise',
       draft: {
         id: item?.id,
@@ -222,9 +242,7 @@ export function EmployerBrandPage() {
   }
 
   function openEndorsementForm(category: Endorsement['category'], item?: Endorsement) {
-    setFormError('');
-    setAiNotice('');
-    setModal({
+    openModal({
       kind: 'endorsement',
       draft: {
         id: item?.id,
@@ -240,10 +258,23 @@ export function EmployerBrandPage() {
     });
   }
 
-  function closeModal() {
+  function cancelSuggestion() {
+    suggestionRequest.current?.abort();
+    suggestionRequest.current = null;
+    if (busy === 'suggest') setBusy('');
+  }
+
+  function dismissModal() {
+    cancelSuggestion();
     setModal(null);
     setFormError('');
     setAiNotice('');
+  }
+
+  function closeModal() {
+    if (busy === 'save') return;
+    if (dirty && !window.confirm('填写的内容尚未保存，确定放弃修改并关闭吗？')) return;
+    dismissModal();
   }
 
   async function suggestEnterprise() {
@@ -255,40 +286,48 @@ export function EmployerBrandPage() {
     setBusy('suggest');
     setFormError('');
     setAiNotice('');
+    const controller = new AbortController();
+    suggestionRequest.current = controller;
+    const name = modal.draft.name.trim();
     try {
       const suggestion = await api<{ industry: string; introduction: string }>(
         'employer-brand/enterprise-suggestion/',
-        { name: modal.draft.name.trim(), industry: modal.draft.industry },
+        { name, industry: modal.draft.industry },
+        controller.signal,
       );
+      if (controller.signal.aborted) return;
       if (!suggestion.industry && !suggestion.introduction) {
         setFormError('AI 暂时无法形成可靠建议，表单内容未更改。');
         return;
       }
       setModal((current) => {
-        if (current?.kind !== 'enterprise') return current;
+        if (current?.kind !== 'enterprise' || current.draft.name.trim() !== name) return current;
         return {
           ...current,
           draft: {
             ...current.draft,
-            industry: suggestion.industry || current.draft.industry,
-            introduction: suggestion.introduction || current.draft.introduction,
+            industry: current.draft.industry.trim() ? current.draft.industry : suggestion.industry,
+            introduction: current.draft.introduction.trim()
+              ? current.draft.introduction
+              : suggestion.introduction,
           },
         };
       });
-      setAiNotice(
-        '已填入 AI 建议（行业 / 企业简介），仅供参考。请核对修改后再保存；未保存前不会写入任何数据。',
-      );
+      setAiNotice('AI 建议已返回，仅补充空白的行业和简介，已填写内容保留。请核对后保存。');
     } catch (e) {
-      setFormError((e as Error).message);
+      if (!controller.signal.aborted) setFormError((e as Error).message);
     } finally {
-      setBusy('');
+      if (suggestionRequest.current === controller) {
+        suggestionRequest.current = null;
+        setBusy('');
+      }
     }
   }
 
   async function saveModal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!modal || busy) return;
-    if (modal.kind === 'endorsement' && !modal.draft.id && modal.draft.enterprise_id === null) {
+    if (modal.kind === 'endorsement' && modal.draft.enterprise_id === null) {
       setFormError('请选择所属企业。');
       return;
     }
@@ -313,7 +352,7 @@ export function EmployerBrandPage() {
         });
         setNotice('背书内容已保存。');
       }
-      closeModal();
+      dismissModal();
       await load();
     } catch (e) {
       setFormError((e as Error).message);
@@ -330,11 +369,6 @@ export function EmployerBrandPage() {
     try {
       await api('employer-brand/enterprises/save/', {
         id: item.id,
-        name: item.name,
-        industry: item.industry,
-        introduction: item.introduction,
-        remark: item.remark,
-        sort_order: item.sort_order,
         enabled: !item.enabled,
       });
       setNotice(item.enabled ? '企业已停用，不再进入 AI 初面的企业选项。' : '企业已启用。');
@@ -369,6 +403,44 @@ export function EmployerBrandPage() {
     }
   }
 
+  async function manageEndorsement(item: Endorsement, action: 'toggle' | 'delete' | 'restore') {
+    if (busy) return;
+    if (
+      action === 'delete' &&
+      !window.confirm(
+        `将「${item.title || item.category_label}」移入内容回收站？移入后不再用于 AI 初面，可随时恢复。`,
+      )
+    )
+      return;
+    setBusy(`content-${item.id}`);
+    setError('');
+    setNotice('');
+    try {
+      if (action === 'toggle') {
+        await api('employer-brand/endorsements/save/', { id: item.id, enabled: !item.enabled });
+        setNotice(
+          item.enabled
+            ? '内容已停用，不再用于 AI 初面。'
+            : '内容已启用；所属企业启用后可用于 AI 初面。',
+        );
+      } else {
+        await api(`employer-brand/endorsements/${item.id}/${action}/`, {});
+        setNotice(
+          action === 'delete'
+            ? '内容已移入回收站，可在下方恢复。'
+            : item.enterprise_deleted || !item.enterprise_id
+              ? '内容已恢复到「未归属 / 已删除企业」，请重新指定企业。'
+              : '内容已恢复，保留原分类、排序和启用状态。',
+        );
+      }
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy('');
+    }
+  }
+
   if (loading) return <Loading />;
   if (error && !workspace) return <ErrorNotice message={error} retry={() => void load()} />;
 
@@ -391,12 +463,15 @@ export function EmployerBrandPage() {
         ]
       : []),
   ];
+  const visibleDeletedEndorsements = deletedEndorsements.filter(
+    (item) => !selectedEnterprise || item.enterprise_id === selectedEnterprise.id,
+  );
 
   return (
     <section className="enterprise-brand-page" aria-labelledby="enterprise-brand-title">
       {error && <ErrorNotice message={error} retry={() => void load()} />}
       {notice && (
-        <Alert>
+        <Alert role="status">
           <AlertTitle>企业背书</AlertTitle>
           <AlertDescription>{notice}</AlertDescription>
         </Alert>
@@ -456,6 +531,20 @@ export function EmployerBrandPage() {
               </div>
             </div>
           </header>
+          <div className="brand-detail-summary">
+            <span>
+              已补充{' '}
+              <strong>
+                {selectedEnterprise.completed_categories}/{categories.length}
+              </strong>{' '}
+              类 · {selectedEnterprise.endorsement_count} 条内容
+            </span>
+            <span>
+              {selectedEnterprise.enabled
+                ? '启用的内容可用于 AI 初面'
+                : '企业已停用，以下内容暂不用于 AI 初面'}
+            </span>
+          </div>
           <div className="endorsement-category-grid">
             {categories.map((category) => {
               const rows = endorsements.filter(
@@ -484,16 +573,43 @@ export function EmployerBrandPage() {
                         <article className="endorsement-item" key={item.id}>
                           <div className="endorsement-item-heading">
                             <h3>{item.title || '待补充'}</h3>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openEndorsementForm(category.value, item)}
-                            >
-                              编辑
-                            </Button>
+                            <div className="endorsement-item-actions">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={!!busy}
+                                onClick={() => openEndorsementForm(category.value, item)}
+                              >
+                                编辑
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={!!busy}
+                                onClick={() => void manageEndorsement(item, 'toggle')}
+                              >
+                                {item.enabled ? '停用' : '启用'}
+                              </Button>
+                              <Button
+                                className="brand-danger-action"
+                                variant="ghost"
+                                size="sm"
+                                disabled={!!busy}
+                                onClick={() => void manageEndorsement(item, 'delete')}
+                              >
+                                删除
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="endorsement-item-meta">
+                            <Badge variant={item.enabled ? 'secondary' : 'outline'}>
+                              {item.enabled ? '已启用' : '已停用'}
+                            </Badge>
+                            <span>
+                              顺序 {item.sort_order} · 更新于 {dateTime(item.updated_at)}
+                            </span>
                           </div>
                           <p>{item.body || '正文待补充。'}</p>
-                          {!item.enabled && <Badge variant="outline">已停用</Badge>}
                         </article>
                       ))}
                     </div>
@@ -649,6 +765,19 @@ export function EmployerBrandPage() {
                 </div>
                 <Badge variant="outline">{orphaned.length} 条内容</Badge>
               </div>
+              {!enterprises.length && orphaned.length > 0 && (
+                <div className="brand-detail-summary">
+                  <span>先创建企业档案，再将保留内容指定给该企业。</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!!busy}
+                    onClick={() => openEnterpriseForm()}
+                  >
+                    新增企业
+                  </Button>
+                </div>
+              )}
               {orphanGroups.map((group) => (
                 <div className="brand-orphan-group" key={group.id ?? 'unassigned'}>
                   <h3>{group.name}</h3>
@@ -664,6 +793,7 @@ export function EmployerBrandPage() {
                         <Button
                           variant="outline"
                           size="sm"
+                          disabled={!!busy || !enterprises.length}
                           onClick={() => openEndorsementForm(item.category, item)}
                         >
                           重新指定
@@ -680,6 +810,35 @@ export function EmployerBrandPage() {
         </>
       )}
 
+      {visibleDeletedEndorsements.length > 0 && (
+        <details className="brand-recycle-panel">
+          <summary>
+            <Trash2 aria-hidden="true" />
+            内容回收站 <span>{visibleDeletedEndorsements.length} 条</span>
+          </summary>
+          <p>删除的内容不会用于 AI 初面。恢复后保留原所属企业、分类与启用状态。</p>
+          {visibleDeletedEndorsements.map((item) => (
+            <article className="brand-orphan-item" key={item.id}>
+              <div>
+                <strong>{item.title || '待补充'}</strong>
+                <p>
+                  {item.enterprise_name || '未归属企业'} · {item.category_label}
+                  {item.enterprise_deleted ? ' · 企业已删除' : ''}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!!busy}
+                onClick={() => void manageEndorsement(item, 'restore')}
+              >
+                恢复
+              </Button>
+            </article>
+          ))}
+        </details>
+      )}
+
       <dialog
         ref={dialogRef}
         className={`enterprise-dialog${modal?.kind === 'enterprise' ? ' enterprise-profile-dialog' : ''}`}
@@ -687,9 +846,6 @@ export function EmployerBrandPage() {
         onCancel={(event) => {
           event.preventDefault();
           closeModal();
-        }}
-        onClose={() => {
-          if (modal) setModal(null);
         }}
       >
         {modal && (
@@ -711,285 +867,331 @@ export function EmployerBrandPage() {
                 variant="ghost"
                 size="sm"
                 aria-label="关闭"
+                disabled={busy === 'save'}
                 onClick={closeModal}
               >
                 ×
               </Button>
             </div>
             <div className="enterprise-dialog-body">
-              {formError && (
-                <p className="enterprise-form-error" role="alert">
-                  {formError}
-                </p>
-              )}
-              {modal.kind === 'enterprise' ? (
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="enterprise-name">企业名称 *</FieldLabel>
-                    <div className="enterprise-name-row">
-                      <Input
-                        id="enterprise-name"
-                        required
-                        maxLength={100}
-                        autoFocus
-                        value={modal.draft.name}
-                        placeholder="用户自行填写，不预置任何企业名"
-                        onChange={(event) =>
-                          setModal({
-                            ...modal,
-                            draft: { ...modal.draft, name: event.target.value },
-                          })
-                        }
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={busy === 'suggest'}
-                        onClick={() => void suggestEnterprise()}
-                      >
-                        {busy === 'suggest' ? '联想中…' : 'AI 联想'}
-                      </Button>
+              <div className="enterprise-form-fields" aria-busy={busy === 'save'}>
+                {formError && (
+                  <p className="enterprise-form-error" role="alert">
+                    {formError}
+                  </p>
+                )}
+                {modal.kind === 'enterprise' ? (
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="enterprise-name">企业名称 *</FieldLabel>
+                      <div className="enterprise-name-row">
+                        <Input
+                          id="enterprise-name"
+                          disabled={busy === 'save'}
+                          required
+                          maxLength={100}
+                          autoFocus
+                          value={modal.draft.name}
+                          placeholder="用户自行填写，不预置任何企业名"
+                          onChange={(event) => {
+                            cancelSuggestion();
+                            setAiNotice('');
+                            setModal({
+                              ...modal,
+                              draft: { ...modal.draft, name: event.target.value },
+                            });
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={
+                            !!busy ||
+                            !!(modal.draft.industry.trim() && modal.draft.introduction.trim())
+                          }
+                          onClick={() => void suggestEnterprise()}
+                        >
+                          {busy === 'suggest' ? '联想中…' : 'AI 联想'}
+                        </Button>
+                      </div>
+                      <FieldDescription>AI 仅补充空白的行业与简介，核对后再保存。</FieldDescription>
+                    </Field>
+                    <div className="enterprise-form-two-columns">
+                      <Field>
+                        <FieldLabel id="enterprise-industry-label" htmlFor="enterprise-industry">
+                          行业（选填）
+                        </FieldLabel>
+                        <Select
+                          id="enterprise-industry"
+                          getPopupContainer={() => dialogRef.current ?? document.body}
+                          disabled={busy === 'save'}
+                          aria-labelledby="enterprise-industry-label"
+                          className="enterprise-industry-select native-select w-full"
+                          dropdownClassName="candidate-select-dropdown"
+                          value={modal.draft.industry}
+                          placeholder="点击选择，或直接输入"
+                          filter
+                          allowCreate
+                          clickToHide
+                          onChange={(value) => {
+                            cancelSuggestion();
+                            setAiNotice('');
+                            setModal({
+                              ...modal,
+                              draft: {
+                                ...modal.draft,
+                                industry: typeof value === 'string' ? value : '',
+                              },
+                            });
+                          }}
+                        >
+                          {industries.map((industry) => (
+                            <Select.Option key={industry} value={industry}>
+                              {industry}
+                            </Select.Option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="enterprise-order">排序</FieldLabel>
+                        <Input
+                          id="enterprise-order"
+                          disabled={busy === 'save'}
+                          type="number"
+                          min={0}
+                          max={100000}
+                          value={modal.draft.sort_order}
+                          onChange={(event) =>
+                            setModal({
+                              ...modal,
+                              draft: {
+                                ...modal.draft,
+                                sort_order: Number(event.target.value) || 0,
+                              },
+                            })
+                          }
+                        />
+                      </Field>
                     </div>
-                  </Field>
-                  <div className="enterprise-form-two-columns">
                     <Field>
-                      <FieldLabel id="enterprise-industry-label" htmlFor="enterprise-industry">
-                        行业（选填）
-                      </FieldLabel>
-                      <Select
-                        id="enterprise-industry"
-                        aria-labelledby="enterprise-industry-label"
-                        className="enterprise-industry-select native-select w-full"
-                        dropdownClassName="candidate-select-dropdown"
-                        value={modal.draft.industry}
-                        placeholder="点击选择，或直接输入"
-                        filter
-                        allowCreate
-                        clickToHide
-                        onChange={(value) =>
-                          setModal({
-                            ...modal,
-                            draft: {
-                              ...modal.draft,
-                              industry: typeof value === 'string' ? value : '',
-                            },
-                          })
-                        }
-                      >
-                        {industries.map((industry) => (
-                          <Select.Option key={industry} value={industry}>
-                            {industry}
-                          </Select.Option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="enterprise-order">排序</FieldLabel>
+                      <FieldLabel htmlFor="enterprise-introduction">企业简介（选填）</FieldLabel>
                       <Input
-                        id="enterprise-order"
-                        type="number"
-                        min={0}
-                        max={100000}
-                        value={modal.draft.sort_order}
+                        id="enterprise-introduction"
+                        disabled={busy === 'save'}
+                        maxLength={3000}
+                        value={modal.draft.introduction}
+                        placeholder="一句话介绍该企业的主营业务，可由 AI 联想生成"
                         onChange={(event) =>
                           setModal({
                             ...modal,
-                            draft: { ...modal.draft, sort_order: Number(event.target.value) || 0 },
+                            draft: { ...modal.draft, introduction: event.target.value },
                           })
                         }
                       />
                     </Field>
-                  </div>
-                  <Field>
-                    <FieldLabel htmlFor="enterprise-introduction">企业简介（选填）</FieldLabel>
-                    <Input
-                      id="enterprise-introduction"
-                      maxLength={3000}
-                      value={modal.draft.introduction}
-                      placeholder="一句话介绍该企业的主营业务，可由 AI 联想生成"
-                      onChange={(event) =>
-                        setModal({
-                          ...modal,
-                          draft: { ...modal.draft, introduction: event.target.value },
-                        })
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="enterprise-remark">备注（选填）</FieldLabel>
-                    <Input
-                      id="enterprise-remark"
-                      maxLength={2000}
-                      value={modal.draft.remark}
-                      placeholder="内部备注，不对外展示"
-                      onChange={(event) =>
-                        setModal({
-                          ...modal,
-                          draft: { ...modal.draft, remark: event.target.value },
-                        })
-                      }
-                    />
-                  </Field>
-                  <label className="enterprise-enabled-option">
-                    <input
-                      type="checkbox"
-                      checked={modal.draft.enabled}
-                      onChange={(event) =>
-                        setModal({
-                          ...modal,
-                          draft: { ...modal.draft, enabled: event.target.checked },
-                        })
-                      }
-                    />
-                    启用（停用后不进入 AI 初面的企业选项）
-                  </label>
-                </FieldGroup>
-              ) : (
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel id="endorsement-enterprise-label" htmlFor="endorsement-enterprise">
-                      所属企业{modal.draft.id ? '' : ' *'}
-                    </FieldLabel>
-                    <Select
-                      id="endorsement-enterprise"
-                      aria-labelledby="endorsement-enterprise-label"
-                      className="native-select w-full"
-                      dropdownClassName="candidate-select-dropdown"
-                      clickToHide
-                      placeholder="请选择所属企业"
-                      value={
-                        modal.draft.enterprise_id === null ? '' : String(modal.draft.enterprise_id)
-                      }
-                      aria-required={!modal.draft.id || undefined}
-                      onChange={(value) => {
-                        setFormError('');
-                        setModal({
-                          ...modal,
-                          draft: {
-                            ...modal.draft,
-                            enterprise_id:
-                              value !== '' && value !== undefined ? Number(value) : null,
-                          },
-                        });
-                      }}
-                    >
-                      {enterprises.map((item) => (
-                        <Select.Option key={item.id} value={String(item.id)}>
-                          {item.name}
-                        </Select.Option>
-                      ))}
-                    </Select>
-                    <FieldDescription>
-                      选项来自企业档案；删除的企业其内容会保留，可在此重新指定。
-                    </FieldDescription>
-                  </Field>
-                  <div className="enterprise-form-two-columns">
                     <Field>
-                      <FieldLabel id="endorsement-category-label" htmlFor="endorsement-category">
-                        分类 *
+                      <FieldLabel htmlFor="enterprise-remark">备注（选填）</FieldLabel>
+                      <Input
+                        id="enterprise-remark"
+                        disabled={busy === 'save'}
+                        maxLength={2000}
+                        value={modal.draft.remark}
+                        placeholder="内部备注，不对外展示"
+                        onChange={(event) =>
+                          setModal({
+                            ...modal,
+                            draft: { ...modal.draft, remark: event.target.value },
+                          })
+                        }
+                      />
+                    </Field>
+                    <label className="enterprise-enabled-option">
+                      <input
+                        type="checkbox"
+                        disabled={busy === 'save'}
+                        checked={modal.draft.enabled}
+                        onChange={(event) =>
+                          setModal({
+                            ...modal,
+                            draft: { ...modal.draft, enabled: event.target.checked },
+                          })
+                        }
+                      />
+                      启用（停用后不进入 AI 初面的企业选项）
+                    </label>
+                  </FieldGroup>
+                ) : (
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel
+                        id="endorsement-enterprise-label"
+                        htmlFor="endorsement-enterprise"
+                      >
+                        所属企业 *
                       </FieldLabel>
                       <Select
-                        id="endorsement-category"
-                        aria-labelledby="endorsement-category-label"
+                        id="endorsement-enterprise"
+                        getPopupContainer={() => dialogRef.current ?? document.body}
+                        disabled={busy === 'save'}
+                        aria-labelledby="endorsement-enterprise-label"
                         className="native-select w-full"
                         dropdownClassName="candidate-select-dropdown"
                         clickToHide
-                        value={modal.draft.category}
-                        onChange={(value) =>
+                        placeholder="请选择所属企业"
+                        value={
+                          modal.draft.enterprise_id === null
+                            ? ''
+                            : String(modal.draft.enterprise_id)
+                        }
+                        aria-required
+                        onChange={(value) => {
+                          setFormError('');
                           setModal({
                             ...modal,
                             draft: {
                               ...modal.draft,
-                              category: value as Endorsement['category'],
+                              enterprise_id:
+                                value !== '' && value !== undefined ? Number(value) : null,
                             },
-                          })
-                        }
+                          });
+                        }}
                       >
-                        {categories.map((item) => (
-                          <Select.Option key={item.value} value={item.value}>
-                            {item.label}
+                        {enterprises.map((item) => (
+                          <Select.Option key={item.id} value={String(item.id)}>
+                            {item.name}
                           </Select.Option>
                         ))}
                       </Select>
+                      <FieldDescription>
+                        选项来自企业档案；删除的企业其内容会保留，可在此重新指定。
+                      </FieldDescription>
                     </Field>
+                    <div className="enterprise-form-two-columns">
+                      <Field>
+                        <FieldLabel id="endorsement-category-label" htmlFor="endorsement-category">
+                          分类 *
+                        </FieldLabel>
+                        <Select
+                          id="endorsement-category"
+                          getPopupContainer={() => dialogRef.current ?? document.body}
+                          disabled={busy === 'save'}
+                          aria-labelledby="endorsement-category-label"
+                          className="native-select w-full"
+                          dropdownClassName="candidate-select-dropdown"
+                          clickToHide
+                          value={modal.draft.category}
+                          onChange={(value) =>
+                            setModal({
+                              ...modal,
+                              draft: {
+                                ...modal.draft,
+                                category: value as Endorsement['category'],
+                              },
+                            })
+                          }
+                        >
+                          {categories.map((item) => (
+                            <Select.Option key={item.value} value={item.value}>
+                              {item.label}
+                            </Select.Option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="endorsement-title">标题（选填）</FieldLabel>
+                        <Input
+                          id="endorsement-title"
+                          disabled={busy === 'save'}
+                          maxLength={200}
+                          value={modal.draft.title}
+                          placeholder="待补充"
+                          onChange={(event) =>
+                            setModal({
+                              ...modal,
+                              draft: { ...modal.draft, title: event.target.value },
+                            })
+                          }
+                        />
+                      </Field>
+                    </div>
+                    <div className="enterprise-form-two-columns">
+                      <Field>
+                        <FieldLabel htmlFor="endorsement-order">展示顺序</FieldLabel>
+                        <Input
+                          id="endorsement-order"
+                          disabled={busy === 'save'}
+                          type="number"
+                          min={0}
+                          max={100000}
+                          value={modal.draft.sort_order}
+                          onChange={(event) =>
+                            setModal({
+                              ...modal,
+                              draft: {
+                                ...modal.draft,
+                                sort_order: Number(event.target.value) || 0,
+                              },
+                            })
+                          }
+                        />
+                        <FieldDescription>数字越小越靠前</FieldDescription>
+                      </Field>
+                      <Field>
+                        <FieldLabel>是否启用</FieldLabel>
+                        <label className="enterprise-enabled-option">
+                          <input
+                            type="checkbox"
+                            disabled={busy === 'save'}
+                            checked={modal.draft.enabled}
+                            onChange={(event) =>
+                              setModal({
+                                ...modal,
+                                draft: { ...modal.draft, enabled: event.target.checked },
+                              })
+                            }
+                          />
+                          启用
+                        </label>
+                        <FieldDescription>停用后不进入 AI 初面背书内容。</FieldDescription>
+                      </Field>
+                    </div>
                     <Field>
-                      <FieldLabel htmlFor="endorsement-title">标题（选填）</FieldLabel>
-                      <Input
-                        id="endorsement-title"
-                        maxLength={200}
-                        value={modal.draft.title}
+                      <FieldLabel htmlFor="endorsement-body">正文（选填）</FieldLabel>
+                      <Textarea
+                        id="endorsement-body"
+                        disabled={busy === 'save'}
+                        maxLength={12000}
+                        value={modal.draft.body}
                         placeholder="待补充"
                         onChange={(event) =>
                           setModal({
                             ...modal,
-                            draft: { ...modal.draft, title: event.target.value },
+                            draft: { ...modal.draft, body: event.target.value },
                           })
                         }
                       />
+                      <FieldDescription className="endorsement-character-count">
+                        {modal.draft.body.length.toLocaleString()} / 12,000 字
+                      </FieldDescription>
                     </Field>
-                  </div>
-                  <div className="enterprise-form-two-columns">
-                    <Field>
-                      <FieldLabel htmlFor="endorsement-order">展示顺序</FieldLabel>
-                      <Input
-                        id="endorsement-order"
-                        type="number"
-                        min={0}
-                        max={100000}
-                        value={modal.draft.sort_order}
-                        onChange={(event) =>
-                          setModal({
-                            ...modal,
-                            draft: { ...modal.draft, sort_order: Number(event.target.value) || 0 },
-                          })
-                        }
-                      />
-                      <FieldDescription>数字越小越靠前</FieldDescription>
-                    </Field>
-                    <Field>
-                      <FieldLabel>是否启用</FieldLabel>
-                      <label className="enterprise-enabled-option">
-                        <input
-                          type="checkbox"
-                          checked={modal.draft.enabled}
-                          onChange={(event) =>
-                            setModal({
-                              ...modal,
-                              draft: { ...modal.draft, enabled: event.target.checked },
-                            })
-                          }
-                        />
-                        启用
-                      </label>
-                      <FieldDescription>停用后不进入 AI 初面背书内容。</FieldDescription>
-                    </Field>
-                  </div>
-                  <Field>
-                    <FieldLabel htmlFor="endorsement-body">正文（选填）</FieldLabel>
-                    <Textarea
-                      id="endorsement-body"
-                      maxLength={12000}
-                      value={modal.draft.body}
-                      placeholder="待补充"
-                      onChange={(event) =>
-                        setModal({ ...modal, draft: { ...modal.draft, body: event.target.value } })
-                      }
-                    />
-                  </Field>
-                </FieldGroup>
-              )}
-              {modal.kind === 'enterprise' && aiNotice && (
-                <p className="enterprise-ai-notice" role="status">
-                  {aiNotice}
-                </p>
-              )}
+                  </FieldGroup>
+                )}
+                {modal.kind === 'enterprise' && aiNotice && (
+                  <p className="enterprise-ai-notice" role="status">
+                    {aiNotice}
+                  </p>
+                )}
+              </div>
             </div>
             <div className="enterprise-dialog-footer">
-              {modal.kind === 'endorsement' && (
-                <Button type="button" variant="outline" onClick={closeModal}>
-                  取消
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy === 'save'}
+                onClick={closeModal}
+              >
+                取消
+              </Button>
               <Button
                 type="submit"
                 disabled={

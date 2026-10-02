@@ -33,6 +33,16 @@ urlpatterns = [
         employer_brand.delete_enterprise,
     ),
     path("api/v1/employer-brand/endorsements/save/", employer_brand.save_endorsement),
+    path(
+        "api/v1/employer-brand/endorsements/<int:pk>/delete/",
+        employer_brand.set_endorsement_deleted,
+        {"deleted": True},
+    ),
+    path(
+        "api/v1/employer-brand/endorsements/<int:pk>/restore/",
+        employer_brand.set_endorsement_deleted,
+        {"deleted": False},
+    ),
     path("api/v1/employer-brand/enterprise-suggestion/", employer_brand.suggest_enterprise),
     path("api/v1/", include(router.urls)),
 ]

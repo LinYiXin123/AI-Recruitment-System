@@ -2716,7 +2716,7 @@ body:has(.enterprise-dialog[open]) { overflow: hidden; }
 .enterprise-dialog-heading { position: sticky; z-index: 1; top: 0; border-bottom: 1px solid var(--border); background: var(--card); }
 .enterprise-dialog-heading h2 { font-size: 16px; font-weight: 500; }
 .enterprise-dialog-body { display: flex; min-height: 0; overflow-y: auto; flex-direction: column; gap: 16px; padding: 20px; }
-.enterprise-dialog-body [data-slot="field-group"] { gap: 18px; }
+.enterprise-dialog-body [data-slot="field-group"] { container-type: normal; gap: 18px; }
 .enterprise-dialog-body [data-slot="field-label"] { color: var(--muted-foreground); font-size: 13px; font-weight: 400; }
 .enterprise-dialog-body [data-slot="input"] { height: 40px; font-size: 14px; }
 .enterprise-dialog-body textarea { min-height: 170px; resize: vertical; }
@@ -2733,6 +2733,33 @@ body:has(.enterprise-dialog[open]) { overflow: hidden; }
 .enterprise-form-error, .enterprise-ai-notice { margin: 0; padding: 9px 11px; border: 1px solid var(--border); border-radius: 9px; font-size: 13px; }
 .enterprise-form-error { border-color: color-mix(in srgb, var(--destructive) 35%, var(--border)); background: color-mix(in srgb, var(--destructive) 7%, var(--card)); color: var(--destructive); }
 .enterprise-ai-notice { padding: 0; border: 0; color: var(--foreground); line-height: 1.7; }
+.brand-detail-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 20px; color: var(--muted-foreground); font-size: 12px; }
+.brand-detail-summary strong { color: var(--primary); font-weight: 600; }
+.endorsement-item-heading { flex-wrap: wrap; }
+.endorsement-item-heading h3 { min-width: 0; flex: 1 1 180px; overflow-wrap: anywhere; }
+.endorsement-item-actions { display: flex; flex-shrink: 0; gap: 2px; }
+.endorsement-item-actions > button { height: 28px; padding-inline: 8px; font-size: 12px; font-weight: 400; }
+.endorsement-item-actions > .brand-danger-action { color: var(--destructive); }
+.endorsement-item-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 5px; color: var(--muted-foreground); font-size: 11px; }
+.endorsement-item-meta > [data-slot="badge"] { font-size: 11px; font-weight: 400; }
+.endorsement-item > p { max-height: 260px; overflow-y: auto; }
+.brand-orphan-item > div { min-width: 0; }
+.brand-orphan-item > div > strong { overflow-wrap: anywhere; font-size: 13px; }
+.brand-orphan-item > button { flex-shrink: 0; }
+.brand-recycle-panel { min-width: 0; padding: 16px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.brand-recycle-panel > summary { display: flex; align-items: center; gap: 8px; color: var(--foreground); font-size: 13px; cursor: pointer; }
+.brand-recycle-panel > summary::after { content: '+'; margin-left: auto; font-size: 18px; }
+.brand-recycle-panel[open] > summary::after { content: '−'; }
+.brand-recycle-panel > summary > svg { width: 15px; height: 15px; color: var(--muted-foreground); }
+.brand-recycle-panel > summary > span { color: var(--muted-foreground); font-size: 12px; }
+.brand-recycle-panel > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 5px; border-radius: 4px; }
+.brand-recycle-panel > p { margin: 12px 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; }
+.brand-recycle-panel > article + article { margin-top: 8px; }
+.enterprise-form-fields { display: flex; min-width: 0; flex-shrink: 0; flex-direction: column; gap: 16px; margin: 0; padding: 0; border: 0; }
+.enterprise-form-fields > * { flex-shrink: 0; }
+.endorsement-character-count { text-align: right; font-variant-numeric: tabular-nums; }
+.enterprise-dialog .semi-select-option-list { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.enterprise-dialog .semi-select-option-list::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
 @media (max-width: 900px) { .enterprise-profile-dialog .enterprise-form-two-columns { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { .brand-page-title-row { flex-wrap: wrap; } }
 @media (max-width: 520px) {

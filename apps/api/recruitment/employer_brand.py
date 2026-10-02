@@ -116,6 +116,7 @@ def endorsement_data(item):
         "body": item.body,
         "sort_order": item.sort_order,
         "enabled": item.enabled,
+        "deleted_at": item.deleted_at,
         "updated_at": item.updated_at,
     }
 
@@ -126,7 +127,7 @@ def workspace(request):
     organization = membership.organization
     enterprises = list(Enterprise.objects.filter(organization=organization))
     endorsements = list(
-        EnterpriseEndorsement.objects.filter(organization=organization, deleted_at__isnull=True)
+        EnterpriseEndorsement.objects.filter(organization=organization)
         .select_related("enterprise")
         .order_by("sort_order", "id")
     )
@@ -143,7 +144,12 @@ def workspace(request):
                 for item in enterprises
                 if item.deleted_at is not None
             ],
-            "endorsements": [endorsement_data(item) for item in endorsements],
+            "endorsements": [
+                endorsement_data(item) for item in endorsements if item.deleted_at is None
+            ],
+            "deleted_endorsements": [
+                endorsement_data(item) for item in endorsements if item.deleted_at is not None
+            ],
         }
     )
 
@@ -160,7 +166,9 @@ def ai_options(request):
 @api_view(["POST"])
 def save_enterprise(request):
     membership = require_editor(request)
-    serializer = EnterpriseInput(data=request.data)
+    serializer = EnterpriseInput(
+        data=request.data, partial=isinstance(request.data, dict) and "id" in request.data
+    )
     serializer.is_valid(raise_exception=True)
     data = serializer.validated_data
     with transaction.atomic():
@@ -175,7 +183,7 @@ def save_enterprise(request):
             for key, value in data.items():
                 if key != "id":
                     setattr(enterprise, key, value)
-            enterprise.save()
+            enterprise.save(update_fields=[key for key in data if key != "id"] + ["updated_at"])
         else:
             if (
                 Enterprise.objects.filter(
@@ -187,7 +195,10 @@ def save_enterprise(request):
                     f"每个租户最多可维护 {MAX_ENTERPRISES} 家企业，请先整理现有档案。"
                 )
             enterprise = Enterprise.objects.create(organization=organization, **data)
-    return Response(enterprise_data(enterprise, []), status=200 if data.get("id") else 201)
+    return Response(
+        enterprise_data(enterprise, enterprise.endorsements.filter(deleted_at__isnull=True)),
+        status=200 if data.get("id") else 201,
+    )
 
 
 @api_view(["POST"])
@@ -202,9 +213,12 @@ def delete_enterprise(request, pk):
 
 
 @api_view(["POST"])
+@transaction.atomic
 def save_endorsement(request):
     membership = require_editor(request)
-    serializer = EndorsementInput(data=request.data)
+    serializer = EndorsementInput(
+        data=request.data, partial=isinstance(request.data, dict) and "id" in request.data
+    )
     serializer.is_valid(raise_exception=True)
     data = serializer.validated_data
     enterprise_id = data.get("enterprise_id")
@@ -221,17 +235,20 @@ def save_endorsement(request):
 
     if data.get("id"):
         item = get_object_or_404(
-            EnterpriseEndorsement.objects.select_related("enterprise"),
+            EnterpriseEndorsement.objects.select_for_update(),
             pk=data["id"],
             organization=membership.organization,
             deleted_at__isnull=True,
         )
+        update_fields = ["updated_at"]
         for key in ("category", "title", "body", "sort_order", "enabled"):
             if key in data:
                 setattr(item, key, data[key])
+                update_fields.append(key)
         if "enterprise_id" in data:
             item.enterprise = enterprise
-        item.save()
+            update_fields.append("enterprise")
+        item.save(update_fields=update_fields)
         status = 200
     else:
         item = EnterpriseEndorsement.objects.create(
@@ -241,6 +258,21 @@ def save_endorsement(request):
         )
         status = 201
     return Response(endorsement_data(item), status=status)
+
+
+@api_view(["POST"])
+def set_endorsement_deleted(request, pk, deleted):
+    membership = require_editor(request)
+    with transaction.atomic():
+        item = get_object_or_404(
+            EnterpriseEndorsement.objects.select_for_update(),
+            pk=pk,
+            organization=membership.organization,
+        )
+        if bool(item.deleted_at) != deleted:
+            item.deleted_at = timezone.now() if deleted else None
+            item.save(update_fields=["deleted_at", "updated_at"])
+    return Response(endorsement_data(item))
 
 
 @api_view(["POST"])
