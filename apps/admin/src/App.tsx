@@ -48,6 +48,7 @@ import { ApplicationDetail, type CandidateLibraryActions, Candidates } from '@/p
 import { type InterviewActions, Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
 import { QuestionBank } from '@/pages/question-bank';
+import { TalentProfiles } from '@/pages/talent-profiles';
 import { Jobs, type JobsActions, Today } from '@/pages/workspace';
 
 type Route =
@@ -218,7 +219,10 @@ export default function App() {
       description: '查看你负责、协作或获授权的职位，明确每一次招聘的要求。',
     },
     candidates: { title: '候选人库', description: '候选人全生命周期与状态流转' },
-    'talent-profiles': { title: '人才画像', description: '人才画像功能待接入。' },
+    'talent-profiles': {
+      title: '人才画像',
+      description: '从岗位要求开始，用 AI 整理画像，核对后直接使用。',
+    },
     interviews: { title: '面试管理', description: '面试安排与记录，一人可多轮' },
     'ai-screening': {
       title: 'AI 初面',
@@ -427,6 +431,12 @@ export default function App() {
             <EmployerBrandPage />
           ) : route === 'question-bank' ? (
             <QuestionBank />
+          ) : route === 'talent-profiles' ? (
+            <TalentProfiles
+              revision={revision}
+              openJob={openJob}
+              createJob={me.departments.length > 0 ? () => setCreating(true) : undefined}
+            />
           ) : (
             <UnavailablePage route={route} />
           )}
@@ -706,14 +716,10 @@ function UnavailablePage({
     | 'ai-screening'
     | 'employer-brand'
     | 'question-bank'
+    | 'talent-profiles'
   >;
 }) {
   const messages: Record<typeof route, { icon: typeof Building2; title: string; body: string }> = {
-    'talent-profiles': {
-      icon: UserRoundSearch,
-      title: '人才画像尚未接入',
-      body: '目前可在候选人库查看已有档案；这里暂不生成或展示画像。',
-    },
     employees: {
       icon: UserRoundCheck,
       title: '在职人员管理尚未接通',

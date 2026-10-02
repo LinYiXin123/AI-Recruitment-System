@@ -4,12 +4,18 @@ export type Requirement = {
   text: string;
   rationale: string;
   needs_verification: boolean;
+  source_kind?: string;
+  source_quote?: string;
+  source_reference?: string;
+  source_edited?: boolean;
+  generation_index?: number | null;
 };
 export type Profile = {
   id: number;
   number: number;
   jd_snapshot: string;
   source: string;
+  business_goal?: string;
   status: string;
   requirements: Requirement[];
   created_at: string;
@@ -158,7 +164,12 @@ export async function api<T>(
     if (e instanceof Error && e.name === 'AbortError') throw e;
     throw new ApiError(0, '暂时连接不上服务，请检查网络后重试。已填写的内容会保留。');
   }
-  const body = await response.json().catch(() => ({}));
+  const body = await response.json().catch((e: unknown) => {
+    if (e instanceof Error && e.name === 'AbortError') throw e;
+    if (response.ok && response.status !== 204)
+      throw new ApiError(response.status, '服务返回内容无法读取，请重试。已填写的内容会保留。');
+    return {};
+  });
   if (!response.ok)
     throw new ApiError(response.status, errorText(body.errors || '服务暂时不可用，请重试。'));
   if (body.csrfToken) csrfToken = body.csrfToken;

@@ -120,12 +120,17 @@ class ProfileVersion(Timestamped):
     number = models.PositiveIntegerField()
     jd_snapshot = models.TextField()
     source = models.CharField(max_length=500)
+    business_goal = models.TextField(blank=True)
+    generation = models.ForeignKey(
+        "ProfileGeneration", on_delete=models.PROTECT, null=True, blank=True
+    )
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.DRAFT)
     created_by = models.ForeignKey(Membership, on_delete=models.PROTECT, related_name="+")
     confirmed_by = models.ForeignKey(
         Membership, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
     )
     confirmed_at = models.DateTimeField(null=True, blank=True)
+    activated_by_hr = models.BooleanField(default=False)
     review_note = models.TextField(blank=True)
     submitted_by = models.ForeignKey(
         Membership, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
@@ -163,6 +168,14 @@ class ProfileRequirement(models.Model):
     rationale = models.CharField(max_length=1000, blank=True)
     needs_verification = models.BooleanField(default=False)
     position = models.PositiveSmallIntegerField()
+    generation = models.ForeignKey(
+        "ProfileGeneration", on_delete=models.PROTECT, null=True, blank=True
+    )
+    generation_index = models.PositiveSmallIntegerField(null=True, blank=True)
+    source_kind = models.CharField(max_length=24, default="manual")
+    source_quote = models.TextField(blank=True)
+    source_reference = models.CharField(max_length=80, blank=True)
+    source_edited = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["position", "id"]
@@ -170,6 +183,32 @@ class ProfileRequirement(models.Model):
             models.CheckConstraint(
                 condition=~Q(kind="exclusion") | ~Q(rationale=""), name="exclusion_has_reason"
             )
+        ]
+
+
+class ProfileGeneration(Timestamped):
+    job = models.ForeignKey(Job, on_delete=models.PROTECT, related_name="profile_generations")
+    creator = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    request_key = models.UUIDField()
+    job_version = models.PositiveIntegerField()
+    purpose = models.CharField(max_length=32, default="job_profile_draft")
+    model = models.CharField(max_length=200)
+    prompt_version = models.CharField(max_length=40)
+    input_snapshot = models.JSONField()
+    status = models.CharField(max_length=16, default="running")
+    result = models.JSONField(default=list)
+    error = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["job", "creator", "request_key"], name="one_profile_generation_request"
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["running", "succeeded", "failed", "stale"]),
+                name="profile_generation_status",
+            ),
         ]
 
 

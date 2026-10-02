@@ -12,13 +12,25 @@ async function openJob(page: Page, title: string) {
   await page.getByRole('button', { name: title, exact: true }).click();
 }
 
+async function post(page: Page, path: string, data: unknown) {
+  const csrf = await (await page.request.get('/api/v1/auth/csrf/')).json();
+  const response = await page.request.post(`/api/v1/${path}`, {
+    data,
+    headers: { 'X-CSRFToken': csrf.csrfToken },
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return response.json();
+}
+
 async function createJob(page: Page, title: string) {
   await openJobs(page);
   await page.getByRole('button', { name: '新建职位', exact: true }).click();
   await page.getByLabel('职位名称').fill(title);
   await page.getByLabel('工作地点').fill('深圳');
   await page.getByLabel('招聘人数').fill('2');
-  await page.getByLabel('招人要求确认人').selectOption({ label: '体验负责人' });
+  await page.getByLabel('用人负责人（用于澄清）').click();
+  await page.getByRole('option', { name: /体验负责人/ }).click();
+  await expect(page.getByLabel('用人负责人（用于澄清）')).toContainText('体验负责人');
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
 }
@@ -61,7 +73,8 @@ test('职位列表展示保存后的建岗字段', async ({ page }) => {
   await page.getByRole('button', { name: '新建职位', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('职位名称').fill(title);
-  await dialog.getByLabel('所属企业').selectOption({ index: 1 });
+  await dialog.getByLabel('所属企业').click();
+  await page.getByRole('option', { name: /知遇体验团队（虚构）/ }).click();
   await dialog.getByLabel('职级').fill('主管级');
   await dialog.getByLabel('底薪').fill('7K');
   await dialog.getByLabel('绩效').fill('1K');
@@ -72,7 +85,8 @@ test('职位列表展示保存后的建岗字段', async ({ page }) => {
   await dialog.getByLabel('招聘人数').fill('3');
   await dialog.getByLabel('发布时间').fill('2026-09-29');
   await dialog.getByLabel('工作地点').fill('深圳');
-  await dialog.getByLabel('招人要求确认人').selectOption({ label: '体验负责人' });
+  await dialog.getByLabel('用人负责人（用于澄清）').click();
+  await page.getByRole('option', { name: /体验负责人/ }).click();
   await dialog.getByLabel('任职要求').fill('一行一条，便于阅读');
   await page.screenshot({ path: 'test-results/职位完整字段弹窗.png' });
   await dialog.getByRole('button', { name: '保存', exact: true }).click();
@@ -110,22 +124,22 @@ async function fillRequirements(page: Page) {
   await page.getByLabel('要求来源').fill('用人需求会议（虚构验收资料）');
   await page.getByLabel('具体要求 1').fill('能够独立完成用户访谈与需求分析');
   await page.getByRole('button', { name: '保存要求草稿' }).click();
-  await expect(page.getByText('新版本已保存。提交后将由负责人确认。')).toBeVisible();
+  await expect(page.getByText('要求草稿已保存，可继续修改后使用。')).toBeVisible();
 }
 async function closeDetail(page: Page) {
   await page.getByRole('button', { name: '关闭详情' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 }
 
-test('HR 建岗、负责人确认、招聘开启与版本保留', async ({ page, browser }) => {
+test('HR 建岗后直接使用要求、招聘开启与版本保留', async ({ page, browser }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await login(page);
   await createJob(page, '产品经理（流程验收）');
   await fillRequirements(page);
-  await page.getByRole('button', { name: '提交确认', exact: true }).click();
-  await expect(page.getByText('已提交，等待用人负责人确认。')).toBeVisible();
-  await page.screenshot({ path: '../../.local/验收-待确认详情.png', fullPage: true });
+  await page.getByRole('button', { name: '使用此版本', exact: true }).click();
+  await expect(page.getByText('此版本已生效，无需另外审批。')).toBeVisible();
+  await page.screenshot({ path: '../../.local/验收-直接使用详情.png', fullPage: true });
   await closeDetail(page);
   await expect(
     page.getByRole('button', { name: '产品经理（流程验收）', exact: true }),
@@ -134,8 +148,9 @@ test('HR 建岗、负责人确认、招聘开启与版本保留', async ({ page,
   const manager = await managerContext.newPage();
   await login(manager, 'local_manager');
   await openJob(manager, '产品经理（流程验收）');
-  await manager.getByRole('button', { name: '确认招人要求', exact: true }).click();
-  await expect(manager.getByText('招人要求已确认，相关待办已完成。')).toBeVisible();
+  await expect(manager.getByText('能够独立完成用户访谈与需求分析', { exact: true })).toBeVisible();
+  await expect(manager.getByRole('button', { name: '确认招人要求', exact: true })).toHaveCount(0);
+  await expect(manager.getByRole('button', { name: '使用此版本', exact: true })).toHaveCount(0);
   await closeDetail(manager);
   await expect(
     manager.getByRole('button', { name: '产品经理（流程验收）', exact: true }),
@@ -157,9 +172,13 @@ test('HR 建岗、负责人确认、招聘开启与版本保留', async ({ page,
   await expect(
     page.getByRole('button', { name: '产品经理（流程验收）', exact: true }),
   ).toBeVisible();
-  await page.getByLabel('职位状态', { exact: true }).selectOption('closed');
+  for (const name of ['按部门筛选职位', '按企业筛选职位', '按状态筛选职位']) {
+    await expect(page.getByRole('combobox', { name, exact: true })).toBeVisible();
+  }
+  await page.getByLabel('按状态筛选职位', { exact: true }).click();
+  await page.getByRole('option', { name: /关闭/ }).click();
   await expect(page.getByText('没有符合条件的职位')).toBeVisible();
-  await page.getByRole('button', { name: '清除筛选' }).click();
+  await page.getByRole('button', { name: '清空筛选' }).click();
   await expect(
     page.getByRole('button', { name: '产品经理（流程验收）', exact: true }),
   ).toBeVisible();
@@ -197,7 +216,7 @@ test('失败后保留表单、恢复保存与窄屏操作', async ({ page }) => 
   await expect(page.getByLabel('具体要求 1')).toHaveValue('了解招聘流程');
   await page.unroute('**/api/v1/jobs/*/profiles/');
   await page.getByRole('button', { name: '保存要求草稿' }).click();
-  await expect(page.getByText('新版本已保存。提交后将由负责人确认。')).toBeVisible();
+  await expect(page.getByText('要求草稿已保存，可继续修改后使用。')).toBeVisible();
   await page.screenshot({ path: '../../.local/验收-窄屏详情.png', fullPage: true });
   expect(
     await page.locator('.sheet-scroll').evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
@@ -224,44 +243,45 @@ test('未授权 HR 看不到他人职位，退出后返回公共首页', async (
   expect((await page.request.get('/api/v1/me/')).status()).toBe(403);
 });
 
-test('负责人要求补充后，HR 待办完成并重新送审', async ({ page, browser }) => {
+test('历史需补充版本由 HR 修改后直接使用，未保存编辑受保护', async ({ page, browser }) => {
   await login(page);
   await createJob(page, '设计师（补充流程验收）');
   await fillRequirements(page);
-  await page.getByRole('button', { name: '提交确认', exact: true }).click();
-  await expect(page.getByText('已提交，等待用人负责人确认。')).toBeVisible();
   await closeDetail(page);
+  const found = await (
+    await page.request.get('/api/v1/jobs/?search=设计师（补充流程验收）')
+  ).json();
+  let job = found.results[0];
+  // 用兼容接口准备旧版待确认记录；新页面不再要求负责人审批。
+  job = await post(page, `jobs/${job.id}/submit-profile/`, { version: job.version });
   const context = await browser.newContext();
   const manager = await context.newPage();
   await login(manager, 'local_manager');
-  await openJob(manager, '设计师（补充流程验收）');
-  await manager.getByLabel('确认备注 / 需补充内容').fill('请写清楚设计协作经验的要求');
-  const discardPrompt = manager.waitForEvent('dialog');
-  const closeAttempt = manager.getByRole('button', { name: '关闭详情' }).click();
-  const prompt = await discardPrompt;
-  expect(prompt.message()).toContain('尚未保存');
-  await prompt.dismiss();
-  await closeAttempt;
-  await expect(manager.getByLabel('确认备注 / 需补充内容')).toHaveValue(
-    '请写清楚设计协作经验的要求',
-  );
-  await manager.getByRole('button', { name: '请 HR 补充' }).click();
-  await expect(manager.getByText('已记录需要补充的内容，HR 可修改后重新提交。')).toBeVisible();
+  await post(manager, `jobs/${job.id}/review-profile/`, {
+    version: job.version,
+    outcome: 'changes_requested',
+    note: '请写清楚设计协作经验的要求',
+  });
   await page.reload();
   await openJob(page, '设计师（补充流程验收）');
   await page.screenshot({ path: '../../.local/验收-补充要求.png', fullPage: true });
   await expect(page.getByText('请写清楚设计协作经验的要求')).toBeVisible();
   await page.getByRole('button', { name: '调整要求' }).click();
   await page.getByLabel('具体要求 1').fill('有跨团队设计协作经验，能举出具体项目');
-  await page.getByRole('button', { name: '保存要求草稿' }).click();
-  await expect(page.getByText('新版本已保存。提交后将由负责人确认。')).toBeVisible();
-  await page.getByRole('button', { name: '提交确认', exact: true }).click();
-  await expect(page.getByText('已提交，等待用人负责人确认。')).toBeVisible();
+  const discardPrompt = page.waitForEvent('dialog');
+  const closeAttempt = page.getByRole('button', { name: '关闭详情' }).click();
+  const prompt = await discardPrompt;
+  expect(prompt.message()).toContain('尚未保存');
+  await prompt.dismiss();
+  await closeAttempt;
+  await expect(page.getByLabel('具体要求 1')).toHaveValue('有跨团队设计协作经验，能举出具体项目');
+  await page.getByRole('button', { name: '保存并使用', exact: true }).click();
+  await expect(page.getByText('岗位画像已保存并使用，无需另外审批。')).toBeVisible();
   await closeDetail(page);
   await manager.reload();
-  await manager.getByRole('button', { name: '设计师（补充流程验收）', exact: true }).click();
-  await expect(manager.getByText('v2 · 待确认', { exact: true })).toBeVisible();
-  await expect(manager.getByRole('button', { name: '确认招人要求', exact: true })).toBeVisible();
+  await openJob(manager, '设计师（补充流程验收）');
+  await expect(manager.getByText('v2 · 已确认', { exact: true })).toBeVisible();
+  await expect(manager.getByRole('button', { name: '确认招人要求', exact: true })).toHaveCount(0);
   await context.close();
 });
 
@@ -271,7 +291,8 @@ test('建岗响应丢失后重试，只保留一条职位', async ({ page }) => 
   await page.getByRole('button', { name: '新建职位', exact: true }).click();
   await page.getByLabel('职位名称').fill('幂等建岗（网络验收）');
   await page.getByLabel('工作地点').fill('深圳');
-  await page.getByLabel('招人要求确认人').selectOption({ label: '体验负责人' });
+  await page.getByLabel('用人负责人（用于澄清）').click();
+  await page.getByRole('option', { name: /体验负责人/ }).click();
   await page.route('**/api/v1/jobs/', async (route) => {
     if (route.request().method() === 'POST') {
       await route.fetch();
@@ -289,7 +310,7 @@ test('建岗响应丢失后重试，只保留一条职位', async ({ page }) => 
   expect((await response.json()).count).toBe(1);
 });
 
-test('澄清问题经负责人回答后仍需整理与正式确认', async ({ page, browser }) => {
+test('澄清问题经负责人回答后仍需 HR 整理并明确使用', async ({ page, browser }) => {
   await login(page);
   await createJob(page, '招聘专员（澄清验收）');
   await page.getByRole('button', { name: '填写招人要求', exact: true }).click();
@@ -298,9 +319,13 @@ test('澄清问题经负责人回答后仍需整理与正式确认', async ({ pa
   await page.getByLabel('具体要求 1').fill('能够独立完成招聘需求分析');
   await page.getByLabel('此项仍需核实，不能直接作为淘汰依据').check();
   await page.getByRole('button', { name: '保存要求草稿' }).click();
-  await expect(page.getByText('新版本已保存。提交后将由负责人确认。')).toBeVisible();
+  await expect(page.getByText('要求草稿已保存，可继续修改后使用。')).toBeVisible();
   await page.getByRole('tab', { name: '澄清问答', exact: true }).click();
-  await page.getByLabel('需要澄清哪条要求（必填）').selectOption({ index: 1 });
+  await page.getByLabel('需要澄清哪条要求（必填）').click();
+  await page.getByRole('option', { name: /能够独立完成招聘需求分析/ }).click();
+  await expect(page.getByLabel('需要澄清哪条要求（必填）')).toContainText(
+    '能够独立完成招聘需求分析',
+  );
   await page.getByLabel('想向负责人了解什么（必填）').fill('需要独立负责哪类招聘项目？');
   await page.route('**/api/v1/jobs/*/clarifications/', async (route) => {
     if (route.request().method() === 'POST') {
@@ -339,7 +364,7 @@ test('澄清问题经负责人回答后仍需整理与正式确认', async ({ pa
     '能够独立完成技术岗位的需求访谈和岗位分析。',
   );
   await manager.getByRole('button', { name: '保存答复' }).click();
-  await expect(manager.getByText('答复已保存，HR 将整理要求后再提交正式确认。')).toBeVisible();
+  await expect(manager.getByText('答复已保存，HR 将核对要求后自行保存并使用。')).toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: '招聘专员（澄清验收）', exact: true }).click();
   await page.getByRole('tab', { name: '澄清问答', exact: true }).click();
@@ -360,9 +385,9 @@ test('澄清问题经负责人回答后仍需整理与正式确认', async ({ pa
   await page.getByLabel('具体要求 1').fill('能够独立完成技术岗位的需求访谈和岗位分析');
   await page.getByLabel('此项仍需核实，不能直接作为淘汰依据').uncheck();
   await page.getByRole('button', { name: '保存要求草稿' }).click();
-  await expect(page.getByText('新版本已保存。提交后将由负责人确认。')).toBeVisible();
-  await page.getByRole('button', { name: '提交确认', exact: true }).click();
-  await expect(page.getByText('已提交，等待用人负责人确认。')).toBeVisible();
+  await expect(page.getByText('要求草稿已保存，可继续修改后使用。')).toBeVisible();
+  await page.getByRole('button', { name: '使用此版本', exact: true }).click();
+  await expect(page.getByText('此版本已生效，无需另外审批。')).toBeVisible();
   await page.getByRole('tab', { name: '澄清问答', exact: true }).click();
   await expect(page.getByText('能够独立完成技术岗位的需求访谈和岗位分析。')).toBeVisible();
   await expect(page.getByText('v1', { exact: true })).toBeVisible();

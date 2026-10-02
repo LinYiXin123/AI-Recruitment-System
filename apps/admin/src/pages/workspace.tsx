@@ -475,8 +475,11 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
               }}
             />
           </div>
+          <span id="jobs-department-label" className="sr-only">
+            按部门筛选职位
+          </span>
           <Select
-            aria-label="按部门筛选职位"
+            aria-labelledby="jobs-department-label"
             className="jobs-filter-select"
             value={department}
             clickToHide
@@ -493,8 +496,11 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
               </Select.Option>
             ))}
           </Select>
+          <span id="jobs-company-label" className="sr-only">
+            按企业筛选职位
+          </span>
           <Select
-            aria-label="按企业筛选职位"
+            aria-labelledby="jobs-company-label"
             className="jobs-filter-select"
             value={company}
             clickToHide
@@ -511,8 +517,11 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
               </Select.Option>
             ))}
           </Select>
+          <span id="jobs-status-label" className="sr-only">
+            按状态筛选职位
+          </span>
           <Select
-            aria-label="按状态筛选职位"
+            aria-labelledby="jobs-status-label"
             className="jobs-filter-select"
             value={status}
             clickToHide
@@ -564,7 +573,7 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
                       search || department || company || status
                         ? '换个关键词或清空筛选条件再试试。'
                         : canCreate
-                          ? '先填写基本需求，再邀请用人负责人确认招人要求。'
+                          ? '先填写基本需求，再由 HR 核对岗位要求并保存使用。'
                           : '当前没有分配给你的职位，请联系负责的 HR。'
                     }
                   >

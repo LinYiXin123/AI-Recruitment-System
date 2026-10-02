@@ -69,7 +69,7 @@ function NativeSelect({
         }}
         onFocus={onFocus}
         size={size === 'sm' ? 'small' : 'default'}
-        value={selectedValue}
+        value={String(selectedValue)}
       >
         {toSemiOptions(children)}
       </Select>
@@ -105,8 +105,8 @@ function toSemiOptions(children: React.ReactNode): React.ReactNode {
           key={child.key}
           className={option.className}
           disabled={option.disabled}
-          label={option.label}
-          value={option.value as string | number}
+          label={option.label ?? option.children}
+          value={String(option.value ?? option.children ?? '')}
         >
           {option.children}
         </Select.Option>

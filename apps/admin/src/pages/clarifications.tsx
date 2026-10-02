@@ -69,8 +69,8 @@ export function Clarifications({
     <>
       <div className="section-heading">
         <div>
-          <h2>先问清楚，再提交确认</h2>
-          <p>问题和答复保留在原版本。回答不会自动批准画像，也不会替 HR 修改要求。</p>
+          <h2>先问清楚，再完善岗位要求</h2>
+          <p>问题和答复保留在原版本。回答不会自动启用画像，也不会替 HR 修改要求。</p>
         </div>
       </div>
       {job.permissions.edit &&
@@ -96,7 +96,10 @@ export function Clarifications({
             <FieldSet disabled={busy} className="rounded-xl border p-4">
               <FieldGroup>
                 <Field>
-                  <FieldLabel id="clarification-requirement-label" htmlFor="clarification-requirement">
+                  <FieldLabel
+                    id="clarification-requirement-label"
+                    htmlFor="clarification-requirement"
+                  >
                     需要澄清哪条要求（必填）
                   </FieldLabel>
                   <NativeSelect
@@ -176,7 +179,7 @@ export function Clarifications({
                   <strong>{q.assignee_name} 的答复</strong>
                   <p className="whitespace-pre-wrap break-words">{q.answer}</p>
                   <small>
-                    {q.answered_at && dateTime(q.answered_at)} · 仅回答问题，尚不代表批准画像
+                    {q.answered_at && dateTime(q.answered_at)} · 仅回答问题，仍需 HR 核对后使用
                   </small>
                 </div>
               )}
@@ -190,7 +193,7 @@ export function Clarifications({
                       void submit(
                         `clarifications/${q.id}/answer`,
                         { answer },
-                        '答复已保存，HR 将整理要求后再提交正式确认。',
+                        '答复已保存，HR 将核对要求后自行保存并使用。',
                       );
                     }}
                   >

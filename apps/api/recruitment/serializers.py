@@ -9,10 +9,23 @@ def display_name(membership):
 
 
 class RequirementSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False, min_value=1)
+
     class Meta:
         model = ProfileRequirement
-        fields = ["id", "kind", "text", "rationale", "needs_verification"]
-        read_only_fields = ["id"]
+        fields = [
+            "id",
+            "kind",
+            "text",
+            "rationale",
+            "needs_verification",
+            "generation_index",
+            "source_kind",
+            "source_quote",
+            "source_reference",
+            "source_edited",
+        ]
+        read_only_fields = ["source_kind", "source_quote", "source_reference", "source_edited"]
 
     def validate(self, attrs):
         if attrs["kind"] == "exclusion" and not attrs.get("rationale", "").strip():
@@ -43,6 +56,8 @@ class ProfileSerializer(serializers.ModelSerializer):
             "number",
             "jd_snapshot",
             "source",
+            "business_goal",
+            "generation",
             "status",
             "requirements",
             "created_at",
@@ -51,6 +66,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             "submitted_at",
             "confirmed_by_name",
             "confirmed_at",
+            "activated_by_hr",
             "review_note",
         ]
 
@@ -185,6 +201,9 @@ class ClarificationSerializer(serializers.ModelSerializer):
 class SaveProfileSerializer(VersionSerializer):
     jd = serializers.CharField(max_length=30000)
     source = serializers.CharField(max_length=500)
+    business_goal = serializers.CharField(max_length=5000, allow_blank=True, required=False)
+    generation_id = serializers.IntegerField(min_value=1, allow_null=True, default=None)
+    activate = serializers.BooleanField(default=False)
     requirements = RequirementSerializer(many=True, allow_empty=False)
 
     def validate_requirements(self, value):

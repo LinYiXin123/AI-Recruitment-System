@@ -1,4 +1,4 @@
-import { Check, Plus, Send, Trash2 } from 'lucide-react';
+import { Check, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Blank, ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +37,7 @@ import {
   type Requirement,
 } from '@/lib/api';
 import { Clarifications } from '@/pages/clarifications';
+import { ProfileAi } from '@/pages/talent-profiles';
 
 export function CreateJob({
   me,
@@ -84,7 +85,7 @@ export function CreateJob({
                 await api<Job>('jobs/', {
                   request_id: requestId,
                   title: f.get('title'),
-                  company_name: f.get('company_name'),
+                  company_name: f.get('company_name') || '',
                   job_level: f.get('job_level'),
                   salary_range: f.get('salary_range'),
                   base_salary: f.get('base_salary'),
@@ -155,9 +156,7 @@ export function CreateJob({
                   disabled={busy}
                   defaultValue=""
                 >
-                  <NativeSelectOption value="" disabled>
-                    不指定企业（选填）
-                  </NativeSelectOption>
+                  <NativeSelectOption value="">不指定企业（选填）</NativeSelectOption>
                   <NativeSelectOption value={me.organization}>{me.organization}</NativeSelectOption>
                 </NativeSelect>
               </Field>
@@ -284,7 +283,7 @@ export function CreateJob({
               </Field>
               <Field>
                 <FieldLabel id="approver-label" htmlFor="approver">
-                  招人要求确认人
+                  用人负责人（用于澄清）
                 </FieldLabel>
                 <NativeSelect
                   aria-labelledby="approver-label"
@@ -307,7 +306,7 @@ export function CreateJob({
                 </NativeSelect>
                 <FieldDescription>
                   {d?.approvers.length
-                    ? '提交招人要求后，这位负责人会收到工作台待办。'
+                    ? '有疑问时可向其发起澄清；岗位画像由 HR 核对后直接使用。'
                     : '此部门尚未配置用人负责人，请联系管理员授权。'}
                 </FieldDescription>
               </Field>
@@ -377,7 +376,6 @@ export function JobDetail({
   const [editing, setEditing] = useState(false);
   const [tab, setTab] = useState(initialTab);
   const [clarificationDirty, setClarificationDirty] = useState(false);
-  const [reviewNote, setReviewNote] = useState('');
   const [nextStatus, setNextStatus] = useState('');
   const [reason, setReason] = useState('');
   const returnFocus = useRef<HTMLElement | null>(document.activeElement as HTMLElement);
@@ -402,7 +400,6 @@ export function JobDetail({
       setNotice(message);
       setNextStatus('');
       setReason('');
-      setReviewNote('');
       changed();
     } catch (e) {
       setError((e as Error).message);
@@ -411,7 +408,7 @@ export function JobDetail({
     }
   }
   function requestClose() {
-    const unsaved = editing || clarificationDirty || reviewNote.trim() || reason.trim();
+    const unsaved = editing || clarificationDirty || reason.trim();
     if (!busy && (!unsaved || window.confirm('还有尚未保存的内容，确定关闭吗？'))) {
       close();
       returnFocus.current?.focus();
@@ -478,7 +475,11 @@ export function JobDetail({
               saved={(j) => {
                 setJob(j);
                 setEditing(false);
-                setNotice('新版本已保存。提交后将由负责人确认。');
+                setNotice(
+                  j.latest_profile?.status === 'confirmed'
+                    ? '岗位画像已保存并使用，无需另外审批。'
+                    : '要求草稿已保存，可继续修改后使用。',
+                );
                 changed();
               }}
             />
@@ -512,25 +513,38 @@ export function JobDetail({
                         </Badge>
                       )}
                     </h2>
-                    <p>确认人：{job.approver_name}</p>
+                    <p>经办 HR：{job.owner_name} · 编辑后由有权限的 HR 直接使用</p>
                   </div>
                   {job.permissions.edit && job.status !== 'closed' && (
-                    <Button
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => {
-                        setEditing(true);
-                        setError('');
-                        setNotice('');
-                      }}
-                    >
-                      {p ? '调整要求' : '填写招人要求'}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => {
+                          setEditing(true);
+                          setError('');
+                          setNotice('');
+                        }}
+                      >
+                        {p ? '调整要求' : '填写招人要求'}
+                      </Button>
+                      <Button
+                        disabled={busy}
+                        onClick={() => {
+                          setEditing(true);
+                          setError('');
+                          setNotice('');
+                        }}
+                      >
+                        <Sparkles data-icon="inline-start" />
+                        AI 起草画像
+                      </Button>
+                    </div>
                   )}
                 </div>
                 {job.active_profile && job.active_profile !== p?.id && (
                   <p className="source-note">
-                    当前正式依据仍为 v{job.active_profile_number}。新版本确认前，不会替换原有依据。
+                    当前正式依据仍为 v{job.active_profile_number}。新版本使用前，不会替换原有依据。
                   </p>
                 )}
                 {p ? (
@@ -538,87 +552,33 @@ export function JobDetail({
                     <ProfileContent profile={p} />
                     {p.review_note && (
                       <div className="review-note">
-                        <strong>
-                          {p.status === 'changes_requested' ? '负责人需要补充' : '负责人备注'}
-                        </strong>
+                        <strong>历史版本反馈</strong>
                         <p>{p.review_note}</p>
                       </div>
                     )}
-                    {p.status === 'draft' && job.permissions.edit && (
-                      <div className="action-panel">
-                        <div>
-                          <strong>准备好后，邀请负责人确认</strong>
-                          <p>将为 {job.approver_name} 创建待办，确认前此版本仍为草稿。</p>
-                        </div>
-                        <Button
-                          disabled={busy}
-                          onClick={() =>
-                            void act('submit-profile', {}, '已提交，等待用人负责人确认。')
-                          }
-                        >
-                          <Send data-icon="inline-start" />
-                          {busy ? '正在提交…' : '提交确认'}
-                        </Button>
-                      </div>
-                    )}
-                    {p.status === 'pending' && (
-                      <div className="action-panel">
-                        <div>
-                          <strong>等待 {job.approver_name} 确认</strong>
-                          <p>调整要求会撤回本次待办，并生成新的草稿版本。</p>
-                        </div>
-                      </div>
-                    )}
-                    {p.status === 'pending' && job.permissions.confirm && (
-                      <form
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          void act(
-                            'review-profile',
-                            { outcome: 'confirm', note: reviewNote },
-                            '招人要求已确认，相关待办已完成。',
-                          );
-                        }}
-                      >
-                        <FieldGroup>
-                          <Field>
-                            <FieldLabel htmlFor="review-note">确认备注 / 需补充内容</FieldLabel>
-                            <Textarea
-                              id="review-note"
-                              disabled={busy}
-                              value={reviewNote}
-                              onChange={(e) => setReviewNote(e.target.value)}
-                              maxLength={1000}
-                              placeholder="确认可不填；需要补充时，请说明具体内容。"
-                            />
-                          </Field>
-                          <div className="form-actions">
-                            <Button
-                              variant="outline"
-                              disabled={busy || !reviewNote.trim()}
-                              onClick={() =>
-                                void act(
-                                  'review-profile',
-                                  { outcome: 'changes_requested', note: reviewNote },
-                                  '已记录需要补充的内容，HR 可修改后重新提交。',
-                                )
-                              }
-                            >
-                              请 HR 补充
-                            </Button>
-                            <Button type="submit" disabled={busy}>
-                              <Check data-icon="inline-start" />
-                              {busy ? '正在保存…' : '确认招人要求'}
-                            </Button>
+                    {['draft', 'pending', 'changes_requested'].includes(p.status) &&
+                      job.permissions.edit &&
+                      job.status !== 'closed' && (
+                        <div className="action-panel">
+                          <div>
+                            <strong>核对完成后，直接使用此版本</strong>
+                            <p>由你定稿，无需另找负责人审批；已有版本和修改记录会保留。</p>
                           </div>
-                        </FieldGroup>
-                      </form>
-                    )}
+                          <Button
+                            disabled={busy}
+                            onClick={() =>
+                              void act('activate-profile', {}, '此版本已生效，无需另外审批。')
+                            }
+                          >
+                            {busy ? '正在使用…' : '使用此版本'}
+                          </Button>
+                        </div>
+                      )}
                   </>
                 ) : (
                   <Blank
                     title="把招人依据整理在一起"
-                    description="分别记录必须满足、优先考虑和排除信号，并注明依据来源。负责人确认后，才能开始招聘。"
+                    description="填写要求或用 AI 起草，核对后保存并使用，即可作为本职位的招人依据。"
                   />
                 )}
                 {p?.status === 'confirmed' &&
@@ -626,7 +586,7 @@ export function JobDetail({
                   ['draft', 'paused'].includes(job.status) && (
                     <div className="action-panel">
                       <div>
-                        <strong>招人要求已确认</strong>
+                        <strong>招人要求已生效</strong>
                         <p>可以开始招聘；外部渠道发布单独记录，不会在此自动发布。</p>
                       </div>
                       <Button
@@ -780,6 +740,24 @@ function ProfileContent({ profile: p }: { profile: Profile }) {
                       {r.text} {r.needs_verification && <Badge variant="outline">待核实</Badge>}
                     </p>
                     {r.rationale && <small>岗位关系与依据：{r.rationale}</small>}
+                    {r.source_quote && (
+                      <blockquote className="preserve-text">原始依据：{r.source_quote}</blockquote>
+                    )}
+                    {r.source_kind && (
+                      <small>
+                        来源：
+                        {r.source_kind === 'jd'
+                          ? '职位描述'
+                          : r.source_kind === 'business_goal'
+                            ? '业务目标'
+                            : r.source_kind === 'clarification'
+                              ? '澄清答复'
+                              : r.source_kind === 'ai_suggestion'
+                                ? 'AI 建议'
+                                : '人工记录'}
+                        {r.source_edited && ' · HR 已修改'}
+                      </small>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -788,13 +766,14 @@ function ProfileContent({ profile: p }: { profile: Profile }) {
         );
       })}
       <div className="source-note">
+        {p.business_goal && <p>业务目标：{p.business_goal}</p>}
         来源：{p.source}
         <br />
         {p.created_by_name} · {dateTime(p.created_at)} 保存
         {p.confirmed_at && (
           <>
             <br />
-            {p.confirmed_by_name} · {dateTime(p.confirmed_at)} 确认
+            {p.confirmed_by_name} · {dateTime(p.confirmed_at)} 使用此版本
           </>
         )}
       </div>
@@ -829,6 +808,8 @@ function ProfileEditor({
   const [error, setError] = useState('');
   const [jd, setJd] = useState(job.jd);
   const [source, setSource] = useState(job.latest_profile?.source || '');
+  const [businessGoal, setBusinessGoal] = useState(job.latest_profile?.business_goal || '');
+  const [generationId, setGenerationId] = useState<number | null>(null);
   function update(key: string, change: Partial<Requirement>) {
     setRequirements((rs) => rs.map((r) => (r.key === key ? { ...r, ...change } : r)));
   }
@@ -836,6 +817,8 @@ function ProfileEditor({
     <form
       onSubmit={async (e) => {
         e.preventDefault();
+        const activate =
+          (e.nativeEvent as SubmitEvent).submitter?.getAttribute('value') === 'activate';
         setBusy(true);
         setError('');
         try {
@@ -844,6 +827,9 @@ function ProfileEditor({
               version: job.version,
               jd,
               source,
+              business_goal: businessGoal,
+              generation_id: generationId,
+              activate,
               requirements: requirements.map(({ key: _key, ...r }) => r),
             }),
           );
@@ -874,12 +860,40 @@ function ProfileEditor({
             />
           </Field>
           <Field>
+            <FieldLabel htmlFor="profile-goal">业务目标（可选）</FieldLabel>
+            <Textarea
+              id="profile-goal"
+              value={businessGoal}
+              maxLength={5000}
+              rows={3}
+              placeholder="希望这个人解决什么问题、入职后完成什么结果？"
+              onChange={(e) => setBusinessGoal(e.target.value)}
+            />
+          </Field>
+          <ProfileAi
+            job={job}
+            jd={jd}
+            businessGoal={businessGoal}
+            busy={busy}
+            setBusy={setBusy}
+            restoreInput={(input) => {
+              setJd(input.jd);
+              setBusinessGoal(input.business_goal);
+            }}
+            adopt={(generation, items) => {
+              setRequirements(items.map((r) => ({ ...r, key: crypto.randomUUID() })));
+              setGenerationId(generation.id);
+              setSource('AI 起草，HR 核对');
+              setError('');
+            }}
+          />
+          <Field>
             <FieldLabel htmlFor="profile-source">要求来源</FieldLabel>
             <Input
               id="profile-source"
               value={source}
               onChange={(e) => setSource(e.target.value)}
-              placeholder="例如：9 月用人需求会议、负责人书面说明"
+              placeholder="例如：招聘需求、业务说明或 HR 补充"
               maxLength={500}
               required
             />
@@ -944,6 +958,7 @@ function ProfileEditor({
                   此项仍需核实，不能直接作为淘汰依据
                 </FieldLabel>
               </Field>
+              {r.source_quote && <p className="source-note">原始依据：{r.source_quote}</p>}
             </FieldSet>
           ))}
           <Button
@@ -973,7 +988,17 @@ function ProfileEditor({
             <Button type="submit" disabled={busy}>
               {busy ? '正在保存…' : '保存要求草稿'}
             </Button>
+            <Button
+              type="submit"
+              value="activate"
+              disabled={busy || requirements.some((r) => r.kind === 'must' && r.needs_verification)}
+            >
+              保存并使用
+            </Button>
           </div>
+          {requirements.some((r) => r.kind === 'must' && r.needs_verification) && (
+            <p role="status">必须满足的要求还有待核实项，请先明确，或保存草稿继续完善。</p>
+          )}
         </FieldGroup>
       </FieldSet>
     </form>

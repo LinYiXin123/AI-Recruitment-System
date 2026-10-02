@@ -31,6 +31,7 @@ from .models import (
     QuestionTemplate,
     Task,
 )
+from .profile_ai import generate_profile, requirement_sources
 from .serializers import (
     AuditSerializer,
     ClarificationAnswerSerializer,
@@ -266,7 +267,7 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         data = validate_input(NewJobSerializer, request.data)
         if data["status"] != Job.Status.DRAFT:
             raise ValidationError(
-                {"status": "新建职位需先以草稿保存，负责人确认招人要求后才能开启招聘。"}
+                {"status": "新建职位需先以草稿保存，HR 使用招人要求后才能开启招聘。"}
             )
         Membership.objects.select_for_update().get(pk=m.pk)
         existing = Job.objects.filter(owner=m, request_id=data["request_id"]).first()
@@ -368,6 +369,12 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             job = self.locked_job(data)
             m = self.editable(job)
             last = job.profiles.first()
+            generation, requirements = requirement_sources(job, data, m)
+            if data["activate"] and (
+                any(r["kind"] == "must" and r["needs_verification"] for r in requirements)
+                or (last and last.clarifications.filter(status="pending").exists())
+            ):
+                raise ValidationError("仍有待核实的必须项或未回答的澄清，请先明确再使用。")
             if last and last.status == ProfileVersion.Status.PENDING:
                 last.status = ProfileVersion.Status.WITHDRAWN
                 last.save()
@@ -386,13 +393,54 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 number=last.number + 1 if last else 1,
                 jd_snapshot=data["jd"],
                 source=data["source"],
+                business_goal=data.get("business_goal", last.business_goal if last else ""),
+                generation=generation,
                 created_by=m,
             )
-            for position, requirement in enumerate(data["requirements"]):
+            for position, requirement in enumerate(requirements):
                 profile.requirements.create(position=position, **requirement)
             job.jd = data["jd"]
-            record(job, m, f"保存招人要求 v{profile.number}")
+            if data["activate"]:
+                self.use_profile(job, profile, m)
+            else:
+                record(job, m, f"保存招人要求 v{profile.number}")
             return Response(self.get_serializer(job).data, status=201)
+
+    @action(detail=True, methods=["get", "post"], url_path="profile-ai")
+    def profile_ai(self, request, pk=None):
+        return generate_profile(request, pk)
+
+    def use_profile(self, job, profile, m):
+        if profile.requirements.filter(kind="must", needs_verification=True).exists():
+            raise ValidationError("必须满足的要求仍有待核实项，请先明确再使用。")
+        if profile.clarifications.filter(status="pending").exists():
+            raise ValidationError("还有未回答的澄清问题，请先处理再使用。")
+        profile.status = ProfileVersion.Status.CONFIRMED
+        profile.confirmed_by = m
+        profile.confirmed_at = timezone.now()
+        profile.activated_by_hr = True
+        profile.save()
+        job.active_profile = profile
+        Task.objects.filter(profile__job=job, status="pending").update(
+            status="done", completed_at=timezone.now()
+        )
+        if job.status in [Job.Status.DRAFT, Job.Status.PAUSED]:
+            Task.objects.update_or_create(
+                profile=profile, kind="start", clarification=None,
+                defaults={"assignee": job.owner, "status": "pending", "completed_at": None},
+            )
+        record(job, m, f"HR 直接使用招人要求 v{profile.number}")
+
+    @action(detail=True, methods=["post"], url_path="activate-profile")
+    @transaction.atomic
+    def activate_profile(self, request, pk=None):
+        job = self.locked_job(validate_input(VersionSerializer, request.data))
+        m = self.editable(job)
+        profile = job.profiles.first()
+        if not profile or profile.status not in ["draft", "pending", "changes_requested"]:
+            raise Conflict("请先保存新的画像草稿，再直接使用。")
+        self.use_profile(job, profile, m)
+        return Response(self.get_serializer(job).data)
 
     @action(detail=True, methods=["post"], url_path="submit-profile")
     @transaction.atomic
@@ -477,14 +525,19 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             raise Conflict("职位状态已变化，请查看最新记录。")
         latest = job.profiles.first()
         if data["status"] == "open" and (not latest or latest.status != "confirmed"):
-            raise ValidationError("最新招人要求经负责人确认后，才能开始或恢复招聘。")
+            raise ValidationError("HR 使用最新招人要求后，才能开始或恢复招聘。")
         if data["status"] == "open" and (
             not job.owner.active
             or not job.owner.user.is_active
             or not can_edit(job.owner, job)
-            or not job.approver.active
-            or not job.approver.user.is_active
-            or not can_confirm(job.approver, job)
+            or (
+                not latest.activated_by_hr
+                and (
+                    not job.approver.active
+                    or not job.approver.user.is_active
+                    or not can_confirm(job.approver, job)
+                )
+            )
         ):
             raise ValidationError("职位负责人授权已失效，请联系管理员调整后再开始或恢复招聘。")
         if (data["status"] in ["paused", "closed"] or job.status == "closed") and not data[
