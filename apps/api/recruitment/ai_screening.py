@@ -7,7 +7,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import serializers
@@ -17,19 +17,26 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from .access import member, visible_jobs
+from .employer_brand import enterprise_snapshot as build_enterprise_snapshot
 from .errors import Conflict
 from .intake import extract_resume_text, hr_jobs
 from .llm import LLMServiceError, chat_completion
 from .models import (
     AIScreening,
+    AIScreeningVerification,
     Application,
+    ApplicationResume,
+    Candidate,
     DepartmentRole,
     Enterprise,
     Job,
     QuestionTemplate,
     QuestionTemplateEvent,
+    ResumeDocument,
+    ResumeParse,
 )
 from .question_bank import QuestionSerializer, require_editor
+from .serializers import display_name
 
 MAX_RESUME_LENGTH = 30_000
 SYSTEM_PROMPT = "\n".join(
@@ -83,6 +90,10 @@ class AnalysisInputSerializer(serializers.Serializer):
     application_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     job_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     enterprise_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    resume_parse_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    source_note = serializers.CharField(
+        required=False, allow_blank=True, max_length=500, default=""
+    )
 
     def validate_resume(self, value):
         if not value.strip():
@@ -238,6 +249,171 @@ def _visible_screenings(current_member):
         .filter(
             Q(enterprise__isnull=True) | Q(enterprise__organization=current_member.organization)
         )
+        .annotate(
+            source_accessible=Exists(
+                ApplicationResume.objects.filter(
+                    application_id=OuterRef("application_id"),
+                    parse_id=OuterRef("resume_parse_id"),
+                    parse__status="succeeded",
+                    parse__document__organization=current_member.organization,
+                    parse__document__candidate_id=OuterRef("application__candidate_id"),
+                    parse__document__access_state="active",
+                )
+            )
+        )
+        .filter(Q(resume_parse__isnull=True) | Q(source_accessible=True))
+    )
+
+
+def _analysis_sources(current_member, data, *, lock=False):
+    application = None
+    if data.get("application_id") is not None:
+        application = get_object_or_404(
+            Application.objects.filter(
+                organization=current_member.organization,
+                job__in=hr_jobs(current_member),
+                candidate__organization=current_member.organization,
+            ).select_related("candidate"),
+            pk=data["application_id"],
+        )
+    job_id = data.get("job_id", application.job_id if application else None)
+    if application and job_id is not None and job_id != application.job_id:
+        raise serializers.ValidationError(
+            {"job_id": "目标职位与所选应聘不一致，请重新选择应聘或职位。"}
+        )
+    if lock:
+        if application:
+            get_object_or_404(Candidate.objects.select_for_update(), pk=application.candidate_id)
+        # 锁只在模型返回后的短提交阶段持有，不占用岗位等待模型。
+        for pk in sorted(
+            {value for value in (job_id, application.job_id if application else None) if value}
+        ):
+            get_object_or_404(Job.objects.select_for_update(), pk=pk)
+        if application:
+            get_object_or_404(Application.objects.select_for_update(), pk=application.pk)
+        if data.get("resume_parse_id"):
+            document_id = get_object_or_404(ResumeParse, pk=data["resume_parse_id"]).document_id
+            get_object_or_404(ResumeDocument.objects.select_for_update(), pk=document_id)
+            get_object_or_404(ResumeParse.objects.select_for_update(), pk=data["resume_parse_id"])
+        enterprise_id = (
+            Job.objects.filter(pk=job_id).values_list("enterprise_id", flat=True).first()
+            if job_id
+            else None
+        ) or data.get("enterprise_id")
+        if enterprise_id:
+            get_object_or_404(
+                Enterprise.objects.select_for_update(),
+                pk=enterprise_id,
+                organization=current_member.organization,
+            )
+        return _analysis_sources(current_member, data)
+    job = None
+    job_context = None
+    if job_id is not None:
+        job = get_object_or_404(
+            visible_jobs(current_member)
+            .select_related("active_profile")
+            .prefetch_related("active_profile__requirements"),
+            pk=job_id,
+        )
+        profile = job.active_profile
+        if profile and (profile.job_id != job.id or profile.status != "confirmed"):
+            raise Conflict("岗位生效标准已变化，请刷新职位后重新分析。")
+        job_context = {
+            "id": job.id,
+            "title": job.title,
+            "version": job.version,
+            "description": profile.jd_snapshot if profile else job.jd,
+            "profile_id": profile.id if profile else None,
+            "profile_version": profile.number if profile else None,
+            "requirements": [
+                {"id": item.id, "kind": item.kind, "text": item.text}
+                for item in profile.requirements.all()
+            ]
+            if profile
+            else [],
+        }
+    parse = None
+    source = {
+        "kind": "manual",
+        "note": data["source_note"] or "手动输入或临时附件提取；未关联持久简历版本。",
+        "resume_parse_id": None,
+        "document_id": None,
+        "filename": "",
+        "parse_version": None,
+        "edited": False,
+        "parse_text_digest": None,
+    }
+    if data.get("resume_parse_id") is not None:
+        if not application:
+            raise serializers.ValidationError({"resume_parse_id": "请选择该材料所属的应聘。"})
+        parse = get_object_or_404(
+            ResumeParse.objects.filter(
+                applicationresume__application=application,
+                status="succeeded",
+                document__organization=current_member.organization,
+                document__candidate=application.candidate,
+                document__access_state="active",
+            ).select_related("document"),
+            pk=data["resume_parse_id"],
+        )
+        edited = " ".join(data["resume"].split()) != " ".join(parse.text.split())
+        source.update(
+            kind="application_resume",
+            resume_parse_id=parse.id,
+            document_id=parse.document_id,
+            filename=parse.document.original_name,
+            parse_version=parse.version,
+            edited=edited,
+            parse_text_digest=hashlib.sha256(parse.text.encode()).hexdigest(),
+            note=data["source_note"]
+            or (
+                "基于本次应聘简历解析人工编辑，保留原材料访问约束；不是解析原文。"
+                if edited
+                else "本次应聘已关联的简历解析；文字引用不等于事实已核实。"
+            ),
+        )
+    enterprise = None
+    if job and job.enterprise_id:
+        enterprise = get_object_or_404(
+            Enterprise, pk=job.enterprise_id, organization=current_member.organization
+        )
+        if not enterprise.enabled or enterprise.deleted_at:
+            raise serializers.ValidationError(
+                {"enterprise_id": "该职位关联的企业已停用或删除，请先到企业背书调整关联。"}
+            )
+        if data.get("enterprise_id") not in [None, enterprise.id]:
+            raise serializers.ValidationError(
+                {"enterprise_id": "请使用职位已关联的企业，或先到企业背书调整职位关联。"}
+            )
+    elif data.get("enterprise_id") is not None:
+        enterprise = get_object_or_404(
+            Enterprise.objects.filter(
+                organization=current_member.organization, enabled=True, deleted_at__isnull=True
+            ),
+            pk=data["enterprise_id"],
+        )
+    enterprise_context = build_enterprise_snapshot(enterprise) if enterprise else None
+    return (
+        application,
+        job,
+        enterprise,
+        parse,
+        {
+            "resume": data["resume"],
+            "source": source,
+            "job": job_context,
+            "application": {
+                "id": application.id,
+                "version": application.version,
+                "job_id": application.job_id,
+                "candidate_id": application.candidate_id,
+                "source": application.source,
+            }
+            if application
+            else None,
+            "enterprise": enterprise_context,
+        },
     )
 
 
@@ -253,6 +429,40 @@ def _saved_questions(screening):
         organization=screening.organization,
         request_key__in=_question_keys(screening),
     ).order_by("id")
+
+
+def _verification_data(item):
+    return {
+        "id": item.id,
+        "question_index": item.question_index,
+        "version": item.version,
+        "status": item.status,
+        "answer": item.answer,
+        "evidence": item.evidence,
+        "next_step": item.next_step,
+        "contact_name": item.contact_name,
+        "due_on": item.due_on.isoformat() if item.due_on else None,
+        "recorder_id": item.recorder_id,
+        "recorder_name": item.recorder_name,
+        "created_at": item.created_at.isoformat(),
+        "request_key": str(item.request_key),
+    }
+
+
+def _verification_state(screening):
+    items = [
+        _verification_data(item)
+        for item in screening.verifications.order_by("question_index", "-version").distinct(
+            "question_index"
+        )
+    ]
+    return {
+        "items": items,
+        "verification_summary": {
+            status: sum(item["status"] == status for item in items)
+            for status in AIScreeningVerification.Status.values
+        },
+    }
 
 
 def _report_data(screening, detail=True):
@@ -277,12 +487,17 @@ def _report_data(screening, detail=True):
         "saved_question_count": sum(item.deleted_at is None for item in saved_questions),
     }
     if detail:
+        verification_state = _verification_state(screening)
         data.update(
             evidence=result.get("evidence", []),
             gaps=result.get("gaps", []),
             questions=result.get("questions", []),
             question_drafts=_question_drafts(screening, saved_questions),
             limitations=result.get("limitations", ""),
+            source_context=screening.source_context,
+            enterprise_snapshot=screening.enterprise_snapshot,
+            verifications=verification_state["items"],
+            verification_summary=verification_state["verification_summary"],
         )
     return data
 
@@ -325,97 +540,21 @@ def analyze(request):
     serializer.is_valid(raise_exception=True)
     data = serializer.validated_data
 
-    application = None
-    if data.get("application_id") is not None:
-        application = get_object_or_404(
-            Application.objects.filter(
-                organization=current_member.organization,
-                job__in=hr_jobs(current_member),
-                candidate__organization=current_member.organization,
-            ).select_related("job__active_profile", "candidate"),
-            pk=data["application_id"],
-        )
-
-    job = None
-    if data.get("job_id") is not None:
-        job = get_object_or_404(
-            visible_jobs(current_member)
-            .select_related("active_profile")
-            .prefetch_related("active_profile__requirements"),
-            pk=data["job_id"],
-        )
-    elif application and "job_id" not in data:
-        job = application.job
-        if job.active_profile_id:
-            job = (
-                Job.objects.select_related("active_profile")
-                .prefetch_related("active_profile__requirements")
-                .get(pk=job.pk)
-            )
-
-    enterprise = None
-    if data.get("enterprise_id") is not None:
-        enterprise = get_object_or_404(
-            Enterprise.objects.filter(
-                organization=current_member.organization,
-                enabled=True,
-                deleted_at__isnull=True,
-            ),
-            pk=data["enterprise_id"],
-        )
-
-    job_context = None
-    if job:
-        profile = job.active_profile
-        requirements = (
-            [{"kind": item.kind, "text": item.text} for item in profile.requirements.all()]
-            if profile
-            else []
-        )
-        job_context = {
-            "title": job.title,
-            "description": profile.jd_snapshot if profile else job.jd,
-            "requirements": requirements,
-        }
-
-    enterprise_context = None
-    if enterprise:
-        endorsement_map = {}
-        for endorsement in enterprise.endorsements.filter(
-            enabled=True, deleted_at__isnull=True
-        ).order_by("sort_order", "id"):
-            if endorsement.title.strip() or endorsement.body.strip():
-                endorsement_map.setdefault(
-                    endorsement.category,
-                    {
-                        "category": endorsement.get_category_display(),
-                        "title": endorsement.title[:200],
-                        "body": endorsement.body[:1500],
-                    },
-                )
-        enterprise_context = {
-            "name": enterprise.name,
-            "industry": enterprise.industry,
-            "introduction": enterprise.introduction[:3000],
-            "endorsements": list(endorsement_map.values()),
-        }
+    application, job, enterprise, resume_parse, source_context = _analysis_sources(
+        current_member, data
+    )
 
     user_text = json.dumps(
         {
             "resume": data["resume"],
-            "target_job": job_context,
-            "target_enterprise": enterprise_context,
+            "target_job": source_context["job"],
+            "target_enterprise": source_context["enterprise"],
         },
         ensure_ascii=False,
     )
     input_digest = hashlib.sha256(
         json.dumps(
-            {
-                "context": user_text,
-                "application_id": application.id if application else None,
-                "job_id": job.id if job else None,
-                "enterprise_id": enterprise.id if enterprise else None,
-            },
+            source_context,
             sort_keys=True,
         ).encode()
     ).hexdigest()
@@ -440,6 +579,10 @@ def analyze(request):
             _report_data(get_object_or_404(_visible_screenings(current_member), pk=existing.pk))
         )
 
+    if _analysis_sources(current_member, data)[-1] != source_context:
+        raise Conflict("分析材料或岗位标准已变化，请刷新后重新分析。")
+
+    captured_at = timezone.now().isoformat()
     try:
         content = chat_completion(
             base_url=settings.LLM_API_BASE_URL,
@@ -458,17 +601,16 @@ def analyze(request):
 
     result = _parse_analysis(content, data["resume"], has_job=job is not None)
     current_member = _hr_member(request)
-    if job:
-        get_object_or_404(visible_jobs(current_member), pk=job.pk)
-    if application:
-        get_object_or_404(
-            Application.objects.filter(
-                organization=current_member.organization,
-                job__in=hr_jobs(current_member),
-                candidate__organization=current_member.organization,
-            ),
-            pk=application.pk,
-        )
+    latest_context = _analysis_sources(current_member, data, lock=True)[-1]
+    current_member = _hr_member(request)
+    # 企业正文变更保留本次实际输入；权限、启停与删除由 _analysis_sources 重新检查。
+    # 关联企业、岗位标准和简历变化仍要求重新分析，避免使用已变更的应聘上下文。
+    if {key: value for key, value in latest_context.items() if key != "enterprise"} != {
+        key: value for key, value in source_context.items() if key != "enterprise"
+    } or (latest_context["enterprise"] or {}).get("id") != (source_context["enterprise"] or {}).get(
+        "id"
+    ):
+        raise Conflict("分析期间材料或岗位标准已变化，本次结果未保存；请刷新后重新分析。")
     screening = AIScreening.objects.create(
         organization=current_member.organization,
         creator=current_member,
@@ -478,11 +620,17 @@ def analyze(request):
         candidate_name=application.candidate.display_name[:120] if application else "",
         job_title=job.title[:120] if job else "",
         enterprise_name=enterprise.name if enterprise else "",
+        enterprise_snapshot=source_context["enterprise"],
         request_key=data["request_key"],
         input_digest=input_digest,
+        source_context={**source_context, "captured_at": captured_at},
+        profile=job.active_profile if job else None,
+        resume_parse=resume_parse,
         result=result,
     )
-    return Response(_report_data(screening))
+    return Response(
+        _report_data(get_object_or_404(_visible_screenings(_hr_member(request)), pk=screening.pk))
+    )
 
 
 @api_view(["GET", "DELETE"])
@@ -499,6 +647,98 @@ def detail(request, pk):
         screening.deleted_at = timezone.now()
         screening.save(update_fields=["deleted_at"])
     return Response({"deleted": True})
+
+
+class VerificationInput(serializers.Serializer):
+    question_index = serializers.IntegerField(min_value=0, max_value=4)
+    version = serializers.IntegerField(min_value=0)
+    request_key = serializers.UUIDField()
+    status = serializers.ChoiceField(choices=AIScreeningVerification.Status.choices)
+    answer = serializers.CharField(max_length=5000, allow_blank=True, default="")
+    evidence = serializers.CharField(max_length=3000, allow_blank=True, default="")
+    next_step = serializers.CharField(max_length=1000, allow_blank=True, default="")
+    contact_name = serializers.CharField(max_length=120, allow_blank=True, default="")
+    due_on = serializers.DateField(allow_null=True, default=None)
+
+    def validate(self, data):
+        if data["status"] in ("supported", "contradicted") and (
+            not data["answer"] or not data["evidence"]
+        ):
+            raise serializers.ValidationError(
+                "记录支持或矛盾结果时，请填写实际回答和具体证据来源。"
+            )
+        if data["status"] == "unresolved" and not data["next_step"]:
+            raise serializers.ValidationError(
+                {"next_step": "仍待补充时，请说明下一步如何继续核实。"}
+            )
+        if data["status"] == "withdrawn" and not data["next_step"]:
+            raise serializers.ValidationError({"next_step": "撤回采用时，请填写撤回原因。"})
+        return data
+
+
+@api_view(["GET", "POST"])
+def verifications(request, pk):
+    current_member = _hr_member(request)
+    screening = get_object_or_404(_visible_screenings(current_member), pk=pk)
+    if request.method == "GET":
+        state = _verification_state(screening)
+        state.update(history=[], count=0, page=1, page_size=10)
+        if "question_index" in request.query_params:
+            index = serializers.IntegerField(min_value=0, max_value=4).run_validation(
+                request.query_params["question_index"]
+            )
+            if index >= len(screening.result.get("questions", [])):
+                raise serializers.ValidationError("这份报告不存在该题目。")
+            paginator = PageNumberPagination()
+            paginator.page_size = 10
+            history = paginator.paginate_queryset(
+                screening.verifications.filter(question_index=index).order_by("-version"), request
+            )
+            state.update(
+                history=[_verification_data(item) for item in history],
+                count=paginator.page.paginator.count,
+                page=paginator.page.number,
+            )
+        return Response(state)
+
+    form = VerificationInput(data=request.data)
+    form.is_valid(raise_exception=True)
+    data = form.validated_data
+    if not data["contact_name"] and data["status"] in ("pending", "unresolved"):
+        data["contact_name"] = display_name(current_member)[:120]
+    with transaction.atomic():
+        screening = get_object_or_404(
+            _visible_screenings(current_member).select_for_update(of=("self",)), pk=pk
+        )
+        current_member = _hr_member(request)
+        get_object_or_404(_visible_screenings(current_member), pk=pk)
+        index = data["question_index"]
+        questions = screening.result.get("questions", [])
+        if (
+            index >= len(questions)
+            or not isinstance(questions[index], dict)
+            or not questions[index].get("question")
+        ):
+            raise serializers.ValidationError("这份报告不存在可采用的该题目。")
+        existing = screening.verifications.filter(request_key=data["request_key"]).first()
+        if existing:
+            if existing.version != data["version"] + 1 or any(
+                getattr(existing, key) != value for key, value in data.items() if key != "version"
+            ):
+                raise Conflict("该保存请求已经用于不同内容，请保留输入并重新提交。")
+            return Response(_verification_state(screening))
+        latest = screening.verifications.filter(question_index=index).first()
+        if data["version"] != (latest.version if latest else 0):
+            raise Conflict("这道题目的核实记录已更新，请刷新核对后再保存；本次内容未覆盖旧记录。")
+        if (not latest or latest.status == "withdrawn") and data["status"] != "pending":
+            raise serializers.ValidationError("请先将该题采用为待核实，再记录结果。")
+        AIScreeningVerification.objects.create(
+            screening=screening,
+            **{**data, "version": data["version"] + 1},
+            recorder=current_member,
+            recorder_name=display_name(current_member)[:120],
+        )
+        return Response(_verification_state(screening))
 
 
 def _shared_question_text(value, candidate_name):

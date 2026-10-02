@@ -829,6 +829,9 @@ class AIScreening(models.Model):
     enterprise_snapshot = models.JSONField(null=True, blank=True)
     request_key = models.UUIDField()
     input_digest = models.CharField(max_length=64)
+    source_context = models.JSONField(null=True, blank=True)
+    profile = models.ForeignKey(ProfileVersion, on_delete=models.PROTECT, null=True, blank=True)
+    resume_parse = models.ForeignKey(ResumeParse, on_delete=models.PROTECT, null=True, blank=True)
     result = models.JSONField()
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
@@ -844,4 +847,51 @@ class AIScreening(models.Model):
             models.UniqueConstraint(
                 fields=["organization", "creator", "request_key"], name="one_ai_screening_request"
             )
+        ]
+
+
+class AIScreeningVerification(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "待核实"
+        SUPPORTED = "supported", "有证据支持"
+        CONTRADICTED = "contradicted", "存在矛盾"
+        UNRESOLVED = "unresolved", "仍待补充"
+        WITHDRAWN = "withdrawn", "已撤回采用"
+
+    screening = models.ForeignKey(
+        AIScreening, on_delete=models.PROTECT, related_name="verifications"
+    )
+    question_index = models.PositiveSmallIntegerField()
+    version = models.PositiveIntegerField()
+    status = models.CharField(max_length=16, choices=Status.choices)
+    answer = models.TextField(max_length=5000, blank=True)
+    evidence = models.TextField(max_length=3000, blank=True)
+    next_step = models.CharField(max_length=1000, blank=True)
+    contact_name = models.CharField(max_length=120, blank=True)
+    due_on = models.DateField(null=True, blank=True)
+    recorder = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    recorder_name = models.CharField(max_length=120)
+    request_key = models.UUIDField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["question_index", "-version"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["screening", "question_index", "version"],
+                name="screening_question_revision",
+            ),
+            models.UniqueConstraint(
+                fields=["screening", "request_key"], name="screening_verification_request"
+            ),
+            models.CheckConstraint(
+                condition=Q(version__gte=1, question_index__lt=5),
+                name="screening_verification_index",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=["pending", "supported", "contradicted", "unresolved", "withdrawn"]
+                ),
+                name="screening_verification_status",
+            ),
         ]

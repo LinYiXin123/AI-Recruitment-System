@@ -22,6 +22,7 @@ urlpatterns = [
     path("api/v1/ai-screenings/extract/", ai_screening.extract),
     path("api/v1/ai-screenings/<int:pk>/", ai_screening.detail),
     path("api/v1/ai-screenings/<int:pk>/questions/", ai_screening.save_questions),
+    path("api/v1/ai-screenings/<int:pk>/verifications/", ai_screening.verifications),
     path("api/v1/question-templates/", question_bank.collection),
     path("api/v1/question-templates/export/", question_bank.export),
     path("api/v1/question-templates/<int:pk>/", question_bank.detail),

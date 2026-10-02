@@ -5,7 +5,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Empty,
   EmptyDescription,
@@ -14,14 +14,42 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 import { ApiError, api, type Job, type Page } from '@/lib/api';
 import type { Application } from '@/lib/intake';
 import { AiQuestionSelection } from './ai-question-selection';
+import {
+  type ScreeningSource,
+  ScreeningSourceDetails,
+  ScreeningVerification,
+  type Verification,
+} from './ai-screening-verification';
 
-type ApplicationOption = Pick<Application, 'id' | 'candidate' | 'name'>;
-type JobOption = Pick<Job, 'id' | 'title'>;
+type ApplicationOption = Pick<
+  Application,
+  'id' | 'candidate' | 'name' | 'job' | 'job_title' | 'attempt_no'
+>;
+type JobOption = Pick<
+  Job,
+  'id' | 'title' | 'enterprise_id' | 'enterprise_name' | 'enterprise_enabled' | 'enterprise_deleted'
+>;
 type EnterpriseOption = { id: number; name: string; industry: string };
-type CandidateOption = { id: number; name: string; applicationId: number };
+type EnterpriseSnapshot = {
+  id: number;
+  name: string;
+  industry: string;
+  introduction: string;
+  updated_at: string;
+  endorsements: {
+    id: number;
+    category: string;
+    category_label: string;
+    title: string;
+    body: string;
+    updated_at: string;
+  }[];
+};
+type CandidateOption = ApplicationOption;
 type ScreeningResult = {
   id?: number;
   code?: string;
@@ -29,6 +57,7 @@ type ScreeningResult = {
   candidate_name?: string;
   job_title?: string;
   enterprise_name?: string;
+  enterprise_snapshot?: EnterpriseSnapshot | null;
   saved_question_count?: number;
   questions_saved?: boolean;
   match_score?: number | null;
@@ -45,6 +74,8 @@ type ScreeningResult = {
     quote: string;
   }[];
   limitations: string;
+  source_context?: ScreeningSource | null;
+  verifications?: Verification[];
 };
 type ScreeningHistory = {
   id: number;
@@ -69,6 +100,57 @@ function analysisTime(value?: string) {
     minute: '2-digit',
     hour12: false,
   });
+}
+
+function EnterpriseContext({
+  snapshot,
+  recorded = false,
+  reportCode,
+}: {
+  snapshot: EnterpriseSnapshot;
+  recorded?: boolean;
+  reportCode?: string;
+}) {
+  const query = new URLSearchParams({ enterprise: String(snapshot.id) });
+  if (reportCode) query.set('source', `AI 初面报告 ${reportCode}`);
+  return (
+    <details className="ai-report-evidence">
+      <summary>
+        {recorded ? '本次使用的企业资料' : '预览企业资料'} · {snapshot.name}
+      </summary>
+      <div className="flex min-w-0 flex-col gap-3">
+        <p className="text-muted-foreground">
+          {recorded
+            ? '以下为分析时实际使用的资料留档，企业后续修改不会改变本记录。'
+            : '当前每类取排序最前的启用文字内容；实际使用内容以分析报告留档为准。'}
+        </p>
+        <p>
+          {snapshot.industry || '行业未填写'} · 企业资料更新于 {analysisTime(snapshot.updated_at)}
+        </p>
+        <p className="whitespace-pre-wrap wrap-anywhere">
+          {snapshot.introduction || '企业简介未填写。'}
+        </p>
+        {snapshot.endorsements.map((item) => (
+          <section key={item.id} className="flex flex-col gap-1">
+            <h4>
+              {item.category_label} · {item.title || '未填写标题'}
+            </h4>
+            <p className="whitespace-pre-wrap wrap-anywhere">{item.body || '未填写正文。'}</p>
+            <p className="text-muted-foreground">更新于 {analysisTime(item.updated_at)}</p>
+          </section>
+        ))}
+        {!snapshot.endorsements.length && <p>暂无可用的背书内容。</p>}
+        <a
+          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          href={`#employer-brand?${query}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          查看企业资料或登记问题（新页）
+        </a>
+      </div>
+    </details>
+  );
 }
 
 function safeResumeUrl(value: string) {
@@ -205,6 +287,10 @@ export function AiScreeningPage() {
   const [selectedApplication, setSelectedApplication] = useState<number | null>(null);
   const [selectedJob, setSelectedJob] = useState('');
   const [selectedEnterprise, setSelectedEnterprise] = useState('');
+  const [enterprisePreview, setEnterprisePreview] = useState<EnterpriseSnapshot | null>(null);
+  const [enterprisePreviewLoading, setEnterprisePreviewLoading] = useState(false);
+  const [enterprisePreviewError, setEnterprisePreviewError] = useState('');
+  const [enterprisePreviewRevision, setEnterprisePreviewRevision] = useState(0);
   const [resume, setResume] = useState('');
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [optionsError, setOptionsError] = useState('');
@@ -231,6 +317,9 @@ export function AiScreeningPage() {
     row: ScreeningHistory;
   } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [verificationEditing, setVerificationEditing] = useState(false);
+  const [resumeParseId, setResumeParseId] = useState<number | null>(null);
+  const [sourceNote, setSourceNote] = useState('');
   const resumeInput = useRef<HTMLInputElement>(null);
   const resumeEditor = useRef<HTMLDivElement>(null);
   const analysisRequest = useRef<AbortController | null>(null);
@@ -241,6 +330,41 @@ export function AiScreeningPage() {
   const confirmationDialog = useRef<HTMLDialogElement>(null);
   const confirmationBusy = useRef(false);
   const questionsSaved = analysis?.questions_saved ?? (analysis?.saved_question_count ?? 0) > 0;
+  const selectedJobRow = jobs.find((job) => String(job.id) === selectedJob);
+  const linkedEnterpriseId = selectedJobRow?.enterprise_id;
+  const effectiveEnterpriseId = linkedEnterpriseId
+    ? String(linkedEnterpriseId)
+    : selectedEnterprise;
+  const enterpriseUnavailable = Boolean(
+    linkedEnterpriseId &&
+      (selectedJobRow.enterprise_enabled === false || selectedJobRow.enterprise_deleted),
+  );
+
+  useEffect(() => {
+    setEnterprisePreview(null);
+    setEnterprisePreviewError('');
+    if (!effectiveEnterpriseId || enterpriseUnavailable) {
+      setEnterprisePreviewLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setEnterprisePreviewLoading(true);
+    api<EnterpriseSnapshot>(
+      `employer-brand/enterprises/${effectiveEnterpriseId}/ai-context/`,
+      undefined,
+      controller.signal,
+    )
+      .then((snapshot) => {
+        if (!controller.signal.aborted) setEnterprisePreview(snapshot);
+      })
+      .catch((error: Error) => {
+        if (!controller.signal.aborted) setEnterprisePreviewError(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setEnterprisePreviewLoading(false);
+      });
+    return () => controller.abort();
+  }, [effectiveEnterpriseId, enterpriseUnavailable, enterprisePreviewRevision]);
 
   useEffect(() => {
     const dialog = confirmationDialog.current;
@@ -304,17 +428,7 @@ export function AiScreeningPage() {
       ),
     ])
       .then(([applications, jobRows, enterpriseRows]) => {
-        const uniqueCandidates = new Map<number, CandidateOption>();
-        for (const application of applications) {
-          if (!uniqueCandidates.has(application.candidate)) {
-            uniqueCandidates.set(application.candidate, {
-              id: application.candidate,
-              name: application.name,
-              applicationId: application.id,
-            });
-          }
-        }
-        setCandidates([...uniqueCandidates.values()]);
+        setCandidates(applications);
         setJobs(jobRows);
         setEnterprises(enterpriseRows);
       })
@@ -342,12 +456,15 @@ export function AiScreeningPage() {
     api<Application>(`applications/${selectedApplication}/`, undefined, controller.signal)
       .then((application) => {
         if (controller.signal.aborted) return;
-        const source = application.resumes.find((item) => item.parse?.text.trim())?.parse?.text;
-        if (source) {
-          setResumeContent(source);
+        const source = application.resumes.find((item) => item.parse?.text.trim());
+        if (source?.parse) {
+          setResumeContent(source.parse.text);
+          setResumeParseId(source.parse.id);
+          setSourceNote(`本地应聘 #${application.id} 的简历：${source.name}`);
           setResumeNotice('已填入候选人的简历原文，可继续修改。');
         } else {
           setResumeContent('');
+          setResumeParseId(null);
           setResumeNotice('暂时没有可用的简历原文，请直接粘贴简历内容。');
         }
       })
@@ -365,7 +482,7 @@ export function AiScreeningPage() {
   }, [selectedApplication, setResumeContent]);
 
   async function importResume(file?: File) {
-    if (!file || analyzing || importing || loadingResume) return;
+    if (!file || analyzing || importing || loadingResume || verificationEditing) return;
     cancelHistoryView();
     setResumeNotice('');
     setResumeError('');
@@ -394,6 +511,8 @@ export function AiScreeningPage() {
           `已识别 ${file.name}，共 ${result.text.length.toLocaleString()} 字，请核对后开始分析。`,
         );
       }
+      setResumeParseId(null);
+      setSourceNote(`手动导入附件：${file.name}`);
       setAnalysis(null);
       setViewingHistory(false);
       setAnalysisError('');
@@ -406,6 +525,7 @@ export function AiScreeningPage() {
   }
 
   function clearForm() {
+    if (verificationEditing) return;
     cancelHistoryView();
     candidateResumeRequest.current?.abort();
     candidateResumeRequest.current = null;
@@ -416,6 +536,8 @@ export function AiScreeningPage() {
     setSelectedJob('');
     setSelectedEnterprise('');
     setResumeContent('');
+    setResumeParseId(null);
+    setSourceNote('');
     setResumeNotice('');
     setResumeError('');
     setAnalysis(null);
@@ -426,9 +548,36 @@ export function AiScreeningPage() {
 
   async function startAnalysis(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-    if (analysisRequest.current || importing || loadingResume || historyBusy || savingQuestions)
+    if (
+      analysisRequest.current ||
+      importing ||
+      loadingResume ||
+      historyBusy ||
+      savingQuestions ||
+      verificationEditing
+    )
       return;
-    const text = resumeEditor.current ? resumeTextFromEditor(resumeEditor.current) : resume;
+    if (enterpriseUnavailable) {
+      setAnalysisError('职位关联的企业已停用或删除，请先在企业背书中调整关联并刷新选项。');
+      return;
+    }
+    if (
+      effectiveEnterpriseId &&
+      (optionsLoading ||
+        optionsError ||
+        enterprisePreviewLoading ||
+        enterprisePreviewError ||
+        enterprisePreview?.id !== Number(effectiveEnterpriseId))
+    ) {
+      setAnalysisError('请先加载并核对企业资料，再开始分析。');
+      return;
+    }
+    const text =
+      resumeParseId !== null
+        ? resume
+        : resumeEditor.current
+          ? resumeTextFromEditor(resumeEditor.current)
+          : resume;
     if (!text.trim()) {
       setAnalysisError('请先填写或导入简历内容。');
       resumeEditor.current?.focus();
@@ -447,8 +596,10 @@ export function AiScreeningPage() {
     const input = {
       application_id: selectedApplication,
       job_id: selectedJob ? Number(selectedJob) : null,
-      enterprise_id: selectedEnterprise ? Number(selectedEnterprise) : null,
+      enterprise_id: effectiveEnterpriseId ? Number(effectiveEnterpriseId) : null,
       resume: text,
+      resume_parse_id: resumeParseId,
+      source_note: sourceNote,
     };
     const serializedInput = JSON.stringify(input);
     if (analysisRetry.current?.input !== serializedInput) {
@@ -479,7 +630,15 @@ export function AiScreeningPage() {
   }
 
   async function viewHistory(row: ScreeningHistory) {
-    if (historyBusy || analyzing || savingQuestions || importing || loadingResume) return;
+    if (
+      historyBusy ||
+      analyzing ||
+      savingQuestions ||
+      importing ||
+      loadingResume ||
+      verificationEditing
+    )
+      return;
     const controller = new AbortController();
     historyRequest.current = controller;
     setHistoryBusy(true);
@@ -507,7 +666,7 @@ export function AiScreeningPage() {
   }
 
   async function deleteHistory(row: ScreeningHistory) {
-    if (historyBusy || analyzing || savingQuestions) return;
+    if (historyBusy || analyzing || savingQuestions || verificationEditing) return;
     setHistoryBusy(true);
     setHistoryError('');
     try {
@@ -589,19 +748,29 @@ export function AiScreeningPage() {
                   aria-labelledby="ai-candidate-label"
                   value={selectedCandidate}
                   placeholder="请选择候选人（可留空）"
-                  disabled={optionsLoading || Boolean(optionsError) || analyzing || importing}
+                  disabled={
+                    optionsLoading ||
+                    Boolean(optionsError) ||
+                    analyzing ||
+                    importing ||
+                    verificationEditing
+                  }
                   clickToHide
                   dropdownClassName="candidate-select-dropdown"
                   onChange={(value) => {
                     const candidateId = typeof value === 'string' ? value : '';
-                    if (candidateId === selectedCandidate) return;
+                    if (candidateId === selectedCandidate || verificationEditing) return;
                     cancelHistoryView();
                     candidateResumeRequest.current?.abort();
                     candidateResumeRequest.current = null;
                     setLoadingResume(false);
                     const option = candidates.find((item) => String(item.id) === candidateId);
                     setSelectedCandidate(candidateId);
-                    setSelectedApplication(option?.applicationId ?? null);
+                    setSelectedApplication(option?.id ?? null);
+                    if (option) setSelectedJob(String(option.job));
+                    setSelectedEnterprise('');
+                    setResumeParseId(null);
+                    setSourceNote('');
                     setAnalysis(null);
                     setViewingHistory(false);
                     setAnalysisError('');
@@ -611,8 +780,12 @@ export function AiScreeningPage() {
                 >
                   <Select.Option value="">请选择候选人（可留空）</Select.Option>
                   {candidates.map((candidate) => (
-                    <Select.Option key={candidate.id} value={String(candidate.id)}>
-                      {candidate.name}
+                    <Select.Option
+                      key={candidate.id}
+                      value={String(candidate.id)}
+                      label={`${candidate.name} · ${candidate.job_title} · 第 ${candidate.attempt_no} 次应聘`}
+                    >
+                      {candidate.name} · {candidate.job_title} · 第 {candidate.attempt_no} 次应聘
                     </Select.Option>
                   ))}
                 </Select>
@@ -627,12 +800,26 @@ export function AiScreeningPage() {
                   aria-labelledby="ai-job-label"
                   value={selectedJob}
                   placeholder="请选择职位（可留空）"
-                  disabled={optionsLoading || Boolean(optionsError) || analyzing || importing}
+                  disabled={
+                    optionsLoading ||
+                    Boolean(optionsError) ||
+                    analyzing ||
+                    importing ||
+                    verificationEditing
+                  }
                   clickToHide
                   dropdownClassName="candidate-select-dropdown"
                   onChange={(value) => {
+                    if (verificationEditing) return;
                     cancelHistoryView();
-                    setSelectedJob(typeof value === 'string' ? value : '');
+                    const jobId = typeof value === 'string' ? value : '';
+                    const selected = candidates.find((item) => item.id === selectedApplication);
+                    if (selected && jobId && String(selected.job) !== jobId) {
+                      setResumeError('目标职位与当前应聘不一致，请先选择该职位对应的应聘。');
+                      return;
+                    }
+                    setSelectedJob(jobId);
+                    setSelectedEnterprise('');
                     setAnalysis(null);
                     setViewingHistory(false);
                     setAnalysisError('');
@@ -654,11 +841,19 @@ export function AiScreeningPage() {
                   className="ai-screening-select"
                   id="ai-company"
                   aria-labelledby="ai-company-label"
-                  value={selectedEnterprise || 'general'}
-                  disabled={optionsLoading || Boolean(optionsError) || analyzing || importing}
+                  value={effectiveEnterpriseId || 'general'}
+                  disabled={
+                    optionsLoading ||
+                    Boolean(optionsError) ||
+                    analyzing ||
+                    importing ||
+                    Boolean(linkedEnterpriseId) ||
+                    verificationEditing
+                  }
                   clickToHide
                   dropdownClassName="candidate-select-dropdown"
                   onChange={(value) => {
+                    if (verificationEditing) return;
                     cancelHistoryView();
                     setSelectedEnterprise(
                       typeof value === 'string' && value !== 'general' ? value : '',
@@ -669,12 +864,64 @@ export function AiScreeningPage() {
                   }}
                 >
                   <Select.Option value="general">不指定企业（通用初判）</Select.Option>
+                  {linkedEnterpriseId &&
+                    !enterprises.some((item) => item.id === linkedEnterpriseId) && (
+                      <Select.Option value={String(linkedEnterpriseId)}>
+                        {selectedJobRow?.enterprise_name || '关联企业'}（不可用）
+                      </Select.Option>
+                    )}
                   {enterprises.map((enterprise) => (
                     <Select.Option key={enterprise.id} value={String(enterprise.id)}>
                       {enterprise.name}
                     </Select.Option>
                   ))}
                 </Select>
+                {linkedEnterpriseId && (
+                  <p className="ai-screening-help">
+                    {enterpriseUnavailable
+                      ? '职位关联的企业已停用或删除，请先调整企业状态或职位关联。'
+                      : '已自动使用职位所属企业；企业归属可在企业背书中调整。'}
+                    <a
+                      className={buttonVariants({ variant: 'link', size: 'sm' })}
+                      href={`#employer-brand?enterprise=${linkedEnterpriseId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      查看企业（新页）
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={analyzing || importing || optionsLoading}
+                      onClick={() => {
+                        setOptionsRevision((value) => value + 1);
+                        setEnterprisePreviewRevision((value) => value + 1);
+                      }}
+                    >
+                      刷新关联
+                    </Button>
+                  </p>
+                )}
+                {enterprisePreviewLoading && <p role="status">正在加载企业资料…</p>}
+                {enterprisePreviewError && (
+                  <Alert variant="destructive">
+                    <AlertTitle>企业资料未加载</AlertTitle>
+                    <AlertDescription>
+                      <p>{enterprisePreviewError}</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setEnterprisePreviewRevision((value) => value + 1)}
+                      >
+                        重新加载企业资料
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {enterprisePreview && String(enterprisePreview.id) === effectiveEnterpriseId && (
+                  <EnterpriseContext snapshot={enterprisePreview} />
+                )}
               </Field>
               <Field>
                 <div className="ai-resume-heading">
@@ -688,7 +935,7 @@ export function AiScreeningPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={analyzing || importing || loadingResume}
+                    disabled={analyzing || importing || loadingResume || verificationEditing}
                     onClick={() => resumeInput.current?.click()}
                   >
                     <Upload data-icon="inline-start" />
@@ -722,7 +969,7 @@ export function AiScreeningPage() {
                   onDrop={(event) => {
                     event.preventDefault();
                     setDragging(false);
-                    if (analyzing || importing || loadingResume) return;
+                    if (analyzing || importing || loadingResume || verificationEditing) return;
                     void importResume(event.dataTransfer.files[0]);
                   }}
                 >
@@ -737,16 +984,21 @@ export function AiScreeningPage() {
                     role="textbox"
                     aria-labelledby="ai-resume-label"
                     aria-multiline="true"
-                    aria-disabled={analyzing || importing || loadingResume}
+                    aria-disabled={analyzing || importing || loadingResume || verificationEditing}
                     aria-describedby="ai-resume-help"
                     aria-placeholder="选择候选人后会自动带出其简历原文，也可直接粘贴新内容"
                     data-placeholder="选择候选人后会自动带出其简历原文，也可直接粘贴新内容"
-                    contentEditable={!analyzing && !importing && !loadingResume}
+                    contentEditable={
+                      !analyzing && !importing && !loadingResume && !verificationEditing
+                    }
                     suppressContentEditableWarning
                     spellCheck
                     onInput={(event) => {
+                      if (verificationEditing) return;
                       cancelHistoryView();
                       setResume(resumeTextFromEditor(event.currentTarget));
+                      if (resumeParseId !== null)
+                        setSourceNote('基于所关联的应聘简历人工编辑，保留原材料来源');
                       setResumeNotice('');
                       setResumeError('');
                       setAnalysis(null);
@@ -756,7 +1008,7 @@ export function AiScreeningPage() {
                     onBlur={(event) => {
                       const editor = event.currentTarget;
                       editor.innerHTML = sanitizeResumeMarkup(editor.innerHTML);
-                      setResume(resumeTextFromEditor(editor));
+                      if (resumeParseId === null) setResume(resumeTextFromEditor(editor));
                     }}
                     onClick={(event) => {
                       const link = (event.target as HTMLElement).closest<HTMLAnchorElement>(
@@ -770,13 +1022,13 @@ export function AiScreeningPage() {
                     }}
                     onPaste={(event) => {
                       event.preventDefault();
-                      if (analyzing || importing || loadingResume) return;
+                      if (analyzing || importing || loadingResume || verificationEditing) return;
                       insertResumePlainText(event.currentTarget, event.clipboardData);
                     }}
                     onDrop={(event) => {
                       if (event.dataTransfer.files.length) return;
                       event.preventDefault();
-                      if (analyzing || importing || loadingResume) return;
+                      if (analyzing || importing || loadingResume || verificationEditing) return;
                       insertResumePlainText(event.currentTarget, event.dataTransfer);
                     }}
                   />
@@ -792,12 +1044,33 @@ export function AiScreeningPage() {
                 )}
                 {resumeError && <ErrorNotice message={resumeError} />}
               </Field>
+              <details>
+                <summary className="ai-screening-help cursor-pointer">材料来源说明（可选）</summary>
+                <Field className="mt-2">
+                  <FieldLabel htmlFor="ai-source-note">来源备注</FieldLabel>
+                  <Input
+                    id="ai-source-note"
+                    value={sourceNote}
+                    maxLength={500}
+                    disabled={analyzing || importing || loadingResume || verificationEditing}
+                    placeholder="例如：从飞书手动提供，仅作核实参考"
+                    onChange={(event) => setSourceNote(event.target.value)}
+                  />
+                </Field>
+              </details>
             </FieldGroup>
             <div className="ai-screening-actions">
               <Button
                 type="submit"
                 size="lg"
-                disabled={analyzing || importing || loadingResume || historyBusy || savingQuestions}
+                disabled={
+                  analyzing ||
+                  importing ||
+                  loadingResume ||
+                  historyBusy ||
+                  savingQuestions ||
+                  verificationEditing
+                }
               >
                 <Sparkles data-icon="inline-start" />
                 {analyzing
@@ -813,7 +1086,7 @@ export function AiScreeningPage() {
                 variant="ghost"
                 size="lg"
                 onClick={clearForm}
-                disabled={analyzing || importing}
+                disabled={analyzing || importing || verificationEditing}
               >
                 <Trash2 data-icon="inline-start" />
                 清空
@@ -850,7 +1123,12 @@ export function AiScreeningPage() {
                       type="button"
                       variant="outline"
                       disabled={
-                        analyzing || importing || loadingResume || historyBusy || savingQuestions
+                        analyzing ||
+                        importing ||
+                        loadingResume ||
+                        historyBusy ||
+                        savingQuestions ||
+                        verificationEditing
                       }
                       onClick={() => void startAnalysis()}
                     >
@@ -863,6 +1141,17 @@ export function AiScreeningPage() {
             )}
             {analysis ? (
               <div className="ai-report">
+                {analysis.enterprise_snapshot ? (
+                  <EnterpriseContext
+                    snapshot={analysis.enterprise_snapshot}
+                    recorded
+                    reportCode={analysis.code || String(analysis.id ?? '')}
+                  />
+                ) : analysis.enterprise_name ? (
+                  <p className="text-muted-foreground">
+                    该历史报告未留存企业资料快照，无法还原当时使用的内容。
+                  </p>
+                ) : null}
                 {viewingHistory && (
                   <Alert role="status">
                     <AlertTitle>历史分析记录 {analysis.code || analysis.id}</AlertTitle>
@@ -904,6 +1193,7 @@ export function AiScreeningPage() {
                   </div>
                 </div>
                 <section>
+                  <ScreeningSourceDetails source={analysis.source_context} />
                   <h3>匹配理由</h3>
                   <p>{analysis.summary}</p>
                   <details className="ai-report-evidence">
@@ -969,7 +1259,8 @@ export function AiScreeningPage() {
                         historyBusy ||
                         savingQuestions ||
                         importing ||
-                        loadingResume
+                        loadingResume ||
+                        verificationEditing
                       }
                       onClick={() => setSavingQuestions(true)}
                     >
@@ -979,7 +1270,7 @@ export function AiScreeningPage() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      disabled={!analysis.questions.length || analyzing}
+                      disabled={!analysis.questions.length || analyzing || verificationEditing}
                       onClick={() => void copyQuestions()}
                     >
                       <Copy data-icon="inline-start" />
@@ -1006,6 +1297,18 @@ export function AiScreeningPage() {
                   </p>
                 </section>
                 <p className="ai-screening-help">{analysis.limitations}</p>
+                {analysis.id && (
+                  <ScreeningVerification
+                    key={analysis.id}
+                    reportId={analysis.id}
+                    questions={analysis.questions}
+                    initial={analysis.verifications}
+                    disabled={
+                      analyzing || importing || loadingResume || historyBusy || savingQuestions
+                    }
+                    onEditingChange={setVerificationEditing}
+                  />
+                )}
               </div>
             ) : !analyzing && !analysisError ? (
               <Empty className="ai-result-empty">
@@ -1096,7 +1399,8 @@ export function AiScreeningPage() {
                               analyzing ||
                               savingQuestions ||
                               importing ||
-                              loadingResume
+                              loadingResume ||
+                              verificationEditing
                             }
                             onClick={() => void viewHistory(row)}
                           >
@@ -1105,7 +1409,9 @@ export function AiScreeningPage() {
                           <Button
                             variant="destructive"
                             size="sm"
-                            disabled={historyBusy || analyzing || savingQuestions}
+                            disabled={
+                              historyBusy || analyzing || savingQuestions || verificationEditing
+                            }
                             onClick={() => {
                               setHistoryError('');
                               setConfirmation({ kind: 'delete', row });

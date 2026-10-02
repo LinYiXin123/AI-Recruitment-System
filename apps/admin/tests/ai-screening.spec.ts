@@ -58,7 +58,8 @@ test('AI 初面表单与结果区等高，操作按钮和附件说明符合页�
   const resultBox = await cards.nth(1).boundingBox();
   expect(formBox).not.toBeNull();
   expect(resultBox).not.toBeNull();
-  expect(Math.abs(formBox!.height - resultBox!.height)).toBeLessThanOrEqual(1);
+  if (!formBox || !resultBox) throw new Error('未找到初面表单或结果卡片。');
+  expect(Math.abs(formBox.height - resultBox.height)).toBeLessThanOrEqual(1);
 
   await expect(
     page.getByText(
@@ -232,7 +233,7 @@ test('完整分析按参考结构呈现，题目经确认入库且失败可重�
   await expect(result).toContainText('2026');
   await expect(result.getByRole('heading', { name: '匹配理由', exact: true })).toBeVisible();
   await expect(result).toContainText(savedAnalysis.summary);
-  const evidence = result.locator('details');
+  const evidence = result.locator('details').filter({ hasText: '简历依据 ·' });
   await expect(evidence.locator('blockquote')).toBeHidden();
   await evidence.locator('summary').click();
   await expect(evidence.locator('blockquote')).toHaveText(savedAnalysis.evidence[0].quote);
@@ -359,10 +360,11 @@ test('历史支持服务端分页、刷新后查看与确认删除，失败保�
   await lastRow.getByRole('button', { name: '查看', exact: true }).click();
   const result = page.locator('.ai-result-content');
   await expect(result).toContainText(last.summary);
-  await expect(result.getByRole('status')).toContainText(`历史分析记录 ${last.code}`);
-  await expect(result.getByRole('status')).toContainText(`候选人：${last.candidate_name}`);
-  await expect(result.getByRole('status')).toContainText('目标企业：未指定企业');
-  await expect(result.getByRole('status')).toContainText('仅查看历史；左侧输入未替换');
+  const historyNotice = result.getByRole('status').filter({ hasText: '历史分析记录' });
+  await expect(historyNotice).toContainText(`历史分析记录 ${last.code}`);
+  await expect(historyNotice).toContainText(`候选人：${last.candidate_name}`);
+  await expect(historyNotice).toContainText('目标企业：未指定企业');
+  await expect(historyNotice).toContainText('仅查看历史；左侧输入未替换');
   await expect(page.getByRole('button', { name: '分析当前简历', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: '重新分析', exact: true })).toHaveCount(0);
   await expect(result).toContainText('通用初判');
@@ -391,7 +393,9 @@ test('历史支持服务端分页、刷新后查看与确认删除，失败保�
   await expect(
     page.locator('.ai-history-table tbody tr').filter({ hasText: last.candidate_name }),
   ).toHaveCount(1);
-  await expect(result.locator('article')).toContainText(last.questions[0].question);
+  await expect(result.getByRole('article', { name: '第 1 题' })).toContainText(
+    last.questions[0].question,
+  );
   await confirmation.getByRole('button', { name: '确认删除', exact: true }).click();
   await expect(confirmation).toBeHidden();
   await expect(lastRow).toHaveCount(0);
@@ -406,7 +410,16 @@ test.describe('初面输入与历史记录隔离', () => {
     await page.route('**/api/v1/applications/?page=*', (route) =>
       route.fulfill({
         json: {
-          results: [{ id: 101, candidate: 201, name: '虚构候选人' }],
+          results: [
+            {
+              id: 101,
+              candidate: 201,
+              name: '虚构候选人',
+              job: 301,
+              job_title: '虚构目标职位',
+              attempt_no: 1,
+            },
+          ],
           next: null,
           count: 1,
           previous: null,
@@ -473,7 +486,10 @@ test.describe('初面输入与历史记录隔离', () => {
       } else if (action === '切换候选人') {
         expectedText = '虚构候选人的新简历。';
         await page.locator('#ai-candidate').click();
-        await page.getByRole('option', { name: '虚构候选人', exact: true }).click();
+        await page
+          .getByRole('option')
+          .filter({ hasText: '虚构候选人 · 虚构目标职位 · 第 1 次应聘' })
+          .click();
       } else {
         await page.getByRole('link', { name: '今天', exact: true }).click();
       }
@@ -511,20 +527,23 @@ test.describe('初面输入与历史记录隔离', () => {
     const editor = page.getByRole('textbox', { name: '简历内容' });
     await editor.fill('需要保留的虚构简历。');
     await page.locator('#ai-job').click();
-    await page.getByRole('option', { name: '虚构目标职位', exact: true }).click();
+    await page.getByRole('option').filter({ hasText: '虚构目标职位' }).click();
     const sourceRequest = page.waitForRequest('**/api/v1/applications/101/');
     await page.locator('#ai-candidate').click();
-    await page.getByRole('option', { name: '虚构候选人', exact: true }).click();
+    await page
+      .getByRole('option')
+      .filter({ hasText: '虚构候选人 · 虚构目标职位 · 第 1 次应聘' })
+      .click();
     const request = await sourceRequest;
     const cancelled = page.waitForEvent('requestfailed', (failed) => failed === request);
     await page.locator('#ai-candidate').click();
-    await page.getByRole('option', { name: '请选择候选人（可留空）', exact: true }).click();
+    await page.getByRole('option').filter({ hasText: '请选择候选人（可留空）' }).click();
     await cancelled;
     releaseResume();
     await expect(editor).toHaveText('需要保留的虚构简历。');
     await expect(page.locator('#ai-job')).toContainText('虚构目标职位');
     await page.locator('#ai-job').click();
-    await page.getByRole('option', { name: '请选择职位（可留空）', exact: true }).click();
+    await page.getByRole('option').filter({ hasText: '请选择职位（可留空）' }).click();
     await expect(editor).toHaveText('需要保留的虚构简历。');
     await page.getByRole('button', { name: '开始分析', exact: true }).click();
     await expect(page.locator('.ai-result-content')).toContainText(savedAnalysis.summary);
@@ -532,6 +551,53 @@ test.describe('初面输入与历史记录隔离', () => {
       application_id: null,
       job_id: null,
       resume: '需要保留的虚构简历。',
+    });
+  });
+
+  test('绑定简历的裸网址仅展示为链接，失焦提交仍保留原文与解析版本', async ({ page }) => {
+    const original = '使用 GitHub 项目 github.com/example/project';
+    let submitted: Record<string, unknown> | undefined;
+    await page.route('**/api/v1/applications/101/', (route) =>
+      route.fulfill({
+        json: {
+          id: 101,
+          resumes: [
+            {
+              document: 501,
+              name: 'fictional-resume.txt',
+              parse: { id: 401, version: 3, status: 'succeeded', text: original },
+            },
+          ],
+        },
+      }),
+    );
+    await page.route(screeningCollection, (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      submitted = route.request().postDataJSON();
+      return route.fulfill({ json: savedAnalysis });
+    });
+    await login(page);
+    await page.getByRole('link', { name: 'AI 初面' }).click();
+    await page.locator('#ai-candidate').click();
+    await page
+      .getByRole('option')
+      .filter({ hasText: '虚构候选人 · 虚构目标职位 · 第 1 次应聘' })
+      .click();
+    const editor = page.getByRole('textbox', { name: '简历内容' });
+    await expect(editor).toHaveText(original);
+    await expect(editor.getByRole('link', { name: 'github.com/example/project' })).toHaveAttribute(
+      'href',
+      'https://github.com/example/project',
+    );
+    await editor.focus();
+    await editor.blur();
+    await page.getByRole('button', { name: '开始分析', exact: true }).click();
+    await expect(page.locator('.ai-result-content')).toContainText(savedAnalysis.summary);
+    expect(submitted).toMatchObject({
+      application_id: 101,
+      job_id: 301,
+      resume_parse_id: 401,
+      resume: original,
     });
   });
 });
@@ -645,6 +711,379 @@ test('历史题目全部在题库删除后不允许再次入库，仍可前往�
   await expect(result.getByRole('status').filter({ hasText: '历史分析记录' })).toContainText(
     `目标企业：${savedAnalysis.enterprise_name}`,
   );
+});
+
+test.describe('AI 初面人工核实闭环', () => {
+  const verification = {
+    id: 1101,
+    question_index: 0,
+    version: 1,
+    status: 'pending',
+    answer: '',
+    evidence: '',
+    next_step: '',
+    contact_name: '',
+    due_on: null as string | null,
+    recorder_id: 1,
+    recorder_name: '虚构测试 HR',
+    created_at: '2026-10-03T02:00:00Z',
+    request_key: '00000000-0000-4000-8000-000000001101',
+  };
+
+  test('展示当时的来源快照，旧报告不补造职位或简历版本', async ({ page }) => {
+    const oldReport = { ...savedAnalysis, id: 902, code: 'AIS-0902', source_context: null };
+    const source = {
+      resume: '冻结的虚构简历原文：独立开发内部检索工具。',
+      source: {
+        kind: 'application_resume',
+        note: '按当时授权读取的简历解析文本。',
+        resume_parse_id: 401,
+        document_id: 501,
+        filename: 'fictional-resume.pdf',
+        parse_version: 3,
+      },
+      job: {
+        id: 301,
+        title: '冻结的虚构职位',
+        version: 7,
+        description: '当时的职位要求：能够说明检索评估过程。',
+        profile_id: 601,
+        profile_version: 2,
+        requirements: [{ id: 701, kind: 'must', text: '说明人工标注与回归测试方法。' }],
+      },
+      application: { id: 101, version: 4, job_id: 301 },
+      enterprise: null,
+      captured_at: '2026-10-03T01:00:00Z',
+    };
+    await page.route(screeningCollection, (route) =>
+      route.fulfill({
+        json:
+          route.request().method() === 'POST'
+            ? { ...savedAnalysis, source_context: source, verifications: [] }
+            : { items: [oldReport], count: 1, page: 1, page_size: 20 },
+      }),
+    );
+    await page.route('**/api/v1/ai-screenings/902/', (route) => route.fulfill({ json: oldReport }));
+    await login(page);
+    await page.getByRole('link', { name: 'AI 初面' }).click();
+    await page.getByRole('textbox', { name: '简历内容' }).fill(source.resume);
+    await page.getByRole('button', { name: '开始分析', exact: true }).click();
+    const result = page.locator('.ai-result-content');
+    const snapshot = result.locator('details').filter({ hasText: '本次分析依据 ·' });
+    await snapshot.locator('summary').click();
+    await expect(snapshot).toContainText('解析版本 3');
+    await expect(snapshot).toContainText('应聘 #101 · 版本 4');
+    await expect(snapshot).toContainText('职位版本 7');
+    await expect(snapshot).toContainText('人才画像版本 2');
+    await expect(snapshot).toContainText(source.resume);
+    await expect(snapshot).toContainText(source.job.description);
+    await expect(snapshot).toContainText('不代表材料已经核实');
+
+    await page
+      .getByRole('region', { name: '历史分析记录' })
+      .getByRole('button', { name: '查看', exact: true })
+      .click();
+    await expect(result).toContainText('旧报告未记录分析来源版本');
+    await expect(snapshot).toHaveCount(0);
+    await expect(result).not.toContainText('人才画像版本 2');
+    await expect(result).not.toContainText('解析版本 3');
+    await expect(page.getByRole('textbox', { name: '简历内容' })).toHaveText(source.resume);
+  });
+
+  test('手动采用问题并保存实际回答，保留 AI 原文且不冒充通知', async ({ page, context }) => {
+    const submissions: Record<string, unknown>[] = [];
+    let latestRecord = verification;
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.route(screeningCollection, (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ json: { ...savedAnalysis, verifications: [] } })
+        : route.fallback(),
+    );
+    await page.route('**/api/v1/ai-screenings/901/verifications/', (route) => {
+      if (route.request().method() === 'GET')
+        return route.fulfill({ json: { items: [latestRecord], history: [], count: 0, page: 1 } });
+      expect(route.request().method()).toBe('POST');
+      const submitted = route.request().postDataJSON();
+      submissions.push(submitted);
+      latestRecord = { ...verification, ...submitted, version: submitted.version + 1 };
+      return route.fulfill({
+        json: {
+          items: [latestRecord],
+          verification_summary: { adopted: 1, pending: submitted.status === 'pending' ? 1 : 0 },
+        },
+      });
+    });
+    await login(page);
+    await page.getByRole('link', { name: 'AI 初面' }).click();
+    await page.getByRole('textbox', { name: '简历内容' }).fill('虚构简历：开发内部检索工具。');
+    await page.getByRole('button', { name: '开始分析', exact: true }).click();
+    const verificationRegion = page.getByRole('region', { name: '人工核实', exact: true });
+    await expect(verificationRegion).toContainText('未采用');
+    expect(submissions).toHaveLength(0);
+    await verificationRegion.getByRole('button', { name: '加入待核实' }).click();
+    await expect(verificationRegion.getByRole('status')).toContainText('未发送通知');
+    expect(submissions[0]).toMatchObject({ question_index: 0, version: 0, status: 'pending' });
+    expect(submissions[0].request_key).toMatch(/^[0-9a-f-]{36}$/);
+    await verificationRegion.getByRole('button', { name: '记录核实' }).click();
+    await expect(page.getByRole('textbox', { name: '简历内容' })).toHaveAttribute(
+      'contenteditable',
+      'false',
+    );
+    await expect(page.getByRole('button', { name: '清空', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '重新分析', exact: true })).toBeDisabled();
+    await verificationRegion.locator('#verification-status').click();
+    await page.getByRole('option').filter({ hasText: '人工记录：有依据支持' }).click();
+    await verificationRegion
+      .getByLabel('实际回答', { exact: true })
+      .fill('使用独立标注集比较基线。');
+    await verificationRegion.getByLabel('核实材料或依据').fill('已查看虚构标注样例与测试记录。');
+    await verificationRegion
+      .getByLabel('下一步', { exact: true })
+      .fill('将评估方法交由技术面试官复核。');
+    await verificationRegion.getByLabel('手动对接人（未通知）').fill('虚构面试官');
+    await verificationRegion.getByLabel('跟进日期').fill('2026-10-06');
+    await verificationRegion.getByRole('button', { name: '保存核实记录' }).click();
+    await expect(verificationRegion).toContainText('第 2 版');
+    await expect(verificationRegion).toContainText('实际回答：使用独立标注集比较基线。');
+    await expect(verificationRegion.getByRole('status')).toContainText('未改变应聘阶段');
+    expect(submissions[1]).toMatchObject({
+      question_index: 0,
+      version: 1,
+      status: 'supported',
+      answer: '使用独立标注集比较基线。',
+      evidence: '已查看虚构标注样例与测试记录。',
+      contact_name: '虚构面试官',
+      due_on: '2026-10-06',
+    });
+    await expect(page.getByRole('article', { name: '第 1 题' })).toContainText(
+      savedAnalysis.questions[0].follow_up,
+    );
+    await verificationRegion.getByRole('button', { name: '复制核实提纲' }).click();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain('未发送通知，不代替正式面评');
+    expect(copied).toContain('实际回答：使用独立标注集比较基线。');
+    expect(copied).toContain(`追问：${savedAnalysis.questions[0].follow_up}`);
+    expect(submissions).toHaveLength(2);
+  });
+
+  test('核实失败保留草稿，版本冲突读取最新记录后仍可保存原输入', async ({ page }) => {
+    const submissions: Record<string, unknown>[] = [];
+    await page.route(screeningCollection, (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ json: { ...savedAnalysis, verifications: [verification] } })
+        : route.fulfill({
+            json: { items: [savedAnalysis], count: 1, page: 1, page_size: 20 },
+          }),
+    );
+    await page.route('**/api/v1/ai-screenings/901/verifications/', (route) => {
+      if (route.request().method() === 'GET')
+        return route.fulfill({
+          json: {
+            items: [{ ...verification, version: 2, answer: '另一窗口已保存的虚构回答。' }],
+            history: [],
+            count: 0,
+            page: 1,
+          },
+        });
+      const submitted = route.request().postDataJSON();
+      submissions.push(submitted);
+      if (submissions.length === 3)
+        return route.fulfill({ json: { items: [{ ...verification, ...submitted, version: 3 }] } });
+      return route.fulfill({
+        status: submissions.length === 1 ? 503 : 409,
+        json: {
+          errors: {
+            detail:
+              submissions.length === 1
+                ? '核实记录暂时保存失败。'
+                : '核实记录已更新，请先查看最新版本。',
+          },
+        },
+      });
+    });
+    await login(page);
+    await page.getByRole('link', { name: 'AI 初面' }).click();
+    await page.getByRole('textbox', { name: '简历内容' }).fill('虚构简历：开发内部检索工具。');
+    await page.getByRole('button', { name: '开始分析', exact: true }).click();
+    const verificationRegion = page.getByRole('region', { name: '人工核实', exact: true });
+    await verificationRegion.getByRole('button', { name: '记录核实' }).click();
+    const answer = verificationRegion.getByLabel('实际回答', { exact: true });
+    await answer.fill('这段尚未保存的人工回答不能丢失。');
+    await expect(
+      page
+        .getByRole('region', { name: '历史分析记录' })
+        .getByRole('button', { name: '查看', exact: true }),
+    ).toBeDisabled();
+    for (const message of ['核实记录暂时保存失败', '核实记录已更新']) {
+      await verificationRegion.getByRole('button', { name: '保存核实记录' }).click();
+      await expect(verificationRegion.getByRole('alert')).toContainText(message);
+      await expect(answer).toHaveValue('这段尚未保存的人工回答不能丢失。');
+      await expect(page.getByRole('button', { name: '清空', exact: true })).toBeDisabled();
+      await expect(verificationRegion).not.toContainText('核实记录已保存');
+    }
+    expect(submissions).toHaveLength(2);
+    expect(submissions[0].request_key).toBe(submissions[1].request_key);
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await page.getByRole('link', { name: '今天', exact: true }).click();
+    await expect(page).toHaveURL(/#ai-screening$/);
+    await expect(answer).toHaveValue('这段尚未保存的人工回答不能丢失。');
+    let logoutRequests = 0;
+    await page.route('**/api/v1/auth/logout/', (route) => {
+      logoutRequests += 1;
+      return route.fulfill({ status: 500, json: { errors: { detail: '不应触发注销。' } } });
+    });
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await page.getByRole('button', { name: '退出登录', exact: true }).click();
+    await expect(answer).toHaveValue('这段尚未保存的人工回答不能丢失。');
+    expect(logoutRequests).toBe(0);
+    await verificationRegion.getByRole('button', { name: '读取最新版本（保留输入）' }).click();
+    await expect(verificationRegion).toContainText('实际回答：另一窗口已保存的虚构回答。');
+    await expect(answer).toHaveValue('这段尚未保存的人工回答不能丢失。');
+    await verificationRegion.getByRole('button', { name: '保存核实记录' }).click();
+    await expect(verificationRegion.getByRole('status')).toContainText('核实记录已保存');
+    expect(submissions[2]).toMatchObject({
+      question_index: 0,
+      version: 2,
+      answer: '这段尚未保存的人工回答不能丢失。',
+    });
+    expect(submissions[2].request_key).not.toBe(submissions[1].request_key);
+    await verificationRegion.getByRole('button', { name: '记录核实' }).click();
+    await answer.fill('取消后应当放弃的新草稿。');
+    page.once('dialog', (dialog) => dialog.accept());
+    await verificationRegion.getByRole('button', { name: '取消编辑' }).click();
+    await expect(answer).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '清空', exact: true })).toBeEnabled();
+    await expect(verificationRegion).not.toContainText('取消后应当放弃的新草稿。');
+    await expect(verificationRegion).toContainText('实际回答：这段尚未保存的人工回答不能丢失。');
+  });
+
+  test('核实修订与报告绑定，切换历史报告不混入上一份记录', async ({ page }) => {
+    const firstRecord = { ...verification, answer: '报告甲独有的虚构回答。' };
+    const secondRecord = { ...verification, id: 1102, answer: '报告乙独有的虚构回答。' };
+    const reports = [
+      { ...savedAnalysis, verifications: [firstRecord] },
+      { ...savedAnalysis, id: 902, code: 'AIS-0902', verifications: [secondRecord] },
+    ];
+    const queried: number[] = [];
+    await page.route(screeningCollection, (route) =>
+      route.fulfill({ json: { items: reports, count: 2, page: 1, page_size: 20 } }),
+    );
+    for (const report of reports) {
+      await page.route(`**/api/v1/ai-screenings/${report.id}/`, (route) =>
+        route.fulfill({ json: report }),
+      );
+      await page.route(`**/api/v1/ai-screenings/${report.id}/verifications/?*`, (route) => {
+        const params = new URL(route.request().url()).searchParams;
+        expect(params.get('question_index')).toBe('0');
+        expect(params.get('page')).toBe('1');
+        queried.push(report.id);
+        return route.fulfill({
+          json: {
+            items: report.verifications,
+            history: report.verifications,
+            count: 1,
+            page: 1,
+            page_size: 10,
+          },
+        });
+      });
+    }
+    await login(page);
+    await page.getByRole('link', { name: 'AI 初面' }).click();
+    const history = page.getByRole('region', { name: '历史分析记录' });
+    const verificationRegion = page.getByRole('region', { name: '人工核实', exact: true });
+    for (const report of reports) {
+      await history
+        .getByRole('row')
+        .filter({ hasText: report.code })
+        .getByRole('button', { name: '查看', exact: true })
+        .click();
+      await expect(verificationRegion).toContainText(report.verifications[0].answer);
+      await expect(verificationRegion.locator('[aria-label="核实修订历史"]')).toHaveCount(0);
+      await verificationRegion.getByRole('button', { name: '修订历史' }).click();
+      await expect(verificationRegion.locator('[aria-label="核实修订历史"]')).toContainText(
+        report.verifications[0].answer,
+      );
+    }
+    await expect(verificationRegion).not.toContainText(firstRecord.answer);
+    expect(queried).toEqual([901, 902]);
+  });
+
+  test('同一人多次应聘分别显示，选中的应聘决定简历与职位', async ({ page }) => {
+    const applications = [
+      {
+        id: 101,
+        candidate: 201,
+        name: '虚构候选人',
+        job: 301,
+        job_title: '检索岗位',
+        attempt_no: 1,
+      },
+      {
+        id: 102,
+        candidate: 201,
+        name: '虚构候选人',
+        job: 302,
+        job_title: '后端岗位',
+        attempt_no: 2,
+      },
+    ];
+    let submitted: Record<string, unknown> | undefined;
+    await page.route('**/api/v1/applications/?page=*', (route) =>
+      route.fulfill({ json: { results: applications, next: null, count: 2, previous: null } }),
+    );
+    await page.route('**/api/v1/jobs/?page=*', (route) =>
+      route.fulfill({
+        json: {
+          results: applications.map((item) => ({ id: item.job, title: item.job_title })),
+          next: null,
+          count: 2,
+          previous: null,
+        },
+      }),
+    );
+    await page.route('**/api/v1/applications/102/', (route) =>
+      route.fulfill({
+        json: {
+          ...applications[1],
+          version: 1,
+          resumes: [
+            {
+              document: 501,
+              name: 'fictional-backend.txt',
+              parse: { id: 401, version: 1, status: 'succeeded', text: '后端应聘的虚构简历。' },
+            },
+          ],
+        },
+      }),
+    );
+    await page.route(screeningCollection, (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      submitted = route.request().postDataJSON();
+      return route.fulfill({ json: savedAnalysis });
+    });
+    await login(page);
+    await page.getByRole('link', { name: 'AI 初面' }).click();
+    await page.locator('#ai-candidate').click();
+    await expect(
+      page.getByRole('option').filter({ hasText: '虚构候选人 · 检索岗位 · 第 1 次应聘' }),
+    ).toBeVisible();
+    await page
+      .getByRole('option')
+      .filter({ hasText: '虚构候选人 · 后端岗位 · 第 2 次应聘' })
+      .click();
+    await expect(page.locator('#ai-job')).toContainText('后端岗位');
+    await expect(page.getByRole('textbox', { name: '简历内容' })).toHaveText(
+      '后端应聘的虚构简历。',
+    );
+    await page.getByRole('button', { name: '开始分析', exact: true }).click();
+    await expect(page.locator('.ai-result-content')).toContainText(savedAnalysis.summary);
+    expect(submitted).toMatchObject({
+      application_id: 102,
+      job_id: 302,
+      resume: '后端应聘的虚构简历。',
+    });
+  });
 });
 
 test('长分析结果固定在卡片内滚动，桌面等高且窄屏不撑高页面', async ({ page }) => {

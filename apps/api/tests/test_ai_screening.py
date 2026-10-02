@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import close_old_connections, connection
 from django.test import override_settings
+from django.utils import timezone
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from rest_framework.test import APIClient
@@ -18,17 +19,26 @@ from rest_framework.test import APIClient
 from recruitment.ai_screening import _hr_member, _parse_analysis
 from recruitment.models import (
     AIScreening,
+    AIScreeningVerification,
     Application,
+    ApplicationResume,
     Candidate,
     Department,
     DepartmentRole,
+    Enterprise,
+    EnterpriseEndorsement,
     Job,
     Membership,
     Organization,
+    ProfileRequirement,
+    ProfileVersion,
     QuestionTemplate,
     QuestionTemplateEvent,
     ResumeDocument,
     ResumeParse,
+    ReviewDecision,
+    StageEvent,
+    Task,
 )
 
 pytestmark = pytest.mark.django_db
@@ -785,3 +795,491 @@ def test_concurrent_screening_requests_and_question_saves_do_not_duplicate(opera
     assert AIScreening.objects.count() == 1
     assert QuestionTemplate.objects.count() == (1 if operation == "save" else 0)
     assert QuestionTemplateEvent.objects.count() == (1 if operation == "save" else 0)
+
+
+def screening_source(membership, job):
+    candidate = Candidate.objects.create(
+        organization=membership.organization, display_name="虚构核实人选", created_by=membership
+    )
+    application = Application.objects.create(
+        organization=membership.organization,
+        candidate=candidate,
+        job=job,
+        owner=membership,
+        attempt_no=1,
+        source="获授权的人工测试材料",
+    )
+    document = ResumeDocument.objects.create(
+        organization=membership.organization,
+        candidate=candidate,
+        original_name="fictional.pdf",
+        file_type="pdf",
+        size=100,
+        sha256="1" * 64,
+        uploaded_by=membership,
+    )
+    parse = ResumeParse.objects.create(
+        document=document,
+        version=1,
+        parser_version="test",
+        status="succeeded",
+        text="负责产品上线",
+        actor=membership,
+        request_key=uuid.uuid4(),
+    )
+    ApplicationResume.objects.create(application=application, parse=parse, assigned_by=membership)
+    return application, parse
+
+
+def create_screening(client, **data):
+    with patch(
+        "recruitment.ai_screening.chat_completion", return_value=json.dumps(complete_report())
+    ):
+        response = client.post(
+            "/api/v1/ai-screenings/", {"resume": "负责产品上线", **data}, format="json"
+        )
+    assert response.status_code == 200, response.data
+    return response.data
+
+
+def verification_payload(**values):
+    return {
+        "question_index": 0,
+        "version": 0,
+        "request_key": str(uuid.uuid4()),
+        "status": "pending",
+        **values,
+    }
+
+
+def test_analysis_freezes_exact_resume_profile_and_input_source_without_backfilling_old_reports():
+    client, membership, job = hr_context()
+    application, parse = screening_source(membership, job)
+    profile = ProfileVersion.objects.create(
+        job=job,
+        number=1,
+        jd_snapshot="已生效的产品交付要求",
+        source="测试JD",
+        created_by=membership,
+        status="confirmed",
+        confirmed_by=membership,
+        confirmed_at=timezone.now(),
+    )
+    requirement = ProfileRequirement.objects.create(
+        profile=profile, kind="must", text="独立交付产品", position=0
+    )
+    job.active_profile = profile
+    job.save(update_fields=["active_profile"])
+    report = create_screening(client, application_id=application.id, resume_parse_id=parse.id)
+    context = report["source_context"]
+    assert context["resume"] == parse.text
+    assert context["job"]["description"] == profile.jd_snapshot
+    assert context["job"]["profile_id"] == profile.id
+    assert context["job"]["profile_version"] == 1
+    assert context["job"]["requirements"] == [
+        {"id": requirement.id, "kind": "must", "text": "独立交付产品"}
+    ]
+    assert context["source"]["resume_parse_id"] == parse.id
+    assert context["source"]["kind"] == "application_resume"
+    assert context["application"]["id"] == application.id and context["captured_at"]
+    stored = AIScreening.objects.get(pk=report["id"])
+    assert stored.profile == profile and stored.resume_parse == parse
+    job.jd = "新版JD"
+    job.save(update_fields=["jd"])
+    ProfileRequirement.objects.filter(pk=requirement.id).update(text="后续新要求")
+    assert client.get(f"/api/v1/ai-screenings/{stored.id}/").data["source_context"] == context
+    old = AIScreening.objects.create(
+        organization=membership.organization,
+        creator=membership,
+        request_key=uuid.uuid4(),
+        input_digest="2" * 64,
+        result=complete_report(),
+    )
+    old_report = client.get(f"/api/v1/ai-screenings/{old.id}/").data
+    assert old_report["source_context"] is None
+    assert old_report["verifications"] == []
+    assert not client.get("/api/v1/ai-screenings/").data["items"][0].get("source_context")
+
+
+def test_analysis_rejects_cross_application_job_and_unverifiable_material_references():
+    client, membership, job = hr_context()
+    application, parse = screening_source(membership, job)
+    other_job = Job.objects.create(
+        organization=membership.organization,
+        department=job.department,
+        title="其他岗位",
+        location="深圳",
+        headcount=1,
+        owner=membership,
+        approver=membership,
+    )
+    other_application, other_parse = screening_source(membership, other_job)
+    with patch("recruitment.ai_screening.chat_completion") as complete:
+        for payload, status in [
+            ({"application_id": application.id, "job_id": other_job.id}, 400),
+            ({"resume_parse_id": parse.id}, 400),
+            ({"application_id": application.id, "resume_parse_id": other_parse.id}, 404),
+        ]:
+            response = client.post(
+                "/api/v1/ai-screenings/", {"resume": parse.text, **payload}, format="json"
+            )
+            assert response.status_code == status, response.data
+        complete.assert_not_called()
+    assert other_application.id != application.id
+    report = create_screening(client, application_id=application.id, job_id=None)
+    assert report["source_context"]["job"] is None
+    assert report["source_context"]["source"]["kind"] == "manual"
+
+
+def test_manually_edited_parse_keeps_source_access_scope_and_marks_actual_input():
+    client, membership, job = hr_context()
+    application, parse = screening_source(membership, job)
+    report = create_screening(
+        client,
+        application_id=application.id,
+        resume_parse_id=parse.id,
+        resume="负责产品上线，人工补充待核实的职责说明",
+    )
+    source = report["source_context"]["source"]
+    assert source["edited"] is True and len(source["parse_text_digest"]) == 64
+    assert report["source_context"]["resume"].endswith("人工补充待核实的职责说明")
+    assert AIScreening.objects.get(pk=report["id"]).resume_parse_id == parse.id
+    ResumeDocument.objects.filter(pk=parse.document_id).update(access_state="quarantine")
+    assert client.get(f"/api/v1/ai-screenings/{report['id']}/").status_code == 404
+
+
+@pytest.mark.parametrize("change", ["job", "parse", "source", "application", "permission"])
+def test_analysis_rechecks_versions_and_source_permission_after_model_returns(change):
+    client, membership, job = hr_context()
+    application, parse = screening_source(membership, job)
+
+    def complete(**kwargs):
+        if change == "job":
+            Job.objects.filter(pk=job.pk).update(jd="修改后的职责", version=2)
+        elif change == "parse":
+            ResumeParse.objects.filter(pk=parse.pk).update(text="修改后的文字")
+        elif change == "source":
+            ResumeDocument.objects.filter(pk=parse.document_id).update(access_state="quarantine")
+        elif change == "application":
+            Application.objects.filter(pk=application.pk).update(version=2)
+        else:
+            Membership.objects.filter(pk=membership.pk).update(active=False)
+        return json.dumps(complete_report())
+
+    with patch("recruitment.ai_screening.chat_completion", side_effect=complete):
+        response = client.post(
+            "/api/v1/ai-screenings/",
+            {
+                "resume": parse.text,
+                "application_id": application.id,
+                "resume_parse_id": parse.id,
+            },
+            format="json",
+        )
+    assert response.status_code in (400, 403, 404, 409)
+    assert not AIScreening.objects.exists()
+
+
+def test_verification_adopt_record_withdraw_and_revisions_do_not_change_recruitment_records():
+    client, membership, job = hr_context()
+    application, parse = screening_source(membership, job)
+    report = create_screening(client, application_id=application.id, resume_parse_id=parse.id)
+    url = f"/api/v1/ai-screenings/{report['id']}/verifications/"
+    payload = verification_payload(
+        recorder_id=99999, recorder_name="冒充他人", created_at="2000-01-01"
+    )
+    first = client.post(url, payload, format="json")
+    assert first.status_code == 200, first.data
+    item = first.data["items"][0]
+    assert (
+        item["recorder_id"] == membership.id and item["recorder_name"] == membership.user.username
+    )
+    assert item["contact_name"] == membership.user.username and item["version"] == 1
+    assert client.post(url, payload, format="json").data == first.data
+    assert (
+        client.post(url, {**payload, "contact_name": "不同对接人"}, format="json").status_code
+        == 409
+    )
+    recorded = client.post(
+        url,
+        verification_payload(
+            version=1,
+            status="supported",
+            answer="说明本人负责的上线步骤与测试过程",
+            evidence="人工核对：演示环境中的交付记录第2项",
+            contact_name="测试面试对接人",
+            next_step="返回飞书由HR决定下一步（未同步）",
+            due_on="2026-12-20",
+        ),
+        format="json",
+    )
+    assert recorded.status_code == 200 and recorded.data["items"][0]["version"] == 2
+    assert recorded.data["verification_summary"]["supported"] == 1
+    stale = client.post(url, verification_payload(version=1), format="json")
+    assert stale.status_code == 409
+    withdrawal = client.post(
+        url,
+        verification_payload(version=2, status="withdrawn", next_step="该问题本轮不再核实"),
+        format="json",
+    )
+    assert withdrawal.status_code == 200
+    assert withdrawal.data["verification_summary"]["withdrawn"] == 1
+    history = client.get(url, {"question_index": 0}).data
+    assert history["count"] == 3 and [item["version"] for item in history["history"]] == [3, 2, 1]
+    assert history["history"][1]["evidence"].startswith("人工核对")
+    assert client.get(url).data["history"] == []
+    application.refresh_from_db()
+    assert application.stage == "pending_review" and application.version == 1
+    stored = AIScreening.objects.get(pk=report["id"])
+    assert stored.result["questions"] == report["questions"]
+    for model in (Task, ReviewDecision, StageEvent, QuestionTemplate):
+        assert model.objects.count() == 0
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"status": "supported"},
+        {"status": "contradicted", "answer": "回答"},
+        {"status": "unresolved"},
+        {"status": "withdrawn"},
+        {"question_index": 1},
+        {"question_index": -1},
+        {"question_index": 5},
+        {"due_on": "not-a-date"},
+        {"answer": "字" * 5001},
+        {"request_key": "invalid"},
+        {"status": "approved"},
+    ],
+)
+def test_verification_rejects_invalid_or_unadopted_changes_without_losing_records(values):
+    client, _, _ = hr_context()
+    report = create_screening(client)
+    url = f"/api/v1/ai-screenings/{report['id']}/verifications/"
+    assert client.post(url, verification_payload(**values), format="json").status_code == 400
+    assert not AIScreeningVerification.objects.exists()
+
+
+def test_verification_requires_owner_hr_and_current_source_access_for_read_and_write():
+    client, membership, job = hr_context()
+    application, parse = screening_source(membership, job)
+    report = create_screening(client, application_id=application.id, resume_parse_id=parse.id)
+    url = f"/api/v1/ai-screenings/{report['id']}/"
+    assert (
+        client.post(f"{url}verifications/", verification_payload(), format="json").status_code
+        == 200
+    )
+    peer = Membership.objects.create(
+        user=get_user_model().objects.create_user("other-verifier"),
+        organization=membership.organization,
+    )
+    DepartmentRole.objects.create(membership=peer, department=job.department, role="hr")
+    outsider, _, _ = hr_context("outside-verifier")
+    for other in [client_for_member(peer), outsider]:
+        assert other.get(f"{url}verifications/").status_code == 404
+        assert (
+            other.post(f"{url}verifications/", verification_payload(), format="json").status_code
+            == 404
+        )
+    ResumeDocument.objects.filter(pk=parse.document_id).update(access_state="quarantine")
+    assert client.get(url).status_code == client.get(f"{url}verifications/").status_code == 404
+    assert client.get("/api/v1/ai-screenings/").data["count"] == 0
+    assert (
+        client.post(
+            f"{url}verifications/", verification_payload(version=1), format="json"
+        ).status_code
+        == 404
+    )
+    assert AIScreeningVerification.objects.count() == 1
+    membership.roles.all().delete()
+    assert client.get(f"{url}verifications/").status_code == 403
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("same_request", [True, False])
+def test_concurrent_verifications_are_idempotent_and_reject_stale_versions(same_request):
+    assert connection.vendor == "postgresql"
+    client, membership, _ = hr_context()
+    report = create_screening(client)
+    url = f"/api/v1/ai-screenings/{report['id']}/verifications/"
+    payload = verification_payload()
+    clients = [client_for_member(membership), client_for_member(membership)]
+    barrier = Barrier(2)
+
+    def perform(index):
+        close_old_connections()
+        try:
+            data = payload if same_request else verification_payload()
+            barrier.wait(timeout=10)
+            return clients[index].post(url, data, format="json").status_code
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        statuses = sorted(pool.map(perform, range(2)))
+    assert statuses == ([200, 200] if same_request else [200, 409])
+    assert AIScreeningVerification.objects.count() == 1
+
+
+def test_bound_job_uses_enterprise_snapshot_and_rejects_another_selected_enterprise():
+    client, membership, job = hr_context()
+    enterprise = Enterprise.objects.create(
+        organization=membership.organization, name="岗位所属企业"
+    )
+    other = Enterprise.objects.create(organization=membership.organization, name="另一企业")
+    job.enterprise = enterprise
+    job.save(update_fields=["enterprise"])
+    with patch("recruitment.ai_screening.chat_completion") as complete:
+        response = client.post(
+            "/api/v1/ai-screenings/",
+            {
+                "job_id": job.id,
+                "enterprise_id": other.id,
+                "resume": "负责产品上线",
+            },
+            format="json",
+        )
+    assert response.status_code == 400
+    complete.assert_not_called()
+    with patch(
+        "recruitment.ai_screening.chat_completion", return_value=json.dumps(complete_report())
+    ) as complete:
+        response = client.post(
+            "/api/v1/ai-screenings/",
+            {
+                "job_id": job.id,
+                "enterprise_id": None,
+                "resume": "负责产品上线",
+            },
+            format="json",
+        )
+    assert response.status_code == 200
+    context = json.loads(complete.call_args.kwargs["user_text"])["target_enterprise"]
+    assert context["id"] == enterprise.id
+    assert (
+        response.data["enterprise_snapshot"]
+        == response.data["source_context"]["enterprise"]
+        == context
+    )
+
+
+@pytest.mark.parametrize("change", ["disabled", "deleted", "link", "organization"])
+def test_enterprise_link_and_access_changes_during_analysis_do_not_save_report(change):
+    client, membership, job = hr_context()
+    enterprise = Enterprise.objects.create(organization=membership.organization, name="测试企业")
+    other = Enterprise.objects.create(organization=membership.organization, name="新企业")
+    job.enterprise = enterprise
+    job.save(update_fields=["enterprise"])
+
+    def complete(**kwargs):
+        if change == "disabled":
+            Enterprise.objects.filter(pk=enterprise.pk).update(enabled=False)
+        elif change == "deleted":
+            Enterprise.objects.filter(pk=enterprise.pk).update(deleted_at=timezone.now())
+        elif change == "link":
+            Job.objects.filter(pk=job.pk).update(enterprise=other)
+        else:
+            Enterprise.objects.filter(pk=enterprise.pk).update(
+                organization=Organization.objects.create(name="其它租户")
+            )
+        return json.dumps(complete_report())
+
+    with patch("recruitment.ai_screening.chat_completion", side_effect=complete):
+        response = client.post(
+            "/api/v1/ai-screenings/",
+            {
+                "job_id": job.id,
+                "resume": "负责产品上线",
+            },
+            format="json",
+        )
+    assert response.status_code in (400, 404, 409)
+    assert not AIScreening.objects.exists()
+
+
+@pytest.mark.parametrize("change", ["disabled", "deleted"])
+def test_disabled_or_deleted_bound_enterprise_is_rejected_before_model_call(change):
+    client, membership, job = hr_context()
+    enterprise = Enterprise.objects.create(
+        organization=membership.organization,
+        name="不可用企业",
+        enabled=change != "disabled",
+        deleted_at=timezone.now() if change == "deleted" else None,
+    )
+    job.enterprise = enterprise
+    job.save(update_fields=["enterprise"])
+    with patch("recruitment.ai_screening.chat_completion") as complete:
+        response = client.post(
+            "/api/v1/ai-screenings/", {"job_id": job.id, "resume": "负责产品上线"}, format="json"
+        )
+    assert response.status_code == 400
+    complete.assert_not_called()
+
+
+def test_enterprise_body_changes_keep_actual_sent_snapshot_and_model_start_time():
+    client, membership, job = hr_context()
+    enterprise = Enterprise.objects.create(
+        organization=membership.organization, name="示例企业", introduction="送模前介绍"
+    )
+    content = EnterpriseEndorsement.objects.create(
+        organization=membership.organization,
+        enterprise=enterprise,
+        category="team",
+        title="原团队资料",
+        body="原团队背景",
+    )
+    job.enterprise = enterprise
+    job.save(update_fields=["enterprise"])
+    model_started_at = None
+
+    def complete(**kwargs):
+        nonlocal model_started_at
+        model_started_at = timezone.now().isoformat()
+        Enterprise.objects.filter(pk=enterprise.pk).update(introduction="模型等待期间新介绍")
+        EnterpriseEndorsement.objects.filter(pk=content.pk).update(body="新团队背景")
+        return json.dumps(complete_report())
+
+    with patch("recruitment.ai_screening.chat_completion", side_effect=complete) as called:
+        response = client.post(
+            "/api/v1/ai-screenings/", {"job_id": job.id, "resume": "负责产品上线"}, format="json"
+        )
+    assert response.status_code == 200, response.data
+    snapshot = response.data["enterprise_snapshot"]
+    assert snapshot == json.loads(called.call_args.kwargs["user_text"])["target_enterprise"]
+    assert snapshot["introduction"] == "送模前介绍"
+    assert snapshot["endorsements"][0]["body"] == "原团队背景"
+    assert response.data["source_context"]["captured_at"] <= model_started_at
+    assert (
+        client.get(f"/api/v1/ai-screenings/{response.data['id']}/").data["enterprise_snapshot"]
+        == snapshot
+    )
+
+
+def test_verification_history_is_paginated_and_revoked_role_while_waiting_cannot_write():
+    client, membership, _ = hr_context()
+    report = create_screening(client)
+    url = f"/api/v1/ai-screenings/{report['id']}/verifications/"
+    for version in range(12):
+        response = client.post(
+            url,
+            verification_payload(version=version, next_step=f"第{version + 1}次跟进"),
+            format="json",
+        )
+        assert response.status_code == 200
+    page = client.get(url, {"question_index": 0, "page": 2}).data
+    assert len(page["history"]) == 2 and page["count"] == 12
+    assert [item["version"] for item in page["history"]] == [2, 1]
+    assert page["items"][0]["version"] == 12
+    assert client.get(url, {"question_index": "bad"}).status_code == 400
+    calls = 0
+
+    def check_member(request):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            Membership.objects.filter(pk=membership.pk).update(active=False)
+        return _hr_member(request)
+
+    with patch("recruitment.ai_screening._hr_member", side_effect=check_member):
+        response = client.post(url, verification_payload(version=12), format="json")
+    assert response.status_code == 403 and AIScreeningVerification.objects.count() == 12
