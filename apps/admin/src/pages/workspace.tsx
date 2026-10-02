@@ -188,7 +188,7 @@ export function Today({ revision, onLoaded }: TodayProps) {
           <AnalysisCell value={data.other_totals.open_jobs} label="在招职位" />
           <AnalysisCell value={data.other_totals.jobs} label="职位总数" />
           <AnalysisCell value={data.other_totals.interviews} label="面试记录总数" />
-          <AnalysisCell value="—" label="题库题目数 · 尚未接通" />
+          <AnalysisCell value={data.other_totals.question_bank} label="题库题目数" />
         </div>
       </section>
     </div>

@@ -682,3 +682,53 @@ class EnterpriseEndorsement(Timestamped):
 
     class Meta:
         ordering = ["sort_order", "id"]
+
+
+class QuestionTemplate(Timestamped):
+    class Dimension(models.TextChoices):
+        PROFESSIONAL = "专业能力", "专业能力"
+        COMMUNICATION = "沟通表达", "沟通表达"
+        LOGIC = "逻辑思维", "逻辑思维"
+        TEAMWORK = "团队协作", "团队协作"
+        PRESSURE = "抗压能力", "抗压能力"
+        STABILITY = "稳定性", "稳定性"
+        JOB_FIT = "岗位匹配度", "岗位匹配度"
+        LEARNING = "学习能力", "学习能力"
+
+    class Difficulty(models.TextChoices):
+        EASY = "简单", "简单"
+        MEDIUM = "中等", "中等"
+        HARD = "困难", "困难"
+
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    request_key = models.UUIDField()
+    content = models.TextField(max_length=10000)
+    job_title = models.CharField(max_length=120, blank=True)
+    dimension = models.CharField(max_length=20, choices=Dimension.choices, blank=True)
+    difficulty = models.CharField(
+        max_length=10, choices=Difficulty.choices, default=Difficulty.MEDIUM
+    )
+    reference_answer = models.TextField(max_length=10000, blank=True)
+    version = models.PositiveIntegerField(default=1)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+        indexes = [models.Index(fields=["organization", "deleted_at"], name="question_org_active")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "request_key"], name="one_question_creation_request"
+            ),
+            models.CheckConstraint(condition=Q(version__gte=1), name="positive_question_version"),
+        ]
+
+
+class QuestionTemplateEvent(models.Model):
+    question = models.ForeignKey(QuestionTemplate, on_delete=models.PROTECT, related_name="events")
+    actor = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    action = models.CharField(max_length=20)
+    version = models.PositiveIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]

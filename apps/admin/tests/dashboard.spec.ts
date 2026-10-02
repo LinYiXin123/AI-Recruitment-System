@@ -71,8 +71,10 @@ test('招聘总览按原型呈现完整侧栏、六项指标和真实导出', as
   await sidebar.getByRole('button', { name: '在职人员管理' }).click();
 
   await sidebar.getByRole('link', { name: '面试题库' }).click();
-  await expect(page.getByRole('heading', { name: '面试题库尚未接通' })).toBeVisible();
-  await page.getByRole('button', { name: '返回招聘总览' }).click();
+  await expect(page.getByRole('heading', { name: '面试题库', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '新增题目' })).toBeVisible();
+  await expect(page.getByText('面试题库尚未接通')).toHaveCount(0);
+  await sidebar.getByRole('link', { name: '今天' }).click();
   await expect(page.getByRole('heading', { name: '招聘总览' })).toBeVisible();
   await expect(page.getByRole('region', { name: '招聘概览' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('招聘总览-桌面.png') });

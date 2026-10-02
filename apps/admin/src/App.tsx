@@ -46,6 +46,7 @@ import { EmployerBrandPage } from '@/pages/employer-brand';
 import { ApplicationDetail, type CandidateLibraryActions, Candidates } from '@/pages/intake';
 import { type InterviewActions, Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
+import { QuestionBank } from '@/pages/question-bank';
 import { Jobs, type JobsActions, Today } from '@/pages/workspace';
 
 type Route =
@@ -221,7 +222,7 @@ export default function App() {
     },
     'question-bank': {
       title: '面试题库',
-      description: '该入口已按原型保留，题库与面试指南将在后续切片接入。',
+      description: '按职位与考察维度分类管理',
     },
     'employer-brand': {
       title: '企业背书',
@@ -325,7 +326,7 @@ export default function App() {
           id="main-content"
           tabIndex={-1}
         >
-          {route !== 'employer-brand' && (
+          {route !== 'employer-brand' && route !== 'question-bank' && (
             <div className="page-heading">
               <div>
                 <h1>{current.title}</h1>
@@ -420,6 +421,8 @@ export default function App() {
             />
           ) : route === 'employer-brand' ? (
             <EmployerBrandPage />
+          ) : route === 'question-bank' ? (
+            <QuestionBank />
           ) : (
             <UnavailablePage route={route} />
           )}
@@ -691,15 +694,16 @@ function UnavailablePage({
 }: {
   route: Exclude<
     Route,
-    'today' | 'jobs' | 'candidates' | 'interviews' | 'ai-screening' | 'employer-brand'
+    | 'today'
+    | 'jobs'
+    | 'candidates'
+    | 'interviews'
+    | 'ai-screening'
+    | 'employer-brand'
+    | 'question-bank'
   >;
 }) {
   const messages: Record<typeof route, { icon: typeof Building2; title: string; body: string }> = {
-    'question-bank': {
-      icon: CircleHelp,
-      title: '面试题库尚未接通',
-      body: '当前已保留原型入口，但还没有可核验的题库记录。',
-    },
     employees: {
       icon: UserRoundCheck,
       title: '在职人员管理尚未接通',

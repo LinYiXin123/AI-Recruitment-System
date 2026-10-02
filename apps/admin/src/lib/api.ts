@@ -107,7 +107,7 @@ export type DashboardData = {
     open_jobs: number;
     jobs: number;
     interviews: number;
-    question_bank: number | null;
+    question_bank: number;
   };
 };
 export type Page<T> = { count: number; next: string | null; previous: string | null; results: T[] };
@@ -134,11 +134,16 @@ function errorText(value: unknown): string {
   if (value && typeof value === 'object') return Object.values(value).map(errorText).join('；');
   return '请求失败，请稍后重试。';
 }
-export async function api<T>(path: string, data?: unknown, signal?: AbortSignal): Promise<T> {
+export async function api<T>(
+  path: string,
+  data?: unknown,
+  signal?: AbortSignal,
+  method?: 'POST' | 'PATCH' | 'DELETE',
+): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`/api/v1/${path}`, {
-      method: data === undefined ? 'GET' : 'POST',
+      method: method ?? (data === undefined ? 'GET' : 'POST'),
       credentials: 'same-origin',
       signal,
       headers:
@@ -158,6 +163,25 @@ export async function api<T>(path: string, data?: unknown, signal?: AbortSignal)
     throw new ApiError(response.status, errorText(body.errors || '服务暂时不可用，请重试。'));
   if (body.csrfToken) csrfToken = body.csrfToken;
   return body as T;
+}
+
+export async function downloadApi(path: string, filename: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`/api/v1/${path}`, { credentials: 'same-origin' });
+  } catch {
+    throw new ApiError(0, '暂时连接不上服务，请检查网络后重新导出。');
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new ApiError(response.status, errorText(body.errors || '导出失败，请重试。'));
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export const jobStatus: Record<string, string> = {
   draft: '草稿',

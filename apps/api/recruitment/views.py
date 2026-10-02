@@ -28,6 +28,7 @@ from .models import (
     Membership,
     ProfileClarification,
     ProfileVersion,
+    QuestionTemplate,
     Task,
 )
 from .serializers import (
@@ -194,7 +195,9 @@ def dashboard(request):
                 "open_jobs": jobs.filter(status=Job.Status.OPEN).count(),
                 "jobs": jobs.count(),
                 "interviews": interviews.count(),
-                "question_bank": None,
+                "question_bank": QuestionTemplate.objects.filter(
+                    organization=m.organization, deleted_at__isnull=True
+                ).count(),
             },
         }
     )
