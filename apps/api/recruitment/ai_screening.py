@@ -256,7 +256,8 @@ def analyze(request):
             system_prompt=SYSTEM_PROMPT,
             user_text=user_text,
             temperature=0.2,
-            max_tokens=8192,
+            # 使用 DeepSeek 官方输出上限；省略参数会回退到非思考模式的 8K 默认值。
+            max_tokens=393_216,
             thinking={"type": "disabled"},
             response_format={"type": "json_object"},
         )

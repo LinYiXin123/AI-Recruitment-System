@@ -176,7 +176,7 @@ def test_analysis_returns_only_verifiable_resume_quotes_and_job_context():
     assert sent_context["resume"] == resume
     assert sent_context["target_job"]["title"] == "产品经理"
     assert sent_context["target_job"]["description"] == job.jd
-    assert complete.call_args.kwargs["max_tokens"] == 8192
+    assert complete.call_args.kwargs["max_tokens"] == 393_216
     assert complete.call_args.kwargs["thinking"] == {"type": "disabled"}
     assert complete.call_args.kwargs["response_format"] == {"type": "json_object"}
 

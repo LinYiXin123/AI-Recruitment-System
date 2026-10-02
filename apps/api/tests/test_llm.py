@@ -24,6 +24,7 @@ def test_openai_compatible_request_uses_bearer_auth_and_returns_chat_content(url
     request = urlopen.call_args.args[0]
     assert request.full_url == "https://model.example/v1/chat/completions"
     assert request.get_header("Authorization") == "Bearer unit-test-token"
+    assert json.loads(request.data)["max_tokens"] == 300
     assert json.loads(request.data)["messages"] == [
         {"role": "system", "content": "system"},
         {"role": "user", "content": "user"},
@@ -72,7 +73,7 @@ def test_optional_json_and_thinking_options_are_sent(urlopen):
         system_prompt="只返回 JSON",
         user_text="内容",
         temperature=0.2,
-        max_tokens=8192,
+        max_tokens=393_216,
         thinking={"type": "disabled"},
         response_format={"type": "json_object"},
     )
@@ -80,4 +81,4 @@ def test_optional_json_and_thinking_options_are_sent(urlopen):
     payload = json.loads(urlopen.call_args.args[0].data)
     assert payload["thinking"] == {"type": "disabled"}
     assert payload["response_format"] == {"type": "json_object"}
-    assert payload["max_tokens"] == 8192
+    assert payload["max_tokens"] == 393_216
