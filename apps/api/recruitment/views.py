@@ -223,7 +223,7 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
 
     def get_queryset(self):
         qs = visible_jobs(member(self.request)).select_related(
-            "department", "owner__user", "approver__user"
+            "department", "owner__user", "approver__user", "enterprise"
         )
         if self.action == "list":
             if search := self.request.query_params.get("search", "").strip():

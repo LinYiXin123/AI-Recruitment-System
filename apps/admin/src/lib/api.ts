@@ -32,6 +32,10 @@ export type Job = {
   department: number;
   department_name: string;
   company_name: string;
+  enterprise_id?: number | null;
+  enterprise_name?: string;
+  enterprise_enabled?: boolean | null;
+  enterprise_deleted?: boolean;
   job_level: string;
   salary_range: string;
   base_salary: string;

@@ -77,7 +77,7 @@ const knownRoutes = new Set<Route>([
 ]);
 
 const routeFromHash = (): Route => {
-  const route = window.location.hash.slice(1) as Route;
+  const route = window.location.hash.slice(1).split('?')[0] as Route;
   return knownRoutes.has(route) ? route : 'today';
 };
 

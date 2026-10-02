@@ -72,12 +72,19 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 
 class JobSerializer(serializers.ModelSerializer):
+    enterprise_id = serializers.IntegerField(read_only=True, allow_null=True)
+    enterprise_name = serializers.CharField(source="enterprise.name", default="")
+    enterprise_enabled = serializers.BooleanField(source="enterprise.enabled", default=None)
+    enterprise_deleted = serializers.SerializerMethodField()
     department_name = serializers.CharField(source="department.name")
     active_profile_number = serializers.IntegerField(source="active_profile.number", default=None)
     owner_name = serializers.SerializerMethodField()
     approver_name = serializers.SerializerMethodField()
     latest_profile = serializers.SerializerMethodField()
     permissions = serializers.SerializerMethodField()
+
+    def get_enterprise_deleted(self, obj):
+        return bool(obj.enterprise_id and obj.enterprise.deleted_at)
 
     def get_owner_name(self, obj):
         return display_name(obj.owner)
@@ -101,6 +108,10 @@ class JobSerializer(serializers.ModelSerializer):
             "department",
             "department_name",
             "company_name",
+            "enterprise_id",
+            "enterprise_name",
+            "enterprise_enabled",
+            "enterprise_deleted",
             "job_level",
             "salary_range",
             "base_salary",

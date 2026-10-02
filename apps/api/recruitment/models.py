@@ -70,6 +70,9 @@ class Job(Timestamped):
     request_id = models.UUIDField(default=uuid.uuid4)
     title = models.CharField(max_length=100)
     company_name = models.CharField(max_length=200, blank=True, default="")
+    enterprise = models.ForeignKey(
+        "Enterprise", on_delete=models.PROTECT, null=True, blank=True, related_name="jobs"
+    )
     job_level = models.CharField(max_length=100, blank=True, default="")
     salary_range = models.CharField(max_length=200, blank=True, default="")
     base_salary = models.CharField(max_length=100, blank=True, default="")
@@ -723,6 +726,47 @@ class EnterpriseEndorsement(Timestamped):
         ordering = ["sort_order", "id"]
 
 
+class EnterpriseIssue(Timestamped):
+    class Status(models.TextChoices):
+        PENDING = "pending", "待核实"
+        ANSWERED = "answered", "待反馈"
+        CLOSED = "closed", "已完成"
+
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
+    enterprise = models.ForeignKey(Enterprise, on_delete=models.PROTECT, related_name="issues")
+    requester = models.ForeignKey(Membership, on_delete=models.PROTECT, related_name="+")
+    assignee = models.ForeignKey(Membership, on_delete=models.PROTECT, related_name="+")
+    request_key = models.UUIDField()
+    request_digest = models.CharField(max_length=64)
+    category = models.CharField(max_length=32, choices=EnterpriseEndorsement.Category.choices)
+    question = models.TextField(max_length=2000)
+    source_reference = models.CharField(max_length=500, blank=True)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    answer = models.TextField(max_length=4000, blank=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+    follow_up_note = models.TextField(max_length=2000, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    version = models.PositiveIntegerField(default=1)
+    endorsement = models.ForeignKey(
+        EnterpriseEndorsement, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    endorsement_snapshot = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "requester", "request_key"],
+                name="one_enterprise_issue_request",
+            ),
+            models.CheckConstraint(condition=Q(version__gte=1), name="positive_issue_version"),
+            models.CheckConstraint(
+                condition=Q(status__in=["pending", "answered", "closed"]),
+                name="valid_enterprise_issue_status",
+            ),
+        ]
+
+
 class QuestionTemplate(Timestamped):
     class Dimension(models.TextChoices):
         PROFESSIONAL = "专业能力", "专业能力"
@@ -782,6 +826,7 @@ class AIScreening(models.Model):
     candidate_name = models.CharField(max_length=120, blank=True)
     job_title = models.CharField(max_length=120, blank=True)
     enterprise_name = models.CharField(max_length=100, blank=True)
+    enterprise_snapshot = models.JSONField(null=True, blank=True)
     request_key = models.UUIDField()
     input_digest = models.CharField(max_length=64)
     result = models.JSONField()

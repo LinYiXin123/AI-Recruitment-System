@@ -9,6 +9,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { api, dateTime } from '@/lib/api';
+import { EnterpriseCoordination } from '@/pages/EnterpriseCoordination';
 
 const categories = [
   { value: 'company_introduction', label: '公司简介' },
@@ -158,7 +159,12 @@ export function EmployerBrandPage() {
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
-  const [selectedEnterpriseId, setSelectedEnterpriseId] = useState<number | null>(null);
+  const [selectedEnterpriseId, setSelectedEnterpriseId] = useState<number | null>(() => {
+    const value = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('enterprise');
+    return value && /^\d+$/.test(value) && Number.isSafeInteger(Number(value))
+      ? Number(value)
+      : null;
+  });
   const [modal, setModal] = useState<ModalState>(null);
   const [busy, setBusy] = useState('');
   const [formError, setFormError] = useState('');
@@ -463,6 +469,16 @@ export function EmployerBrandPage() {
         ]
       : []),
   ];
+
+  const coordination = (
+    <EnterpriseCoordination
+      enterpriseId={selectedEnterprise?.id ?? null}
+      enterprises={[...enterprises, ...deletedEnterprises]}
+      endorsements={endorsements}
+      categories={categories}
+      onOpenEnterprise={setSelectedEnterpriseId}
+    />
+  );
   const visibleDeletedEndorsements = deletedEndorsements.filter(
     (item) => !selectedEnterprise || item.enterprise_id === selectedEnterprise.id,
   );
@@ -620,6 +636,7 @@ export function EmployerBrandPage() {
               );
             })}
           </div>
+          {coordination}
         </>
       ) : (
         <>
@@ -755,6 +772,8 @@ export function EmployerBrandPage() {
               已删除企业」卡片，可随时重新指定所属企业。
             </p>
           </section>
+
+          {coordination}
 
           {orphanGroups.length > 0 && (
             <section className="brand-orphan-panel" aria-labelledby="brand-orphan-title">

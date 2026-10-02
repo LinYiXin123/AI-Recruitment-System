@@ -2771,3 +2771,45 @@ body:has(.enterprise-dialog[open]) { overflow: hidden; }
   .enterprise-form-two-columns { grid-template-columns: minmax(0, 1fr); }
   .enterprise-name-row, .brand-orphan-item { align-items: stretch; flex-direction: column; }
 }
+
+.enterprise-coordination { display: flex; min-width: 0; flex-direction: column; gap: 14px; }
+.enterprise-coordination-panel { min-width: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--card); }
+.enterprise-coordination-panel > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; list-style: none; cursor: pointer; color: var(--foreground); font-size: 14px; }
+.enterprise-coordination-panel > summary::-webkit-details-marker { display: none; }
+.enterprise-coordination-panel > summary > span { display: flex; align-items: center; gap: 8px; }
+.enterprise-coordination-panel > summary svg { width: 16px; height: 16px; color: var(--muted-foreground); }
+.enterprise-coordination-panel[open] > summary > svg { transform: rotate(180deg); }
+.enterprise-coordination-panel > summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: 10px; }
+.enterprise-coordination-body { display: flex; min-width: 0; flex-direction: column; gap: 12px; padding: 14px 16px 16px; border-top: 1px solid var(--border); }
+.enterprise-coordination-toolbar, .enterprise-related-job, .enterprise-issue-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.enterprise-coordination-toolbar > p, .enterprise-coordination-muted { margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; }
+.enterprise-coordination-toolbar > button, .enterprise-related-job > button { flex-shrink: 0; }
+.enterprise-issue-filters, .enterprise-issue-actions, .enterprise-issue-heading > div { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.enterprise-coordination-empty { margin: 0; padding: 18px 0; color: var(--muted-foreground); font-size: 13px; text-align: center; }
+.enterprise-related-job { padding: 12px; border: 1px solid var(--border); border-radius: 9px; }
+.enterprise-related-job > div { min-width: 0; }
+.enterprise-related-job strong { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.enterprise-related-job p { margin: 3px 0 0; color: var(--muted-foreground); font-size: 12px; overflow-wrap: anywhere; }
+.enterprise-issue-list { display: flex; flex-direction: column; gap: 12px; }
+.enterprise-issue-card { display: flex; min-width: 0; flex-direction: column; gap: 9px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; }
+.enterprise-issue-heading > div > span:last-child { color: var(--muted-foreground); font-size: 12px; }
+.enterprise-issue-card h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.enterprise-issue-meta, .enterprise-issue-source { margin: 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.enterprise-issue-source a { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.enterprise-issue-response, .enterprise-issue-context { padding: 10px 12px; border-radius: 8px; background: var(--muted); }
+.enterprise-issue-response strong, .enterprise-issue-context strong { font-size: 12px; font-weight: 500; }
+.enterprise-issue-response p, .enterprise-issue-context p { margin: 5px 0; font-size: 13px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.enterprise-issue-response > span, .enterprise-issue-context > span { color: var(--muted-foreground); font-size: 12px; }
+.enterprise-issue-actions { margin-top: 3px; }
+.enterprise-coordination-dialog .enterprise-dialog-body textarea { min-height: 120px; }
+.enterprise-issue-snapshot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.enterprise-issue-snapshot > summary { width: fit-content; color: var(--primary); font-size: 12px; cursor: pointer; }
+.enterprise-issue-snapshot > div { padding-top: 8px; }
+.enterprise-issue-snapshot > div > span { color: var(--muted-foreground); font-size: 12px; }
+@media (max-width: 600px) {
+  .enterprise-coordination-toolbar { align-items: stretch; flex-direction: column; }
+  .enterprise-coordination-toolbar > button { align-self: flex-start; }
+  .enterprise-coordination-body { padding: 12px; }
+  .enterprise-issue-card { padding: 12px; }
+  .enterprise-related-job { align-items: flex-start; flex-wrap: wrap; }
+}

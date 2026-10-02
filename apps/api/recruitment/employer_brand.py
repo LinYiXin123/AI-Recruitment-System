@@ -1,8 +1,10 @@
+import hashlib
 import json
 import re
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import serializers
@@ -10,9 +12,20 @@ from rest_framework.decorators import api_view
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
-from .access import member
+from .access import can_edit, member, visible_jobs
+from .errors import Conflict
 from .llm import LLMServiceError, chat_completion
-from .models import DepartmentRole, Enterprise, EnterpriseEndorsement, Organization
+from .models import (
+    AuditEvent,
+    DepartmentRole,
+    Enterprise,
+    EnterpriseEndorsement,
+    EnterpriseIssue,
+    Job,
+    Membership,
+    Organization,
+)
+from .serializers import VersionSerializer, display_name
 
 MAX_ENTERPRISES = 20
 SUGGESTION_PROMPT = "\n".join(
@@ -70,8 +83,37 @@ class EndorsementInput(serializers.Serializer):
     enabled = serializers.BooleanField(required=False, default=True)
 
 
+class JobEnterpriseInput(VersionSerializer):
+    job_id = serializers.IntegerField(min_value=1)
+    enterprise_id = serializers.IntegerField(allow_null=True, min_value=1)
+
+
+class IssueInput(serializers.Serializer):
+    request_key = serializers.UUIDField()
+    enterprise_id = serializers.IntegerField(min_value=1)
+    category = serializers.ChoiceField(choices=EnterpriseEndorsement.Category.choices)
+    question = serializers.CharField(max_length=2000)
+    assignee_id = serializers.IntegerField(min_value=1)
+    source_reference = serializers.CharField(max_length=500, allow_blank=True, default="")
+
+
+class IssueAnswerInput(VersionSerializer):
+    answer = serializers.CharField(max_length=4000)
+    endorsement_id = serializers.IntegerField(allow_null=True, min_value=1, default=None)
+
+
+class IssueCloseInput(VersionSerializer):
+    follow_up_note = serializers.CharField(max_length=2000)
+
+
+class IssueReassignInput(VersionSerializer):
+    assignee_id = serializers.IntegerField(min_value=1)
+
+
 def require_editor(request):
     membership = member(request)
+    if not membership.user.is_active:
+        raise PermissionDenied("当前账号已停用。")
     if not DepartmentRole.objects.filter(
         membership=membership,
         department__organization=membership.organization,
@@ -119,6 +161,256 @@ def endorsement_data(item):
         "deleted_at": item.deleted_at,
         "updated_at": item.updated_at,
     }
+
+
+def endorsement_snapshot(item):
+    return {
+        "id": item.id,
+        "category": item.category,
+        "category_label": item.get_category_display(),
+        "title": item.title[:200],
+        "body": item.body[:1500],
+        "updated_at": item.updated_at.isoformat(),
+    }
+
+
+def enterprise_snapshot(enterprise):
+    rows = {}
+    for item in enterprise.endorsements.filter(
+        organization=enterprise.organization, enabled=True, deleted_at__isnull=True
+    ).order_by("sort_order", "id"):
+        if item.title.strip() or item.body.strip():
+            rows.setdefault(item.category, endorsement_snapshot(item))
+    return {
+        "id": enterprise.id,
+        "name": enterprise.name,
+        "industry": enterprise.industry,
+        "introduction": enterprise.introduction[:3000],
+        "updated_at": enterprise.updated_at.isoformat(),
+        "endorsements": list(rows.values()),
+    }
+
+
+def job_enterprise_data(job, membership):
+    enterprise = job.enterprise
+    return {
+        "id": job.id,
+        "title": job.title,
+        "company_name": job.company_name,
+        "enterprise_id": job.enterprise_id,
+        "enterprise_name": enterprise.name if enterprise else "",
+        "enterprise_enabled": enterprise.enabled if enterprise else None,
+        "enterprise_deleted": bool(enterprise and enterprise.deleted_at),
+        "version": job.version,
+        "can_edit": job.status != Job.Status.CLOSED and can_edit(membership, job),
+    }
+
+
+def issue_data(issue):
+    return {
+        "id": issue.id,
+        "enterprise_id": issue.enterprise_id,
+        "enterprise_name": issue.enterprise.name,
+        "category": issue.category,
+        "question": issue.question,
+        "source_reference": issue.source_reference,
+        "status": issue.status,
+        "requester_id": issue.requester_id,
+        "requester_name": display_name(issue.requester),
+        "assignee_id": issue.assignee_id,
+        "assignee_name": display_name(issue.assignee),
+        "answer": issue.answer,
+        "answered_at": issue.answered_at,
+        "follow_up_note": issue.follow_up_note,
+        "closed_at": issue.closed_at,
+        "version": issue.version,
+        "created_at": issue.created_at,
+        "updated_at": issue.updated_at,
+        "endorsement_id": issue.endorsement_id,
+        "endorsement_snapshot": issue.endorsement_snapshot,
+    }
+
+
+def issue_assignees(organization):
+    return Membership.objects.filter(
+        organization=organization,
+        active=True,
+        user__is_active=True,
+        roles__department__organization=organization,
+        roles__role__in=[DepartmentRole.Role.HR, DepartmentRole.Role.SUPERVISOR],
+    ).distinct()
+
+
+def visible_issues(membership):
+    return EnterpriseIssue.objects.filter(organization=membership.organization).filter(
+        Q(requester=membership) | Q(assignee=membership)
+    )
+
+
+@api_view(["GET"])
+def coordination(request):
+    membership = require_editor(request)
+    jobs = visible_jobs(membership).select_related("enterprise").prefetch_related("collaborators")
+    issues = visible_issues(membership).select_related(
+        "enterprise", "requester__user", "assignee__user"
+    )
+    return Response(
+        {
+            "current_member_id": membership.id,
+            "jobs": [job_enterprise_data(job, membership) for job in jobs],
+            "assignees": [
+                {"id": person.id, "name": display_name(person)}
+                for person in issue_assignees(membership.organization).select_related("user")
+            ],
+            "issues": [issue_data(issue) for issue in issues],
+        }
+    )
+
+
+@api_view(["GET"])
+def ai_context(request, pk):
+    membership = require_editor(request)
+    enterprise = get_object_or_404(
+        Enterprise,
+        pk=pk,
+        organization=membership.organization,
+        enabled=True,
+        deleted_at__isnull=True,
+    )
+    return Response(enterprise_snapshot(enterprise))
+
+
+@api_view(["POST"])
+@transaction.atomic
+def link_job(request):
+    membership = require_editor(request)
+    serializer = JobEnterpriseInput(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+    job = get_object_or_404(
+        Job.objects.select_for_update(), pk=data["job_id"], pk__in=visible_jobs(membership)
+    )
+    membership = require_editor(request)
+    get_object_or_404(visible_jobs(membership), pk=job.pk)
+    if not can_edit(membership, job):
+        raise PermissionDenied("仅职位的 HR 负责人或协作者可关联企业。")
+    if job.status == Job.Status.CLOSED:
+        raise ValidationError("职位已关闭，请先重新开启后再关联企业。")
+    if job.version != data["version"]:
+        raise Conflict()
+    enterprise = None
+    if data["enterprise_id"] is not None:
+        enterprise = get_object_or_404(
+            Enterprise.objects.select_for_update(),
+            pk=data["enterprise_id"],
+            organization=membership.organization,
+            deleted_at__isnull=True,
+        )
+    job.enterprise = enterprise
+    if enterprise:
+        job.company_name = enterprise.name
+    job.version += 1
+    job.save(update_fields=["enterprise", "company_name", "version", "updated_at"])
+    AuditEvent.objects.create(
+        job=job,
+        actor=membership,
+        action="关联企业档案" if enterprise else "解除企业关联",
+        job_version=job.version,
+        note=enterprise.name if enterprise else "保留原公司名称。",
+    )
+    return Response(job_enterprise_data(job, membership))
+
+
+@api_view(["POST"])
+@transaction.atomic
+def create_issue(request):
+    membership = require_editor(request)
+    serializer = IssueInput(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+    digest = hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
+    # 同一成员的创建请求串行，确保并发重试只产生一条问题。
+    Membership.objects.select_for_update().get(pk=membership.pk)
+    membership = require_editor(request)
+    existing = EnterpriseIssue.objects.filter(
+        organization=membership.organization,
+        requester=membership,
+        request_key=data["request_key"],
+    ).first()
+    if existing:
+        if existing.request_digest != digest:
+            raise Conflict("这次问题已经提交，输入已变化，请重新发起。")
+        return Response(issue_data(existing))
+    enterprise = get_object_or_404(
+        Enterprise.objects.select_for_update(),
+        pk=data["enterprise_id"],
+        organization=membership.organization,
+        deleted_at__isnull=True,
+    )
+    assignee = get_object_or_404(issue_assignees(membership.organization), pk=data["assignee_id"])
+    issue = EnterpriseIssue.objects.create(
+        organization=membership.organization,
+        requester=membership,
+        enterprise=enterprise,
+        assignee=assignee,
+        request_digest=digest,
+        **{
+            key: value for key, value in data.items() if key not in ["enterprise_id", "assignee_id"]
+        },
+    )
+    return Response(issue_data(issue), status=201)
+
+
+@api_view(["POST"])
+@transaction.atomic
+def update_issue(request, pk, action):
+    membership = require_editor(request)
+    input_class = {
+        "answer": IssueAnswerInput,
+        "close": IssueCloseInput,
+        "reassign": IssueReassignInput,
+    }[action]
+    serializer = input_class(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    data = serializer.validated_data
+    issue = get_object_or_404(visible_issues(membership).select_for_update(), pk=pk)
+    membership = require_editor(request)
+    actor_id = issue.assignee_id if action == "answer" else issue.requester_id
+    if actor_id != membership.id:
+        raise PermissionDenied("仅问题负责人可答复；提问人可更换负责人或确认已反馈。")
+    if issue.version != data["version"]:
+        raise Conflict()
+    expected_status = "answered" if action == "close" else "pending"
+    if issue.status != expected_status:
+        raise Conflict("问题状态已变化，请刷新后继续。")
+    if action == "answer":
+        endorsement = None
+        if data["endorsement_id"] is not None:
+            endorsement = get_object_or_404(
+                EnterpriseEndorsement.objects.select_for_update(),
+                pk=data["endorsement_id"],
+                organization=membership.organization,
+                enterprise=issue.enterprise,
+                deleted_at__isnull=True,
+            )
+            if endorsement.updated_at < issue.created_at:
+                raise ValidationError("请先补充或更新对应背书内容，再将它关联到答复。")
+        issue.answer = data["answer"]
+        issue.answered_at = timezone.now()
+        issue.status = "answered"
+        issue.endorsement = endorsement
+        issue.endorsement_snapshot = endorsement_snapshot(endorsement) if endorsement else None
+    elif action == "close":
+        issue.follow_up_note = data["follow_up_note"]
+        issue.closed_at = timezone.now()
+        issue.status = "closed"
+    else:
+        issue.assignee = get_object_or_404(
+            issue_assignees(membership.organization), pk=data["assignee_id"]
+        )
+    issue.version += 1
+    issue.save()
+    return Response(issue_data(issue))
 
 
 @api_view(["GET"])

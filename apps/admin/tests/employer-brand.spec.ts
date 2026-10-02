@@ -89,6 +89,8 @@ async function openBrand(page: Page, withOrphan = false) {
           departments: [],
         },
       });
+    } else if (path === '/api/v1/employer-brand/coordination/') {
+      await route.fulfill({ json: { current_member_id: 1, jobs: [], assignees: [], issues: [] } });
     } else if (path === '/api/v1/employer-brand/') {
       state.loads += 1;
       await route.fulfill({
