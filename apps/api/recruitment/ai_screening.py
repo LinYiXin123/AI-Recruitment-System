@@ -252,12 +252,12 @@ def _saved_questions(screening):
     return QuestionTemplate.objects.filter(
         organization=screening.organization,
         request_key__in=_question_keys(screening),
-        deleted_at__isnull=True,
     ).order_by("id")
 
 
 def _report_data(screening, detail=True):
     result = screening.result
+    saved_questions = list(_saved_questions(screening).values_list("deleted_at", flat=True))
     data = {
         "id": screening.id,
         "code": f"AIS-{screening.id:04d}",
@@ -273,7 +273,8 @@ def _report_data(screening, detail=True):
         "conclusion": result.get("conclusion", "待复核" if screening.job_id else "通用初判"),
         "follow_up_direction": result.get("follow_up_direction", ""),
         "question_count": len(result.get("questions", [])),
-        "saved_question_count": _saved_questions(screening).count(),
+        "questions_saved": bool(saved_questions),
+        "saved_question_count": sum(deleted_at is None for deleted_at in saved_questions),
     }
     if detail:
         data.update(
@@ -342,7 +343,7 @@ def analyze(request):
             .prefetch_related("active_profile__requirements"),
             pk=data["job_id"],
         )
-    elif application:
+    elif application and "job_id" not in data:
         job = application.job
         if job.active_profile_id:
             job = (
@@ -565,5 +566,9 @@ def save_questions(request, pk):
                 QuestionTemplateEvent.objects.create(
                     question=saved, actor=current_member, action="created", version=saved.version
                 )
-        ids = list(_saved_questions(screening).values_list("id", flat=True))
-    return Response({"saved_question_count": len(ids), "question_ids": ids})
+        ids = list(
+            _saved_questions(screening).filter(deleted_at__isnull=True).values_list("id", flat=True)
+        )
+    return Response(
+        {"questions_saved": True, "saved_question_count": len(ids), "question_ids": ids}
+    )

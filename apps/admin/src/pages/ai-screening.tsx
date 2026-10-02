@@ -14,7 +14,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
-import { api, type Job, type Page } from '@/lib/api';
+import { ApiError, api, type Job, type Page } from '@/lib/api';
 import type { Application } from '@/lib/intake';
 
 type ApplicationOption = Pick<Application, 'id' | 'candidate' | 'name'>;
@@ -29,6 +29,7 @@ type ScreeningResult = {
   job_title?: string;
   enterprise_name?: string;
   saved_question_count?: number;
+  questions_saved?: boolean;
   match_score?: number | null;
   conclusion?: string;
   follow_up_direction?: string;
@@ -210,6 +211,7 @@ export function AiScreeningPage() {
   const [resumeNotice, setResumeNotice] = useState('');
   const [resumeError, setResumeError] = useState('');
   const [analysis, setAnalysis] = useState<ScreeningResult | null>(null);
+  const [viewingHistory, setViewingHistory] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -231,10 +233,13 @@ export function AiScreeningPage() {
   const resumeInput = useRef<HTMLInputElement>(null);
   const resumeEditor = useRef<HTMLDivElement>(null);
   const analysisRequest = useRef<AbortController | null>(null);
+  const historyRequest = useRef<AbortController | null>(null);
+  const candidateResumeRequest = useRef<AbortController | null>(null);
   const resultRegion = useRef<HTMLElement>(null);
   const analysisRetry = useRef<{ input: string; key: string } | null>(null);
   const confirmationDialog = useRef<HTMLDialogElement>(null);
   const confirmationBusy = useRef(false);
+  const questionsSaved = analysis?.questions_saved ?? (analysis?.saved_question_count ?? 0) > 0;
 
   useEffect(() => {
     const dialog = confirmationDialog.current;
@@ -242,7 +247,14 @@ export function AiScreeningPage() {
     if (!confirmation && dialog?.open) dialog.close();
   }, [confirmation]);
 
-  useEffect(() => () => analysisRequest.current?.abort(), []);
+  useEffect(
+    () => () => {
+      analysisRequest.current?.abort();
+      historyRequest.current?.abort();
+      candidateResumeRequest.current?.abort();
+    },
+    [],
+  );
   useEffect(() => setCopyNotice(''), [analysis]);
   useEffect(() => {
     setQuestionNotice('');
@@ -269,6 +281,13 @@ export function AiScreeningPage() {
     if (!resumeEditor.current) return;
     if (markup) resumeEditor.current.innerHTML = sanitizeResumeMarkup(markup);
     else resumeEditor.current.replaceChildren(linkifyResumeText(text));
+  }, []);
+
+  const cancelHistoryView = useCallback(() => {
+    if (!historyRequest.current) return;
+    historyRequest.current.abort();
+    historyRequest.current = null;
+    setHistoryBusy(false);
   }, []);
 
   useEffect(() => {
@@ -314,26 +333,32 @@ export function AiScreeningPage() {
       return;
     }
     const controller = new AbortController();
+    candidateResumeRequest.current = controller;
     setLoadingResume(true);
     setAnalysis(null);
+    setViewingHistory(false);
     setAnalysisError('');
-    setResumeContent('');
     setResumeNotice('正在读取候选人的简历原文…');
     api<Application>(`applications/${selectedApplication}/`, undefined, controller.signal)
       .then((application) => {
+        if (controller.signal.aborted) return;
         const source = application.resumes.find((item) => item.parse?.text.trim())?.parse?.text;
         if (source) {
           setResumeContent(source);
           setResumeNotice('已填入候选人的简历原文，可继续修改。');
         } else {
+          setResumeContent('');
           setResumeNotice('暂时没有可用的简历原文，请直接粘贴简历内容。');
         }
       })
       .catch((error: Error) => {
-        if (error.name !== 'AbortError')
+        if (!controller.signal.aborted && error.name !== 'AbortError') {
+          setResumeContent('');
           setResumeNotice('简历原文暂时无法读取，请直接粘贴简历内容。');
+        }
       })
       .finally(() => {
+        if (candidateResumeRequest.current === controller) candidateResumeRequest.current = null;
         if (!controller.signal.aborted) setLoadingResume(false);
       });
     return () => controller.abort();
@@ -341,6 +366,7 @@ export function AiScreeningPage() {
 
   async function importResume(file?: File) {
     if (!file || analyzing || importing || loadingResume) return;
+    cancelHistoryView();
     setResumeNotice('');
     setResumeError('');
     if (!file.size || file.size > 10 * 1024 * 1024) {
@@ -351,8 +377,6 @@ export function AiScreeningPage() {
       setResumeError('目前支持 PDF、DOCX、TXT 和 MD；图片、扫描件及旧版 DOC 暂不支持识别。');
       return;
     }
-    setAnalysis(null);
-    setAnalysisError('');
     setImporting(true);
     try {
       if (/\.(txt|md)$/i.test(file.name)) {
@@ -370,6 +394,9 @@ export function AiScreeningPage() {
           `已识别 ${file.name}，共 ${result.text.length.toLocaleString()} 字，请核对后开始分析。`,
         );
       }
+      setAnalysis(null);
+      setViewingHistory(false);
+      setAnalysisError('');
     } catch (error) {
       setResumeNotice('');
       setResumeError((error as Error).message || '附件识别失败，请重试或直接粘贴简历原文。');
@@ -379,6 +406,10 @@ export function AiScreeningPage() {
   }
 
   function clearForm() {
+    cancelHistoryView();
+    candidateResumeRequest.current?.abort();
+    candidateResumeRequest.current = null;
+    setLoadingResume(false);
     analysisRetry.current = null;
     setSelectedCandidate('');
     setSelectedApplication(null);
@@ -388,6 +419,7 @@ export function AiScreeningPage() {
     setResumeNotice('');
     setResumeError('');
     setAnalysis(null);
+    setViewingHistory(false);
     setAnalysisError('');
     if (resumeInput.current) resumeInput.current.value = '';
   }
@@ -430,12 +462,16 @@ export function AiScreeningPage() {
           controller.signal,
         ),
       );
+      setViewingHistory(false);
       analysisRetry.current = null;
       setHistoryPage(1);
       setHistoryRevision((value) => value + 1);
       resultRegion.current?.scrollTo({ top: 0 });
     } catch (error) {
-      if (!controller.signal.aborted) setAnalysisError((error as Error).message);
+      if (!controller.signal.aborted) {
+        if (error instanceof ApiError && error.status === 409) analysisRetry.current = null;
+        setAnalysisError((error as Error).message);
+      }
     } finally {
       if (analysisRequest.current === controller) analysisRequest.current = null;
       if (!controller.signal.aborted) setAnalyzing(false);
@@ -443,19 +479,30 @@ export function AiScreeningPage() {
   }
 
   async function viewHistory(row: ScreeningHistory) {
-    if (historyBusy || analyzing || savingQuestions) return;
+    if (historyBusy || analyzing || savingQuestions || importing || loadingResume) return;
+    const controller = new AbortController();
+    historyRequest.current = controller;
     setHistoryBusy(true);
     setHistoryError('');
     try {
-      const result = await api<ScreeningResult>(`ai-screenings/${row.id}/`);
+      const result = await api<ScreeningResult>(
+        `ai-screenings/${row.id}/`,
+        undefined,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
       setAnalysis(result);
+      setViewingHistory(true);
       setAnalysisError('');
       resultRegion.current?.scrollTo({ top: 0 });
       resultRegion.current?.focus();
     } catch (error) {
-      setHistoryError((error as Error).message);
+      if (!controller.signal.aborted) setHistoryError((error as Error).message);
     } finally {
-      setHistoryBusy(false);
+      if (historyRequest.current === controller) {
+        historyRequest.current = null;
+        setHistoryBusy(false);
+      }
     }
   }
 
@@ -465,7 +512,10 @@ export function AiScreeningPage() {
     setHistoryError('');
     try {
       await api(`ai-screenings/${row.id}/`, {}, undefined, 'DELETE');
-      if (analysis?.id === row.id) setAnalysis(null);
+      if (analysis?.id === row.id) {
+        setAnalysis(null);
+        setViewingHistory(false);
+      }
       if (history?.items.length === 1 && historyPage > 1) setHistoryPage((value) => value - 1);
       else setHistoryRevision((value) => value + 1);
       setConfirmation(null);
@@ -477,7 +527,16 @@ export function AiScreeningPage() {
   }
 
   async function saveQuestions() {
-    if (!analysis?.id || !analysis.questions.length || savingQuestions || analyzing || historyBusy)
+    if (
+      !analysis?.id ||
+      !analysis.questions.length ||
+      questionsSaved ||
+      savingQuestions ||
+      analyzing ||
+      historyBusy ||
+      importing ||
+      loadingResume
+    )
       return;
     const reportId = analysis.id;
     setSavingQuestions(true);
@@ -490,7 +549,7 @@ export function AiScreeningPage() {
       );
       setAnalysis((current) =>
         current?.id === reportId
-          ? { ...current, saved_question_count: result.saved_question_count }
+          ? { ...current, saved_question_count: result.saved_question_count, questions_saved: true }
           : current,
       );
       setQuestionNotice(
@@ -573,14 +632,22 @@ export function AiScreeningPage() {
                   dropdownClassName="candidate-select-dropdown"
                   onChange={(value) => {
                     const candidateId = typeof value === 'string' ? value : '';
+                    if (candidateId === selectedCandidate) return;
+                    cancelHistoryView();
+                    candidateResumeRequest.current?.abort();
+                    candidateResumeRequest.current = null;
+                    setLoadingResume(false);
                     const option = candidates.find((item) => String(item.id) === candidateId);
                     setSelectedCandidate(candidateId);
                     setSelectedApplication(option?.applicationId ?? null);
                     setAnalysis(null);
+                    setViewingHistory(false);
                     setAnalysisError('');
+                    setResumeNotice('');
                     setResumeError('');
                   }}
                 >
+                  <Select.Option value="">请选择候选人（可留空）</Select.Option>
                   {candidates.map((candidate) => (
                     <Select.Option key={candidate.id} value={String(candidate.id)}>
                       {candidate.name}
@@ -602,11 +669,14 @@ export function AiScreeningPage() {
                   clickToHide
                   dropdownClassName="candidate-select-dropdown"
                   onChange={(value) => {
+                    cancelHistoryView();
                     setSelectedJob(typeof value === 'string' ? value : '');
                     setAnalysis(null);
+                    setViewingHistory(false);
                     setAnalysisError('');
                   }}
                 >
+                  <Select.Option value="">请选择职位（可留空）</Select.Option>
                   {jobs.map((job) => (
                     <Select.Option key={job.id} value={String(job.id)}>
                       {job.title}
@@ -627,10 +697,12 @@ export function AiScreeningPage() {
                   clickToHide
                   dropdownClassName="candidate-select-dropdown"
                   onChange={(value) => {
+                    cancelHistoryView();
                     setSelectedEnterprise(
                       typeof value === 'string' && value !== 'general' ? value : '',
                     );
                     setAnalysis(null);
+                    setViewingHistory(false);
                     setAnalysisError('');
                   }}
                 >
@@ -711,10 +783,12 @@ export function AiScreeningPage() {
                     suppressContentEditableWarning
                     spellCheck
                     onInput={(event) => {
+                      cancelHistoryView();
                       setResume(resumeTextFromEditor(event.currentTarget));
                       setResumeNotice('');
                       setResumeError('');
                       setAnalysis(null);
+                      setViewingHistory(false);
                       setAnalysisError('');
                     }}
                     onBlur={(event) => {
@@ -758,9 +832,19 @@ export function AiScreeningPage() {
               </Field>
             </FieldGroup>
             <div className="ai-screening-actions">
-              <Button type="submit" size="lg" disabled={analyzing || importing || loadingResume}>
+              <Button
+                type="submit"
+                size="lg"
+                disabled={analyzing || importing || loadingResume || historyBusy || savingQuestions}
+              >
                 <Sparkles data-icon="inline-start" />
-                {analyzing ? '正在分析…' : analysis ? '重新分析' : '开始分析'}
+                {analyzing
+                  ? '正在分析…'
+                  : viewingHistory
+                    ? '分析当前简历'
+                    : analysis
+                      ? '重新分析'
+                      : '开始分析'}
               </Button>
               <Button
                 type="button"
@@ -803,7 +887,9 @@ export function AiScreeningPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={analyzing || importing || loadingResume}
+                      disabled={
+                        analyzing || importing || loadingResume || historyBusy || savingQuestions
+                      }
                       onClick={() => void startAnalysis()}
                     >
                       <RotateCcw data-icon="inline-start" />
@@ -815,6 +901,16 @@ export function AiScreeningPage() {
             )}
             {analysis ? (
               <div className="ai-report">
+                {viewingHistory && (
+                  <Alert role="status">
+                    <AlertTitle>历史分析记录 {analysis.code || analysis.id}</AlertTitle>
+                    <AlertDescription>
+                      <p>候选人：{analysis.candidate_name || '未关联候选人'}</p>
+                      <p>目标企业：{analysis.enterprise_name || '未指定企业'}</p>
+                      <p>仅查看历史；左侧输入未替换</p>
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div className="ai-report-overview">
                   <div className="ai-report-score">
                     <Progress
@@ -910,7 +1006,9 @@ export function AiScreeningPage() {
                         analyzing ||
                         historyBusy ||
                         savingQuestions ||
-                        (analysis.saved_question_count ?? 0) > 0
+                        importing ||
+                        loadingResume ||
+                        questionsSaved
                       }
                       onClick={() => {
                         setQuestionError('');
@@ -919,8 +1017,10 @@ export function AiScreeningPage() {
                     >
                       {savingQuestions
                         ? '正在存入…'
-                        : (analysis.saved_question_count ?? 0) > 0
-                          ? `已存入题库（${analysis.saved_question_count} 题）`
+                        : questionsSaved
+                          ? (analysis.saved_question_count ?? 0) > 0
+                            ? `已存入题库（${analysis.saved_question_count} 题）`
+                            : '已入库（题库中的题目已删除）'
                           : '一键存入面试题库'}
                     </Button>
                     <Button
@@ -935,7 +1035,7 @@ export function AiScreeningPage() {
                     </Button>
                   </div>
                   {questionError && <ErrorNotice message={questionError} />}
-                  {questionNotice && (
+                  {(questionNotice || questionsSaved) && (
                     <p className="ai-screening-notice" role="status">
                       {questionNotice} <a href="#question-bank">查看面试题库</a>
                     </p>
@@ -1038,7 +1138,13 @@ export function AiScreeningPage() {
                           <Button
                             variant="link"
                             size="sm"
-                            disabled={historyBusy || analyzing || savingQuestions}
+                            disabled={
+                              historyBusy ||
+                              analyzing ||
+                              savingQuestions ||
+                              importing ||
+                              loadingResume
+                            }
                             onClick={() => void viewHistory(row)}
                           >
                             查看

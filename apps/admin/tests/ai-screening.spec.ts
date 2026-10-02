@@ -328,6 +328,12 @@ test('历史支持服务端分页、刷新后查看与确认删除，失败保�
   await lastRow.getByRole('button', { name: '查看', exact: true }).click();
   const result = page.locator('.ai-result-content');
   await expect(result).toContainText(last.summary);
+  await expect(result.getByRole('status')).toContainText(`历史分析记录 ${last.code}`);
+  await expect(result.getByRole('status')).toContainText(`候选人：${last.candidate_name}`);
+  await expect(result.getByRole('status')).toContainText('目标企业：未指定企业');
+  await expect(result.getByRole('status')).toContainText('仅查看历史；左侧输入未替换');
+  await expect(page.getByRole('button', { name: '分析当前简历', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '重新分析', exact: true })).toHaveCount(0);
   await expect(result).toContainText('通用初判');
   await expect(result.locator('.ai-report-score')).toContainText('—');
   await expect(result).not.toContainText('undefined');
@@ -362,6 +368,243 @@ test('历史支持服务端分页、刷新后查看与确认删除，失败保�
   await expect(history.getByRole('button', { name: '上一页' })).toBeDisabled();
   await expect(history.getByRole('button', { name: '下一页' })).toBeDisabled();
   expect(deleteRequests).toBe(2);
+});
+
+test.describe('初面输入与历史记录隔离', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/v1/applications/?page=*', (route) =>
+      route.fulfill({
+        json: {
+          results: [{ id: 101, candidate: 201, name: '虚构候选人' }],
+          next: null,
+          count: 1,
+          previous: null,
+        },
+      }),
+    );
+    await page.route('**/api/v1/jobs/?page=*', (route) =>
+      route.fulfill({
+        json: {
+          results: [{ id: 301, title: '虚构目标职位' }],
+          next: null,
+          count: 1,
+          previous: null,
+        },
+      }),
+    );
+    await page.route('**/api/v1/employer-brand/enterprises/ai-options/', (route) =>
+      route.fulfill({ json: [] }),
+    );
+  });
+
+  for (const action of ['清空', '编辑', '导入', '切换候选人', '离开页面'] as const) {
+    test(`${action}后取消历史请求，迟到结果不覆盖当前输入`, async ({ page }) => {
+      let releaseHistory = () => {};
+      const pending = new Promise<void>((resolve) => {
+        releaseHistory = resolve;
+      });
+      await page.route(screeningCollection, (route) =>
+        route.fulfill({
+          json: { items: [savedAnalysis], count: 1, page: 1, page_size: 20 },
+        }),
+      );
+      await page.route('**/api/v1/ai-screenings/901/', async (route) => {
+        await pending;
+        await route.fulfill({ json: savedAnalysis });
+      });
+      await page.route('**/api/v1/applications/101/', (route) =>
+        route.fulfill({ json: { resumes: [{ parse: { text: '虚构候选人的新简历。' } }] } }),
+      );
+      await login(page);
+      await page.getByRole('link', { name: 'AI 初面' }).click();
+      const editor = page.getByRole('textbox', { name: '简历内容' });
+      await editor.fill('原有虚构简历。');
+      const historyRequest = page.waitForRequest('**/api/v1/ai-screenings/901/');
+      await page
+        .getByRole('region', { name: '历史分析记录' })
+        .getByRole('button', { name: '查看', exact: true })
+        .click();
+      const request = await historyRequest;
+      const cancelled = page.waitForEvent('requestfailed', (failed) => failed === request);
+      let expectedText = '';
+      if (action === '清空') {
+        await page.getByRole('button', { name: '清空', exact: true }).click();
+      } else if (action === '编辑') {
+        expectedText = '正在编辑的新虚构简历。';
+        await editor.fill(expectedText);
+      } else if (action === '导入') {
+        expectedText = '刚导入的新虚构简历。';
+        await page.getByLabel('导入简历附件').setInputFiles({
+          name: 'new-resume.txt',
+          mimeType: 'text/plain',
+          buffer: Buffer.from(expectedText),
+        });
+      } else if (action === '切换候选人') {
+        expectedText = '虚构候选人的新简历。';
+        await page.locator('#ai-candidate').click();
+        await page.getByRole('option', { name: '虚构候选人', exact: true }).click();
+      } else {
+        await page.getByRole('link', { name: '今天', exact: true }).click();
+      }
+      await cancelled;
+      releaseHistory();
+      if (action === '离开页面') {
+        await page.getByRole('link', { name: 'AI 初面' }).click();
+      }
+      await expect(editor).toHaveText(expectedText);
+      await expect(page.locator('.ai-result-content')).not.toContainText(savedAnalysis.summary);
+      await expect(page.getByText('尚未发起分析', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: '开始分析', exact: true })).toBeEnabled();
+    });
+  }
+
+  test('候选人和职位可分别取消，保留简历并中断候选人读取', async ({ page }) => {
+    let releaseResume = () => {};
+    const pending = new Promise<void>((resolve) => {
+      releaseResume = resolve;
+    });
+    await page.route('**/api/v1/applications/101/', async (route) => {
+      await pending;
+      await route.fulfill({
+        json: { resumes: [{ parse: { text: '不应迟到覆盖的候选人简历。' } }] },
+      });
+    });
+    let submitted: Record<string, unknown> | undefined;
+    await page.route(screeningCollection, (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      submitted = route.request().postDataJSON();
+      return route.fulfill({ json: savedAnalysis });
+    });
+    await login(page);
+    await page.getByRole('link', { name: 'AI 初面' }).click();
+    const editor = page.getByRole('textbox', { name: '简历内容' });
+    await editor.fill('需要保留的虚构简历。');
+    await page.locator('#ai-job').click();
+    await page.getByRole('option', { name: '虚构目标职位', exact: true }).click();
+    const sourceRequest = page.waitForRequest('**/api/v1/applications/101/');
+    await page.locator('#ai-candidate').click();
+    await page.getByRole('option', { name: '虚构候选人', exact: true }).click();
+    const request = await sourceRequest;
+    const cancelled = page.waitForEvent('requestfailed', (failed) => failed === request);
+    await page.locator('#ai-candidate').click();
+    await page.getByRole('option', { name: '请选择候选人（可留空）', exact: true }).click();
+    await cancelled;
+    releaseResume();
+    await expect(editor).toHaveText('需要保留的虚构简历。');
+    await expect(page.locator('#ai-job')).toContainText('虚构目标职位');
+    await page.locator('#ai-job').click();
+    await page.getByRole('option', { name: '请选择职位（可留空）', exact: true }).click();
+    await expect(editor).toHaveText('需要保留的虚构简历。');
+    await page.getByRole('button', { name: '开始分析', exact: true }).click();
+    await expect(page.locator('.ai-result-content')).toContainText(savedAnalysis.summary);
+    expect(submitted).toMatchObject({
+      application_id: null,
+      job_id: null,
+      resume: '需要保留的虚构简历。',
+    });
+  });
+});
+
+test('网络失败沿用请求编号，编号冲突后下次手动重试使用新编号', async ({ page }) => {
+  const keys: string[] = [];
+  await page.route(screeningCollection, (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    keys.push(route.request().postDataJSON().request_key);
+    if (keys.length === 1) return route.abort('failed');
+    if (keys.length === 2)
+      return route.fulfill({
+        status: 409,
+        json: { errors: { detail: '请求编号已失效，请重试。' } },
+      });
+    return route.fulfill({ json: savedAnalysis });
+  });
+  await login(page);
+  await page.getByRole('link', { name: 'AI 初面' }).click();
+  await page.getByRole('textbox', { name: '简历内容' }).fill('虚构简历：开发内部检索工具。');
+  await page.getByRole('button', { name: '开始分析', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('暂时连接不上服务');
+  await page.getByRole('button', { name: '重试分析', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('请求编号已失效');
+  await page.getByRole('button', { name: '重试分析', exact: true }).click();
+  await expect(page.locator('.ai-result-content')).toContainText(savedAnalysis.summary);
+  expect(keys).toHaveLength(3);
+  expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+  expect(keys[1]).toBe(keys[0]);
+  expect(keys[2]).not.toBe(keys[1]);
+});
+
+test('附件识别失败保留简历和已有报告，成功替换附件才清除报告', async ({ page }) => {
+  let releaseImport = () => {};
+  const pending = new Promise<void>((resolve) => {
+    releaseImport = resolve;
+  });
+  await page.route(screeningCollection, (route) =>
+    route.request().method() === 'POST' ? route.fulfill({ json: savedAnalysis }) : route.fallback(),
+  );
+  await page.route('**/api/v1/ai-screenings/extract/', async (route) => {
+    await pending;
+    await route.fulfill({ status: 503, json: { errors: { detail: '附件识别暂时失败。' } } });
+  });
+  await login(page);
+  await page.getByRole('link', { name: 'AI 初面' }).click();
+  const editor = page.getByRole('textbox', { name: '简历内容' });
+  await editor.fill('原有虚构简历：开发内部检索工具。');
+  await page.getByRole('button', { name: '开始分析', exact: true }).click();
+  const result = page.locator('.ai-result-content');
+  await expect(result).toContainText(savedAnalysis.summary);
+  await page.getByLabel('导入简历附件').setInputFiles({
+    name: 'failed.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('fake PDF'),
+  });
+  await expect(result.getByRole('button', { name: '一键存入面试题库' })).toBeDisabled();
+  await expect(result).toContainText(savedAnalysis.summary);
+  releaseImport();
+  await expect(page.getByRole('alert')).toContainText('附件识别暂时失败');
+  await expect(editor).toHaveText('原有虚构简历：开发内部检索工具。');
+  await expect(result).toContainText(savedAnalysis.summary);
+  await expect(result.getByRole('button', { name: '一键存入面试题库' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '重新分析', exact: true })).toBeEnabled();
+  await page.getByLabel('导入简历附件').setInputFiles({
+    name: 'new-resume.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('新导入的虚构简历。'),
+  });
+  await expect(editor).toHaveText('新导入的虚构简历。');
+  await expect(result).not.toContainText(savedAnalysis.summary);
+  await expect(page.getByText('尚未发起分析', { exact: true })).toBeVisible();
+});
+
+test('历史题目全部在题库删除后不允许再次入库，仍可前往题库', async ({ page }) => {
+  await page.route(screeningCollection, (route) =>
+    route.fulfill({
+      json: { items: [savedAnalysis], count: 1, page: 1, page_size: 20 },
+    }),
+  );
+  await page.route('**/api/v1/ai-screenings/901/', (route) =>
+    route.fulfill({
+      json: { ...savedAnalysis, questions_saved: true, saved_question_count: 0 },
+    }),
+  );
+  await login(page);
+  await page.getByRole('link', { name: 'AI 初面' }).click();
+  await page
+    .getByRole('region', { name: '历史分析记录' })
+    .getByRole('button', { name: '查看', exact: true })
+    .click();
+  const result = page.locator('.ai-result-content');
+  await expect(
+    result.getByRole('button', { name: '已入库（题库中的题目已删除）', exact: true }),
+  ).toBeDisabled();
+  await expect(result.getByRole('button', { name: '一键存入面试题库' })).toHaveCount(0);
+  await expect(result.getByRole('link', { name: '查看面试题库' })).toHaveAttribute(
+    'href',
+    '#question-bank',
+  );
+  await expect(result.getByRole('button', { name: '复制提纲' })).toBeEnabled();
+  await expect(result.getByRole('status').filter({ hasText: '历史分析记录' })).toContainText(
+    `目标企业：${savedAnalysis.enterprise_name}`,
+  );
 });
 
 test('长分析结果固定在卡片内滚动，桌面等高且窄屏不撑高页面', async ({ page }) => {

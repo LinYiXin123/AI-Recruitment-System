@@ -296,7 +296,8 @@ def test_analysis_exposes_safe_model_format_diagnostic(model_content, diagnostic
     assert not AIScreening.objects.exists()
 
 
-def test_selected_application_uses_its_authorized_job_without_sending_candidate_name():
+@pytest.mark.parametrize("job_selection", [{}, {"job_id": None}])
+def test_selected_application_respects_empty_job_without_sending_candidate_name(job_selection):
     client, membership, job = hr_context()
     candidate = Candidate.objects.create(
         organization=membership.organization,
@@ -311,19 +312,30 @@ def test_selected_application_uses_its_authorized_job_without_sending_candidate_
         attempt_no=1,
         source="测试",
     )
-    result = {"summary": "需人工复核。", "evidence": [], "gaps": [], "questions": []}
+    result = complete_report()
     with patch(
         "recruitment.ai_screening.chat_completion", return_value=json.dumps(result)
     ) as complete:
         response = client.post(
             "/api/v1/ai-screenings/",
-            {"application_id": application.id, "resume": "独立负责过产品上线。"},
+            {"application_id": application.id, "resume": "负责产品上线。", **job_selection},
             format="json",
         )
 
     assert response.status_code == 200
     sent_context = json.loads(complete.call_args.kwargs["user_text"])
-    assert sent_context["target_job"]["title"] == "产品经理"
+    if "job_id" in job_selection:
+        assert sent_context["target_job"] is None
+        assert response.data["job_id"] is None
+        assert response.data["job_title"] == ""
+        assert response.data["match_score"] is None
+        assert response.data["conclusion"] == "通用初判"
+    else:
+        assert sent_context["target_job"]["title"] == "产品经理"
+        assert response.data["job_id"] == job.id
+        assert response.data["match_score"] == result["match_score"]
+        assert response.data["conclusion"] == "待复核"
+    assert response.data["application_id"] == application.id
     assert "仅用于权限测试的姓名" not in complete.call_args.kwargs["user_text"]
 
 
@@ -446,6 +458,7 @@ def test_report_persists_snapshots_and_repeated_request_reuses_saved_result():
     assert first.data["job_title"] == "产品经理"
     assert first.data["conclusion"] == "待复核"
     assert first.data["saved_question_count"] == 0
+    assert first.data["questions_saved"] is False
     assert first.data["code"] == f"AIS-{stored.id:04d}" and first.data["created_at"]
     job.title = "修改后的职位名称"
     job.save(update_fields=["title"])
@@ -454,6 +467,7 @@ def test_report_persists_snapshots_and_repeated_request_reuses_saved_result():
     listed = client.get("/api/v1/ai-screenings/").data
     assert listed["count"] == 1 and listed["page"] == 1 and listed["page_size"] == 20
     assert listed["items"][0]["question_count"] == 1
+    assert listed["items"][0]["questions_saved"] is False
     assert listed["items"][0]["job_title"] == "产品经理"
     assert "questions" not in listed["items"][0]
     assert client.delete(detail_url).status_code == 200
@@ -529,6 +543,7 @@ def test_saving_questions_requires_confirmation_is_idempotent_and_excludes_priva
     assert first.status_code == again.status_code == 200
     assert first.data == again.data
     assert first.data["saved_question_count"] == 1
+    assert first.data["questions_saved"] is True
     assert QuestionTemplate.objects.count() == QuestionTemplateEvent.objects.count() == 1
     question = QuestionTemplate.objects.get()
     assert question.id in first.data["question_ids"]
@@ -538,11 +553,15 @@ def test_saving_questions_requires_confirmation_is_idempotent_and_excludes_priva
     assert "test@example.com" not in question.content and "13800000000" not in question.content
     assert QuestionTemplateEvent.objects.get().actor == membership
     assert client.get(url).data["saved_question_count"] == 1
+    assert client.get(url).data["questions_saved"] is True
     deleted = client.delete(
         f"/api/v1/question-templates/{question.id}/", {"version": 1}, format="json"
     )
     assert deleted.status_code == 200
     assert client.get(url).data["saved_question_count"] == 0
+    assert client.get(url).data["questions_saved"] is True
+    listed = client.get("/api/v1/ai-screenings/").data["items"][0]
+    assert listed["saved_question_count"] == 0 and listed["questions_saved"] is True
     assert client.post(f"{url}questions/", {"confirmed": True}, format="json").status_code == 409
     assert QuestionTemplate.objects.count() == 1
 
@@ -612,6 +631,7 @@ def test_saving_questions_rolls_back_earlier_questions_when_later_question_is_in
     assert response.status_code == 400
     assert not QuestionTemplate.objects.exists() and not QuestionTemplateEvent.objects.exists()
     assert client.get(url).data["saved_question_count"] == 0
+    assert client.get(url).data["questions_saved"] is False
 
 
 @pytest.mark.django_db(transaction=True)
