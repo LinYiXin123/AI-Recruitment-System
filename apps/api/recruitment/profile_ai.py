@@ -209,6 +209,7 @@ def generate_profile(request, pk=None):
                 user_text=json.dumps(snapshot, ensure_ascii=False),
                 temperature=0.2,
                 max_tokens=8000,
+                thinking={"type": "disabled"},
                 response_format={"type": "json_object"},
             ),
             sources,
@@ -219,7 +220,7 @@ def generate_profile(request, pk=None):
         elif not all((settings.LLM_API_BASE_URL, settings.LLM_API_KEY, generation.model)):
             error = "模型服务尚未配置，请联系管理员；原输入已保留，可继续手动填写。"
         else:
-            error = "模型服务暂时无法生成，输入已保留，请重试或继续手动填写。"
+            error = f"{exc}；输入已保留，请重试或继续手动填写。"
         ProfileGeneration.objects.filter(pk=generation.pk).update(status="failed", error=error)
     except (APIException, Http404):
         ProfileGeneration.objects.filter(pk=generation.pk).update(

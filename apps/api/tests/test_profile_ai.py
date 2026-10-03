@@ -76,6 +76,9 @@ def test_generate_save_edit_and_hr_directly_use_without_approval(team, settings)
         assert result["status"] == "succeeded"
         assert generate(c, job, payload).data == result
         assert model.call_count == 1
+        assert model.call_args.kwargs["thinking"] == {"type": "disabled"}
+        assert model.call_args.kwargs["max_tokens"] == 8000
+        assert model.call_args.kwargs["response_format"] == {"type": "json_object"}
         assert "减少重复录入" in model.call_args.kwargs["user_text"]
     assert not ProfileVersion.objects.exists()
     job = save_profile(
@@ -174,16 +177,37 @@ def test_invalid_output_is_retained_as_failed_input_and_cannot_be_adopted(team, 
     assert not ProfileVersion.objects.exists()
 
 
-def test_model_failure_does_not_repeat_same_request_and_ai_suggestions_require_review(team):
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "模型服务返回 HTTP 429",
+        "模型服务网络连接失败或超时",
+        "模型输出达到长度上限，回复可能被截断",
+    ],
+)
+def test_model_failure_does_not_repeat_same_request_and_ai_suggestions_require_review(
+    team, settings, failure
+):
+    settings.LLM_API_BASE_URL = "https://model.example/v1"
+    settings.LLM_API_KEY = "unit-test-token"
+    settings.LLM_MODEL = "fake-test-model"
     c = client_for(team[2])
     job = new_job(team)
     payload = body(job)
-    with patch(
-        "recruitment.profile_ai.chat_completion", side_effect=LLMServiceError("timeout")
-    ) as m:
-        assert generate(c, job, payload).data["status"] == "failed"
-        assert generate(c, job, payload).data["status"] == "failed"
+    with patch("recruitment.profile_ai.chat_completion", side_effect=LLMServiceError(failure)) as m:
+        first = generate(c, job, payload)
+        assert first.status_code == 200
+        assert first.data["status"] == "failed"
+        assert first.data["error"] == f"{failure}；输入已保留，请重试或继续手动填写。"
+        assert first.data["input"]["jd"] == payload["jd"]
+        assert first.data["input"]["business_goal"] == payload["business_goal"]
+        assert first.data["requirements"] == []
+        assert generate(c, job, payload).data == first.data
         assert m.call_count == 1
+    saved = ProfileGeneration.objects.get(pk=first.data["id"])
+    assert saved.input_snapshot == first.data["input"]
+    assert saved.error == first.data["error"]
+    assert not ProfileVersion.objects.exists()
     with patch(
         "recruitment.profile_ai.chat_completion",
         return_value=json.dumps(
@@ -387,6 +411,9 @@ def test_preview_generates_before_any_job_and_saves_once_with_edited_sources(tea
         assert result["is_current"] is True
         assert preview(c, payload).data == result
         assert model.call_count == 1
+        assert model.call_args.kwargs["thinking"] == {"type": "disabled"}
+        assert model.call_args.kwargs["max_tokens"] == 8000
+        assert model.call_args.kwargs["response_format"] == {"type": "json_object"}
     assert not Job.objects.exists()
     assert not ProfileVersion.objects.exists()
     assert not Task.objects.exists()
