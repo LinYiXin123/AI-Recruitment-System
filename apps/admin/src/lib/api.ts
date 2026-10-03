@@ -129,7 +129,6 @@ export type Audit = {
   note: string;
   created_at: string;
 };
-let csrfToken = '';
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -144,24 +143,44 @@ function errorText(value: unknown): string {
   if (value && typeof value === 'object') return Object.values(value).map(errorText).join('；');
   return '请求失败，请稍后重试。';
 }
+function currentCsrfToken(): string {
+  return (
+    document.cookie
+      .split(';')
+      .map((cookie) => cookie.trim())
+      .find((cookie) => cookie.startsWith('recruitment_csrf='))
+      ?.slice('recruitment_csrf='.length) || ''
+  );
+}
 export async function api<T>(
   path: string,
   data?: unknown,
   signal?: AbortSignal,
   method?: 'POST' | 'PATCH' | 'DELETE',
 ): Promise<T> {
+  signal?.throwIfAborted();
+  const requestMethod = method ?? (data === undefined ? 'GET' : 'POST');
+  const headers: Record<string, string> =
+    data === undefined || data instanceof FormData ? {} : { 'Content-Type': 'application/json' };
+  if (requestMethod !== 'GET') {
+    // 登录会轮换浏览器共享的 Cookie；每次发送时读取，避免其他标签页仍使用旧凭证。
+    let token = currentCsrfToken();
+    if (!token) {
+      const fresh = await api<{ csrfToken: string }>('auth/csrf/', undefined, signal);
+      token = currentCsrfToken() || fresh.csrfToken;
+    }
+    if (typeof token !== 'string' || !token)
+      throw new ApiError(403, '暂时无法取得页面安全凭证，请重试。已填写的内容会保留。');
+    headers['X-CSRFToken'] = token;
+  }
   let response: Response;
   try {
+    signal?.throwIfAborted();
     response = await fetch(`/api/v1/${path}`, {
-      method: method ?? (data === undefined ? 'GET' : 'POST'),
+      method: requestMethod,
       credentials: 'same-origin',
       signal,
-      headers:
-        data === undefined
-          ? {}
-          : data instanceof FormData
-            ? { 'X-CSRFToken': csrfToken }
-            : { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      headers,
       body: data === undefined ? undefined : data instanceof FormData ? data : JSON.stringify(data),
     });
   } catch (e) {
@@ -174,9 +193,20 @@ export async function api<T>(
       throw new ApiError(response.status, '服务返回内容无法读取，请重试。已填写的内容会保留。');
     return {};
   });
-  if (!response.ok)
-    throw new ApiError(response.status, errorText(body.errors || '服务暂时不可用，请重试。'));
-  if (body.csrfToken) csrfToken = body.csrfToken;
+  if (!response.ok) {
+    const detail = body.errors?.detail;
+    const csrfRejected =
+      response.status === 403 &&
+      typeof detail === 'string' &&
+      (detail.startsWith('CSRF Failed:') || detail === '页面安全凭证已过期，请刷新后重试。');
+    // 安全校验失败也不自动重放：另一个标签页可能已切换了登录身份。
+    throw new ApiError(
+      response.status,
+      csrfRejected
+        ? '页面安全校验未通过，本次操作未执行。请重试；若仍失败，请重新登录。'
+        : errorText(body.errors || '服务暂时不可用，请重试。'),
+    );
+  }
   return body as T;
 }
 
