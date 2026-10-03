@@ -1,5 +1,5 @@
 import Table from '@douyinfe/semi-ui/lib/es/table';
-import { BriefcaseBusiness, Sparkles } from 'lucide-react';
+import { BriefcaseBusiness, Search, Sparkles } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -29,11 +29,11 @@ import {
 export function TalentProfiles({
   revision,
   openJob,
-  createJob,
+  canCreate,
 }: {
   revision: number;
   openJob: (id: number, edit?: boolean) => void;
-  createJob?: () => void;
+  canCreate: boolean;
 }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -54,35 +54,28 @@ export function TalentProfiles({
     return () => controller.abort();
   }, [search, status, page, reload, revision]);
   return (
-    <section className="dashboard-card flex flex-col gap-5 p-5" aria-label="岗位画像工作台">
-      <div className="section-heading">
-        <div>
-          <h2>岗位画像</h2>
-          <p>选择职位，点击「AI 起草画像」，从职位描述整理招人标准，再由你核对使用。</p>
-        </div>
-        {createJob && (
-          <Button variant="outline" onClick={createJob}>
-            <Sparkles data-icon="inline-start" />
-            AI 起草画像
-          </Button>
-        )}
-      </div>
-      <FieldGroup className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_180px]">
+    <section className="panel" aria-label="岗位画像工作台">
+      <FieldGroup className="grid items-center gap-2.5 border-b px-[26px] py-5 sm:grid-cols-[minmax(0,1fr)_180px_auto]">
         <Field>
-          <FieldLabel htmlFor="talent-search">搜索职位</FieldLabel>
-          <Input
-            id="talent-search"
-            className="h-[42px]"
-            placeholder="输入职位名称或工作地点"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-          />
+          <FieldLabel className="sr-only" htmlFor="talent-search">
+            搜索职位
+          </FieldLabel>
+          <div className="jobs-search">
+            <Search aria-hidden="true" />
+            <Input
+              id="talent-search"
+              className="jobs-search-input"
+              placeholder="搜索职位名称或工作地点..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
         </Field>
         <Field>
-          <FieldLabel id="talent-status-label" htmlFor="talent-status">
+          <FieldLabel className="sr-only" id="talent-status-label" htmlFor="talent-status">
             职位状态
           </FieldLabel>
           <NativeSelect
@@ -103,6 +96,17 @@ export function TalentProfiles({
             ))}
           </NativeSelect>
         </Field>
+        <Button
+          variant="outline"
+          className="h-[42px] px-3.5"
+          onClick={() => {
+            setSearch('');
+            setStatus('');
+            setPage(1);
+          }}
+        >
+          重置
+        </Button>
       </FieldGroup>
       {error ? (
         <ErrorNotice message={error} retry={() => setReload((v) => v + 1)} />
@@ -118,29 +122,11 @@ export function TalentProfiles({
             <EmptyDescription>
               {search || status
                 ? '调整筛选后再试，已保存的画像不会改变。'
-                : createJob
-                  ? '粘贴招聘需求，让 AI 整理岗位要求；核对后再保存为职位画像。'
+                : canCreate
+                  ? '点击右上角「AI 起草画像」，粘贴招聘需求，核对后保存使用。'
                   : '获得职位查看权限后，可在这里查看岗位标准。'}
             </EmptyDescription>
           </EmptyHeader>
-          {!search && !status && createJob && (
-            <Button onClick={createJob}>
-              <Sparkles data-icon="inline-start" />
-              AI 起草第一份画像
-            </Button>
-          )}
-          {(search || status) && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                setSearch('');
-                setStatus('');
-                setPage(1);
-              }}
-            >
-              清空筛选
-            </Button>
-          )}
         </Empty>
       ) : (
         <>

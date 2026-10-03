@@ -61,7 +61,7 @@ async function openProfile(page: Page, title: string) {
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
 }
 
-test('空态有图标，两个起草入口打开同一 AI 表单，关闭时只提醒未保存输入', async ({ page }) => {
+test('起草入口位于列表外的页面标题栏，筛选可重置，关闭时保留未保存输入', async ({ page }) => {
   await login(page);
   await page.route('**/api/v1/jobs/?*', (route) =>
     route.fulfill({ json: { count: 0, next: null, previous: null, results: [] } }),
@@ -76,6 +76,20 @@ test('空态有图标，两个起草入口打开同一 AI 表单，关闭时只�
   await page.goto('/#talent-profiles');
   await expect(page.locator('.candidate-library-empty-icon svg')).toBeVisible();
   await expect(page.getByLabel('职位状态', { exact: true })).toContainText('全部状态');
+  const startDraft = page.locator('.page-heading').getByRole('button', {
+    name: 'AI 起草画像',
+    exact: true,
+  });
+  await expect(startDraft).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: '岗位画像工作台' }).getByRole('button', { name: /AI 起草/ }),
+  ).toHaveCount(0);
+  await page.getByLabel('搜索职位', { exact: true }).fill('不存在的职位');
+  await expect(page.getByText('没有符合条件的职位', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '重置', exact: true }).click();
+  await expect(page.getByLabel('搜索职位', { exact: true })).toHaveValue('');
+  await expect(page.getByText('还没有数据', { exact: true })).toBeVisible();
+  await page.screenshot({ path: '../../.local/人才画像-统一页面布局.png', fullPage: true });
   const draft = page.getByRole('dialog', { name: 'AI 起草岗位画像' });
   let prompts = 0;
   let discard = false;
@@ -85,17 +99,15 @@ test('空态有图标，两个起草入口打开同一 AI 表单，关闭时只�
     if (discard) await dialog.accept();
     else await dialog.dismiss();
   });
-  for (const name of ['AI 起草画像', 'AI 起草第一份画像']) {
-    await page.getByRole('button', { name, exact: true }).click();
-    await expect(draft.getByLabel('你想招什么样的人？')).toBeVisible();
-    await expect(draft.getByLabel('职位名称', { exact: true })).toHaveCount(0);
-    await expect(draft.getByLabel('所属部门', { exact: true })).toHaveCount(0);
-    await expect(draft.getByRole('button', { name: 'AI 生成要求', exact: true })).toBeDisabled();
-    await draft.getByRole('button', { name: '关闭详情', exact: true }).click();
-    await expect(draft).toHaveCount(0);
-  }
+  await startDraft.click();
+  await expect(draft.getByLabel('你想招什么样的人？')).toBeVisible();
+  await expect(draft.getByLabel('职位名称', { exact: true })).toHaveCount(0);
+  await expect(draft.getByLabel('所属部门', { exact: true })).toHaveCount(0);
+  await expect(draft.getByRole('button', { name: 'AI 生成要求', exact: true })).toBeDisabled();
+  await draft.getByRole('button', { name: '关闭详情', exact: true }).click();
+  await expect(draft).toHaveCount(0);
   expect(prompts).toBe(0);
-  await page.getByRole('button', { name: 'AI 起草第一份画像', exact: true }).click();
+  await startDraft.click();
   await draft.getByLabel('你想招什么样的人？').fill('招聘渠道经理，负责试点和项目复盘。');
   await draft.getByRole('button', { name: '取消', exact: true }).click();
   await expect(draft.getByLabel('你想招什么样的人？')).toHaveValue(
@@ -208,7 +220,7 @@ test('AI 优先先生成再补职位信息，最终保存才建岗，失败保�
   await page.route('**/api/v1/jobs/90302/', (route) => route.fulfill({ json: created }));
   await page.goto('/#talent-profiles');
   await page
-    .getByRole('region', { name: '岗位画像工作台' })
+    .locator('.page-heading')
     .getByRole('button', { name: 'AI 起草画像', exact: true })
     .first()
     .click();

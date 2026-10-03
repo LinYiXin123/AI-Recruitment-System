@@ -371,6 +371,12 @@ export default function App() {
                     )}
                   </>
                 )}
+                {route === 'talent-profiles' && me.departments.length > 0 && (
+                  <Button onClick={() => setCreating('profile')}>
+                    <Sparkles data-icon="inline-start" />
+                    AI 起草画像
+                  </Button>
+                )}
                 {route === 'candidates' && (
                   <>
                     <Button
@@ -438,7 +444,7 @@ export default function App() {
             <TalentProfiles
               revision={revision}
               openJob={(id, edit) => openJob(id, 'requirements', edit)}
-              createJob={me.departments.length > 0 ? () => setCreating('profile') : undefined}
+              canCreate={me.departments.length > 0}
             />
           ) : (
             <UnavailablePage route={route} />
