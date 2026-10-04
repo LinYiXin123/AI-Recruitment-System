@@ -877,7 +877,17 @@ def test_analysis_freezes_exact_resume_profile_and_input_source_without_backfill
     assert context["job"]["profile_id"] == profile.id
     assert context["job"]["profile_version"] == 1
     assert context["job"]["requirements"] == [
-        {"id": requirement.id, "kind": "must", "text": "独立交付产品"}
+        {
+            "id": requirement.id,
+            "kind": "must",
+            "text": "独立交付产品",
+            "rationale": "",
+            "needs_verification": False,
+            "source_kind": "manual",
+            "source_quote": "",
+            "source_reference": "",
+            "source_edited": False,
+        }
     ]
     assert context["source"]["resume_parse_id"] == parse.id
     assert context["source"]["kind"] == "application_resume"

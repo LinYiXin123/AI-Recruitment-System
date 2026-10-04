@@ -111,6 +111,121 @@ def test_generate_save_edit_and_hr_directly_use_without_approval(team, settings)
     assert AuditEvent.objects.filter(action__startswith="HR 直接使用").count() == 2
 
 
+@pytest.mark.parametrize("field", ["jd", "business_goal"])
+@pytest.mark.parametrize("activate", [False, True])
+def test_existing_job_rejects_changed_ai_input_without_changing_saved_state(team, field, activate):
+    c = client_for(team[2])
+    job = save_profile(c, new_job(team), business_goal="减少重复录入", activate=True).data
+    payload = body(job)
+    with patch(
+        "recruitment.profile_ai.chat_completion",
+        return_value=json.dumps({"requirements": [generated_requirement()]}),
+    ):
+        result = generate(c, job, payload).data
+    events, tasks = AuditEvent.objects.count(), list(Task.objects.values())
+    response = save_profile(
+        c,
+        job,
+        generation_id=result["id"],
+        requirements=result["requirements"],
+        activate=activate,
+        **{field: "已改变的岗位输入"},
+    )
+    assert response.status_code == 409
+    assert "岗位需求或业务目标已改变" in str(response.data)
+    assert c.get(f"/api/v1/jobs/{job['id']}/").data == job
+    assert ProfileVersion.objects.count() == 1
+    assert AuditEvent.objects.count() == events and list(Task.objects.values()) == tasks
+    generation = ProfileGeneration.objects.get(pk=result["id"])
+    assert generation.status == "succeeded" and generation.input_snapshot == result["input"]
+
+    # 恢复生成输入后可继续使用同一草稿；省略目标沿用已有版本，首尾空白由表单规范化。
+    edited = {**result["requirements"][0], "text": "独立完成需求分析及结果复盘"}
+    retry = save_profile(
+        c,
+        job,
+        jd=f" \n{payload['jd']}\n ",
+        generation_id=result["id"],
+        requirements=[edited],
+        activate=activate,
+    )
+    assert retry.status_code == 201, retry.data
+    profile = retry.data["latest_profile"]
+    assert profile["business_goal"] == payload["business_goal"]
+    assert profile["requirements"][0]["source_edited"] is True
+    assert profile["requirements"][0]["source_quote"] == payload["jd"]
+    assert profile["status"] == ("confirmed" if activate else "draft")
+    assert ProfileVersion.objects.get(pk=job["active_profile"]).status == "confirmed"
+
+
+def test_existing_job_cannot_omit_generated_goal_but_can_save_manual_requirements(team):
+    c = client_for(team[2])
+    job = new_job(team)
+    with patch(
+        "recruitment.profile_ai.chat_completion",
+        return_value=json.dumps({"requirements": [generated_requirement()]}),
+    ):
+        result = generate(c, job).data
+    assert (
+        save_profile(
+            c, job, generation_id=result["id"], requirements=result["requirements"]
+        ).status_code
+        == 409
+    )
+    assert not ProfileVersion.objects.exists()
+    # 手工整理必须显式去掉生成编号及条目索引，不能保留伪造的 AI 引文。
+    assert save_profile(c, job, requirements=result["requirements"]).status_code == 400
+    manual = {
+        key: value for key, value in result["requirements"][0].items() if key != "generation_index"
+    }
+    saved = save_profile(
+        c, job, jd="调整后的岗位需求", source="HR 手工整理", requirements=[manual], activate=True
+    )
+    assert saved.status_code == 201, saved.data
+    profile = ProfileVersion.objects.get(pk=saved.data["active_profile"])
+    requirement = profile.requirements.get()
+    assert profile.generation_id is None and requirement.generation_id is None
+    assert requirement.source_kind == "manual" and requirement.source_quote == ""
+
+
+@pytest.mark.parametrize("field", ["jd", "business_goal"])
+def test_manual_revision_keeps_historical_ai_source_and_marks_changed_context(team, field):
+    c = client_for(team[2])
+    job = new_job(team)
+    with patch(
+        "recruitment.profile_ai.chat_completion",
+        return_value=json.dumps({"requirements": [generated_requirement()]}),
+    ):
+        result = generate(c, job).data
+    job = save_profile(
+        c,
+        job,
+        business_goal=result["input"]["business_goal"],
+        generation_id=result["id"],
+        requirements=result["requirements"],
+        activate=True,
+    ).data
+    original = ProfileVersion.objects.get(pk=job["active_profile"])
+    revised = save_profile(
+        c,
+        job,
+        source="HR 调整已有标准",
+        requirements=job["latest_profile"]["requirements"],
+        activate=True,
+        **{field: "HR 调整后的岗位输入"},
+    )
+    assert revised.status_code == 201, revised.data
+    profile = ProfileVersion.objects.get(pk=revised.data["active_profile"])
+    requirement = profile.requirements.get()
+    assert profile.generation_id is None
+    assert requirement.generation_id == original.generation_id == result["id"]
+    assert requirement.source_quote == result["input"]["jd"]
+    assert requirement.source_edited is True
+    assert original.requirements.get().source_edited is False
+    assert original.jd_snapshot == result["input"]["jd"]
+    assert original.business_goal == result["input"]["business_goal"]
+
+
 def test_hr_can_use_pending_profile_closing_approval_and_stale_approval_is_rejected(team):
     c, manager = client_for(team[2]), client_for(team[3])
     job = save_profile(c, new_job(team)).data
@@ -229,6 +344,7 @@ def test_model_failure_does_not_repeat_same_request_and_ai_suggestions_require_r
             c,
             job,
             generation_id=result["id"],
+            business_goal=result["input"]["business_goal"],
             requirements=result["requirements"],
             activate=True,
         ).status_code
@@ -279,6 +395,7 @@ def test_generation_scope_request_payload_and_requirement_provenance(team):
         c,
         job,
         generation_id=result["id"],
+        business_goal=result["input"]["business_goal"],
         requirements=result["requirements"],
     ).data
     assert (

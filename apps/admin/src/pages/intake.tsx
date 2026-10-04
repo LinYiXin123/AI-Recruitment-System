@@ -41,6 +41,7 @@ import {
   reviewActions,
   stages,
 } from '@/lib/intake';
+import { ApplicationProfile } from '@/pages/application-profile';
 import { ScheduleInterview } from '@/pages/interviews';
 
 function Drawer({
@@ -1611,9 +1612,12 @@ export function ApplicationDetail({
   changed: () => void;
 }) {
   const [data, setData] = useState<Application | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [analysisBusy, setAnalysisBusy] = useState(false);
+  const [analysisEditing, setAnalysisEditing] = useState(false);
   const [reload, setReload] = useState(0);
   const [action, setAction] = useState('advance');
   const [reason, setReason] = useState('');
@@ -1623,14 +1627,19 @@ export function ApplicationDetail({
   const [success, setSuccess] = useState('');
   useEffect(() => {
     const c = new AbortController();
+    setLoading(true);
     setError('');
     api<Application>(`applications/${id}/`, undefined, c.signal)
       .then((d) => {
+        if (c.signal.aborted) return;
         setData(d);
         if (d.stage === 'ready_to_schedule' || d.job_status !== 'open') setAction('withdraw');
       })
       .catch((e) => {
         if (e.name !== 'AbortError') setError(e.message);
+      })
+      .finally(() => {
+        if (!c.signal.aborted) setLoading(false);
       });
     return () => c.abort();
   }, [id, reload]);
@@ -1638,10 +1647,23 @@ export function ApplicationDetail({
     <Drawer
       title={data ? `${data.name} · 第 ${data.attempt_no} 次应聘` : '应聘详情'}
       close={close}
-      busy={busy}
-      dirty={dirty}
+      busy={busy || analysisBusy}
+      dirty={dirty || analysisEditing}
     >
-      {error && <ErrorNotice message={error} retry={() => setReload((r) => r + 1)} />}
+      {error && (
+        <ErrorNotice
+          message={error}
+          retry={
+            busy || loading || analysisBusy || analysisEditing
+              ? undefined
+              : () => {
+                  setLoading(true);
+                  setReload((r) => r + 1);
+                }
+          }
+        />
+      )}
+      {loading && data && <p role="status">正在刷新应聘资料，请稍候。</p>}
       {success && (
         <Alert>
           <AlertDescription>{success}</AlertDescription>
@@ -1659,22 +1681,24 @@ export function ApplicationDetail({
             </p>
             <p>{data.phone || data.email || data.contact_note}</p>
           </div>
-          <Alert>
-            <AlertTitle>AI 评估尚未接通</AlertTitle>
-            <AlertDescription>
-              当前可依据实际材料人工复核。材料缺失可交给 HR
-              补充；通过后只生成待安排任务，尚未发送邀请。
-            </AlertDescription>
-          </Alert>
-          <section className="flex flex-col gap-3">
-            <h3>当前正式招人要求</h3>
+          <ApplicationProfile
+            application={data}
+            disabled={loading || busy || dirty}
+            onBusyChange={setAnalysisBusy}
+            onEditingChange={setAnalysisEditing}
+          />
+          <details className="rounded-lg border p-3">
+            <summary className="cursor-pointer">
+              当前正式招人要求 · {data.requirements.length} 项
+            </summary>
             {data.requirements.map((r) => (
-              <p key={r.id}>
+              <p key={r.id} className="mt-3">
                 {kindLabel[r.kind]}：{r.text}
+                {r.needs_verification && <Badge variant="outline">岗位要求待确认</Badge>}
                 {r.rationale && `（${r.rationale}）`}
               </p>
             ))}
-          </section>
+          </details>
           <section className="flex flex-col gap-3">
             <h3>本次应聘的材料</h3>
             {!data.resumes.length && (
@@ -1714,6 +1738,7 @@ export function ApplicationDetail({
               }}
               onSubmit={async (e) => {
                 e.preventDefault();
+                if (loading || busy || analysisBusy || analysisEditing) return;
                 setBusy(true);
                 setError('');
                 try {
@@ -1741,7 +1766,10 @@ export function ApplicationDetail({
               }}
             >
               <h3>人工复核</h3>
-              <fieldset disabled={busy} className="flex flex-col gap-4">
+              <fieldset
+                disabled={loading || busy || analysisBusy || analysisEditing}
+                className="flex flex-col gap-4"
+              >
                 <FieldGroup>
                   <Field>
                     <FieldLabel id="review-action-label" htmlFor="review-action">
@@ -1751,7 +1779,7 @@ export function ApplicationDetail({
                       aria-labelledby="review-action-label"
                       id="review-action"
                       value={action}
-                      disabled={busy}
+                      disabled={loading || busy || analysisBusy || analysisEditing}
                       required
                       onChange={(e) => setAction(e.target.value)}
                     >
@@ -1793,7 +1821,7 @@ export function ApplicationDetail({
                           aria-labelledby="followup-owner-label"
                           id="followup-owner"
                           value={handler}
-                          disabled={busy}
+                          disabled={loading || busy || analysisBusy || analysisEditing}
                           onChange={(e) => setHandler(e.target.value)}
                           required
                         >
@@ -1832,16 +1860,22 @@ export function ApplicationDetail({
             </Alert>
           )}
           {data.stage === 'ready_to_schedule' && (
-            <ScheduleInterview
-              application={data}
-              dirty={dirty}
-              setDirty={setDirty}
-              scheduled={() => {
-                setSuccess('排期已保存，候选人与面试官的系统内时间冲突已检查。邀请尚未发送。');
-                setDirty(false);
-                setReload((old) => old + 1);
-              }}
-            />
+            <fieldset
+              disabled={loading || busy || analysisBusy || analysisEditing}
+              inert={loading || busy || analysisBusy || analysisEditing}
+            >
+              <ScheduleInterview
+                application={data}
+                dirty={dirty}
+                setDirty={setDirty}
+                scheduled={() => {
+                  setSuccess('排期已保存，候选人与面试官的系统内时间冲突已检查。邀请尚未发送。');
+                  setDirty(false);
+                  setLoading(true);
+                  setReload((old) => old + 1);
+                }}
+              />
+            </fieldset>
           )}
           {data.stage === 'closed' && <p>本次结束原因：{data.close_reason}</p>}
           <section className="flex flex-col gap-3">

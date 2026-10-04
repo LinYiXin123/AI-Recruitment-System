@@ -505,7 +505,7 @@ test.describe('初面输入与历史记录隔离', () => {
     });
   }
 
-  test('候选人和职位可分别取消，保留简历并中断候选人读取', async ({ page }) => {
+  test('取消候选人和职位后立即分析，使用新选值并保留结果', async ({ page }) => {
     let releaseResume = () => {};
     const pending = new Promise<void>((resolve) => {
       releaseResume = resolve;

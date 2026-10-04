@@ -444,6 +444,7 @@ export default function App() {
             <TalentProfiles
               revision={revision}
               openJob={(id, edit) => openJob(id, 'requirements', edit)}
+              openApplication={setApplicationId}
               canCreate={me.departments.length > 0}
             />
           ) : (

@@ -3,6 +3,7 @@ import Select from '@douyinfe/semi-ui/lib/es/select';
 import { Bot, Copy, Crosshair, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { ErrorNotice, Loading, Pager } from '@/components/feedback';
+import { type RequirementMatch, RequirementMatches } from '@/components/requirement-matches';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -67,6 +68,7 @@ type ScreeningResult = {
   evidence: { criterion: string; quote: string; reason: string }[];
   gaps: { criterion: string; note: string }[];
   questions: {
+    requirement_id?: number | null;
     question: string;
     reason: string;
     follow_up: string;
@@ -75,6 +77,7 @@ type ScreeningResult = {
   }[];
   limitations: string;
   source_context?: ScreeningSource | null;
+  requirement_matches?: RequirementMatch[];
   verifications?: Verification[];
 };
 type ScreeningHistory = {
@@ -298,6 +301,9 @@ export function AiScreeningPage() {
   const [resumeNotice, setResumeNotice] = useState('');
   const [resumeError, setResumeError] = useState('');
   const [analysis, setAnalysis] = useState<ScreeningResult | null>(null);
+  const updateVerifications = useCallback((items: Verification[]) => {
+    setAnalysis((current) => (current ? { ...current, verifications: items } : current));
+  }, []);
   const [viewingHistory, setViewingHistory] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
@@ -746,6 +752,7 @@ export function AiScreeningPage() {
                   className="ai-screening-select"
                   id="ai-candidate"
                   aria-labelledby="ai-candidate-label"
+                  motion={false}
                   value={selectedCandidate}
                   placeholder="请选择候选人（可留空）"
                   disabled={
@@ -798,6 +805,7 @@ export function AiScreeningPage() {
                   className="ai-screening-select"
                   id="ai-job"
                   aria-labelledby="ai-job-label"
+                  motion={false}
                   value={selectedJob}
                   placeholder="请选择职位（可留空）"
                   disabled={
@@ -841,6 +849,7 @@ export function AiScreeningPage() {
                   className="ai-screening-select"
                   id="ai-company"
                   aria-labelledby="ai-company-label"
+                  motion={false}
                   value={effectiveEnterpriseId || 'general'}
                   disabled={
                     optionsLoading ||
@@ -1196,6 +1205,13 @@ export function AiScreeningPage() {
                   <ScreeningSourceDetails source={analysis.source_context} />
                   <h3>匹配理由</h3>
                   <p>{analysis.summary}</p>
+                  {analysis.requirement_matches && analysis.requirement_matches.length > 0 && (
+                    <RequirementMatches
+                      items={analysis.requirement_matches}
+                      verifications={analysis.verifications}
+                      questions={analysis.questions}
+                    />
+                  )}
                   <details className="ai-report-evidence">
                     <summary>简历依据 · {analysis.evidence.length} 项</summary>
                     {analysis.evidence.length ? (
@@ -1307,6 +1323,7 @@ export function AiScreeningPage() {
                       analyzing || importing || loadingResume || historyBusy || savingQuestions
                     }
                     onEditingChange={setVerificationEditing}
+                    onRecordsChange={updateVerifications}
                   />
                 )}
               </div>

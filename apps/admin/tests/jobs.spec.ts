@@ -162,6 +162,8 @@ test('HR 建岗后直接使用要求、招聘开启与版本保留', async ({ pa
   await page.getByRole('button', { name: '开始招聘', exact: true }).click();
   await expect(page.getByText('职位已开始招聘。')).toBeVisible();
   await page.getByRole('button', { name: '调整要求' }).click();
+  if (!(await page.getByLabel('具体要求 1').isVisible()))
+    await page.getByLabel('展开或收起要求 1', { exact: true }).click();
   await page.getByLabel('具体要求 1').fill('更新后的要求，仅用于新版');
   await page.getByRole('button', { name: '保存要求草稿' }).click();
   await page.getByRole('tab', { name: '版本与记录' }).click();
@@ -267,6 +269,8 @@ test('历史需补充版本由 HR 修改后直接使用，未保存编辑受保�
   await page.screenshot({ path: '../../.local/验收-补充要求.png', fullPage: true });
   await expect(page.getByText('请写清楚设计协作经验的要求')).toBeVisible();
   await page.getByRole('button', { name: '调整要求' }).click();
+  if (!(await page.getByLabel('具体要求 1').isVisible()))
+    await page.getByLabel('展开或收起要求 1', { exact: true }).click();
   await page.getByLabel('具体要求 1').fill('有跨团队设计协作经验，能举出具体项目');
   const discardPrompt = page.waitForEvent('dialog');
   const closeAttempt = page.getByRole('button', { name: '关闭详情' }).click();
@@ -382,6 +386,8 @@ test('澄清问题经负责人回答后仍需 HR 整理并明确使用', async (
   ).toBeVisible();
   await expect(page.getByRole('button', { name: '开始招聘', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '调整要求' }).click();
+  if (!(await page.getByLabel('具体要求 1').isVisible()))
+    await page.getByLabel('展开或收起要求 1', { exact: true }).click();
   await page.getByLabel('具体要求 1').fill('能够独立完成技术岗位的需求访谈和岗位分析');
   await page.getByLabel('此项仍需核实，不能直接作为淘汰依据').uncheck();
   await page.getByRole('button', { name: '保存要求草稿' }).click();

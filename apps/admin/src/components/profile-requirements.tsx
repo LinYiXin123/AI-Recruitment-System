@@ -1,12 +1,141 @@
 import { Plus, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Field, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field';
+import { Field, FieldGroup, FieldLabel, FieldSet } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
 import { kindLabel, type Requirement } from '@/lib/api';
 
 export type EditableRequirement = Requirement & { key: string };
+
+export function ProfileRequirementSummary({ requirements }: { requirements: Requirement[] }) {
+  return (
+    <section className="flex flex-wrap gap-2" aria-label="岗位要求摘要" aria-live="polite">
+      <Badge variant="secondary">必备 {requirements.filter((r) => r.kind === 'must').length}</Badge>
+      <Badge variant="secondary">
+        加分 {requirements.filter((r) => r.kind === 'preferred').length}
+      </Badge>
+      <Badge variant="outline">
+        排除 {requirements.filter((r) => r.kind === 'exclusion').length}
+      </Badge>
+      <Badge variant="outline">
+        待核实 {requirements.filter((r) => r.needs_verification).length}
+      </Badge>
+    </section>
+  );
+}
+
+function RequirementCard({
+  requirement: r,
+  index,
+  busy,
+  canDelete,
+  update,
+  remove,
+}: {
+  requirement: EditableRequirement;
+  index: number;
+  busy: boolean;
+  canDelete: boolean;
+  update: (change: Partial<Requirement>) => void;
+  remove: () => void;
+}) {
+  const [expanded, setExpanded] = useState(
+    !r.text.trim() || r.needs_verification || (r.kind === 'exclusion' && !r.rationale.trim()),
+  );
+  return (
+    <details
+      className="rounded-lg border bg-background p-4"
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+      onInvalidCapture={(event) => {
+        // 原生表单校验聚焦前同步展开，避免折叠中的必填字段无法访问。
+        event.currentTarget.open = true;
+        setExpanded(true);
+      }}
+    >
+      <summary
+        className="cursor-pointer rounded-sm leading-relaxed focus-visible:outline-ring"
+        aria-label={`展开或收起要求 ${index}`}
+      >
+        <Badge variant={r.kind === 'must' ? 'secondary' : 'outline'}>{kindLabel[r.kind]}</Badge>{' '}
+        <span className="break-words">{r.text || `要求 ${index}：填写具体要求`}</span>{' '}
+        {r.needs_verification && <Badge variant="outline">待核实</Badge>}
+      </summary>
+      <FieldSet className="mt-4" disabled={busy}>
+        <FieldGroup>
+          <div className="flex items-center justify-between gap-3">
+            <FieldLabel id={`kind-label-${r.key}`} htmlFor={`kind-${r.key}`} className="sr-only">
+              要求 {index} 类型
+            </FieldLabel>
+            <NativeSelect
+              id={`kind-${r.key}`}
+              aria-labelledby={`kind-label-${r.key}`}
+              disabled={busy}
+              value={r.kind}
+              onChange={(e) => update({ kind: e.target.value as Requirement['kind'] })}
+            >
+              {Object.entries(kindLabel).map(([value, label]) => (
+                <NativeSelectOption key={value} value={value}>
+                  {label}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`删除要求 ${index}`}
+              disabled={busy || !canDelete}
+              onClick={remove}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+          <Field>
+            <FieldLabel htmlFor={`req-${r.key}`}>具体要求 {index}</FieldLabel>
+            <Textarea
+              id={`req-${r.key}`}
+              value={r.text}
+              onChange={(e) => {
+                e.currentTarget.setCustomValidity(e.target.value.trim() ? '' : '请填写具体要求。');
+                update({ text: e.target.value });
+              }}
+              maxLength={1000}
+              required
+              placeholder="写清楚可核对的能力、经历或工作条件。"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`why-${r.key}`}>
+              岗位关系与依据{r.kind !== 'exclusion' ? '（可选）' : ''}
+            </FieldLabel>
+            <Input
+              id={`why-${r.key}`}
+              value={r.rationale}
+              onChange={(e) => update({ rationale: e.target.value })}
+              maxLength={1000}
+              required={r.kind === 'exclusion'}
+              pattern={r.kind === 'exclusion' ? '.*\\S.*' : undefined}
+            />
+          </Field>
+          <Field orientation="horizontal">
+            <input
+              id={`verify-${r.key}`}
+              type="checkbox"
+              checked={r.needs_verification}
+              onChange={(e) => update({ needs_verification: e.target.checked })}
+            />
+            <FieldLabel htmlFor={`verify-${r.key}`}>此项仍需核实，不能直接作为淘汰依据</FieldLabel>
+          </Field>
+          {r.source_quote && <p className="source-note">原始依据：{r.source_quote}</p>}
+        </FieldGroup>
+      </FieldSet>
+    </details>
+  );
+}
 
 export function ProfileRequirements({
   requirements,
@@ -24,70 +153,15 @@ export function ProfileRequirements({
   return (
     <>
       {requirements.map((r, i) => (
-        <FieldSet key={r.key} className="requirement-editor" disabled={busy}>
-          <FieldLegend>要求 {i + 1}</FieldLegend>
-          <div className="flex items-center justify-between gap-3">
-            <FieldLabel id={`kind-label-${r.key}`} htmlFor={`kind-${r.key}`} className="sr-only">
-              要求 {i + 1} 类型
-            </FieldLabel>
-            <NativeSelect
-              id={`kind-${r.key}`}
-              aria-labelledby={`kind-label-${r.key}`}
-              disabled={busy}
-              value={r.kind}
-              onChange={(e) => update(r.key, { kind: e.target.value as Requirement['kind'] })}
-            >
-              {Object.entries(kindLabel).map(([value, label]) => (
-                <NativeSelectOption key={value} value={value}>
-                  {label}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={`删除要求 ${i + 1}`}
-              disabled={busy || requirements.length <= 1}
-              onClick={() => onChange(requirements.filter((item) => item.key !== r.key))}
-            >
-              <Trash2 />
-            </Button>
-          </div>
-          <Field>
-            <FieldLabel htmlFor={`req-${r.key}`}>具体要求 {i + 1}</FieldLabel>
-            <Textarea
-              id={`req-${r.key}`}
-              value={r.text}
-              onChange={(e) => update(r.key, { text: e.target.value })}
-              maxLength={1000}
-              required
-              placeholder="写清楚可核对的能力、经历或工作条件。"
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={`why-${r.key}`}>
-              岗位关系与依据{r.kind !== 'exclusion' ? '（可选）' : ''}
-            </FieldLabel>
-            <Input
-              id={`why-${r.key}`}
-              value={r.rationale}
-              onChange={(e) => update(r.key, { rationale: e.target.value })}
-              maxLength={1000}
-              required={r.kind === 'exclusion'}
-            />
-          </Field>
-          <Field orientation="horizontal">
-            <input
-              id={`verify-${r.key}`}
-              type="checkbox"
-              checked={r.needs_verification}
-              onChange={(e) => update(r.key, { needs_verification: e.target.checked })}
-            />
-            <FieldLabel htmlFor={`verify-${r.key}`}>此项仍需核实，不能直接作为淘汰依据</FieldLabel>
-          </Field>
-          {r.source_quote && <p className="source-note">原始依据：{r.source_quote}</p>}
-        </FieldSet>
+        <RequirementCard
+          key={r.key}
+          requirement={r}
+          index={i + 1}
+          busy={busy}
+          canDelete={requirements.length > 1}
+          update={(change) => update(r.key, change)}
+          remove={() => onChange(requirements.filter((item) => item.key !== r.key))}
+        />
       ))}
       <Button
         type="button"

@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import type { Application, Batch, Candidate } from '../src/lib/intake';
 import { login } from './helpers';
 
 async function post(page: Page, path: string, body: unknown) {
@@ -9,6 +10,10 @@ async function post(page: Page, path: string, body: unknown) {
   });
   expect(r.ok(), await r.text()).toBeTruthy();
   return r.json();
+}
+async function choose(page: Page, label: string, option: string) {
+  await page.getByLabel(label, { exact: true }).click();
+  await page.getByRole('option').filter({ hasText: option }).click();
 }
 function pdf(text = '') {
   const stream = text ? `BT /F1 12 Tf 40 100 Td (${text}) Tj ET` : '';
@@ -126,7 +131,7 @@ test('候选人筛选使用统一下拉面板且录入表单使用日期日历',
   );
 });
 
-test('导入真实文字、失败恢复、人工复核、多人多次应聘与待办直达', async ({ page, browser }) => {
+test('导入真实文字、失败恢复、人工复核、多人多次应聘与排期', async ({ page }) => {
   test.setTimeout(90000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -144,30 +149,24 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
     version: job.version,
     jd: '负责用户访谈',
     source: '虚构验收需求',
+    activate: true,
     requirements: [{ kind: 'must', text: '具备访谈经验' }],
   });
-  job = await post(page, `jobs/${job.id}/submit-profile/`, { version: job.version });
-  const mc = await browser.newContext();
-  const manager = await mc.newPage();
-  await login(manager, 'local_manager');
-  job = await post(manager, `jobs/${job.id}/review-profile/`, {
-    version: job.version,
-    outcome: 'confirm',
-  });
-  await mc.close();
   await post(page, `jobs/${job.id}/change-status/`, { version: job.version, status: 'open' });
   await page.getByRole('link', { name: '候选人', exact: true }).click();
-  await page.getByRole('button', { name: '导入简历', exact: true }).click();
-  await page.getByLabel('目标职位', { exact: true }).selectOption(String(job.id));
-  await page.getByLabel('材料来源', { exact: true }).fill('本人提供的虚构验收材料');
-  await page.getByLabel('简历文件', { exact: true }).setInputFiles([
+  const files = [
     {
       name: 'fictional-resume.pdf',
       mimeType: 'application/pdf',
       buffer: pdf('Fictional resume: conducted user interviews.'),
     },
     { name: 'fictional-scan.pdf', mimeType: 'application/pdf', buffer: pdf() },
-  ]);
+  ];
+  await page.getByRole('button', { name: '新增候选人', exact: true }).click();
+  await page.locator('.candidate-resume-input').setInputFiles(files[0]);
+  await choose(page, '目标职位', job.title);
+  await page.getByLabel('材料来源', { exact: true }).fill('本人提供的虚构验收材料');
+  await page.getByLabel('简历文件', { exact: true }).setInputFiles(files);
   await page.getByRole('button', { name: '开始导入', exact: true }).click();
   await expect(page.getByText('已接收 2 / 2 份，已核对 0 份')).toBeVisible();
   await expect(page.getByText('提取失败', { exact: true })).toBeVisible();
@@ -206,22 +205,31 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
   await page.getByLabel('核对依据 / 同名区分依据').fill('同名但项目与来源不同，人工确认是另一人');
   await page.getByRole('button', { name: '确认身份并进入应聘' }).click();
   await expect(page.getByText('已接收 2 / 2 份，已核对 2 份')).toBeVisible();
+  const imports: { results: Batch[] } = await (await page.request.get('/api/v1/imports/')).json();
+  const imported = imports.results.find((batch) => batch.job === job.id);
+  expect(imported).toBeDefined();
+  const batch: Batch = await (await page.request.get(`/api/v1/imports/${imported?.id}/`)).json();
+  expect(batch.items).toHaveLength(2);
+  const firstApplication: Application = await (
+    await page.request.get(`/api/v1/applications/${batch.items[0].application}/`)
+  ).json();
   await page.getByRole('button', { name: '打开本次应聘' }).first().click();
-  await expect(page.getByText('AI 评估尚未接通')).toBeVisible();
-  await page.getByLabel('处理结果').selectOption('need_info');
+  await expect(page.getByRole('region', { name: '候选人画像分析' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'AI 分析候选人画像', exact: true })).toBeEnabled();
+  await choose(page, '处理结果', '需要补充');
   await page.getByLabel('依据与说明').fill('缺少联系方式，材料缺失不作不通过判断');
-  await page.getByLabel('接手 HR').selectOption({ label: '体验 HR' });
+  await choose(page, '接手 HR', '体验 HR');
   await page.getByLabel('跟进期限（本机时区）').fill('2099-01-01T10:00');
   await page.getByRole('button', { name: '提交人工处理结果' }).click();
   await expect(page.getByText('处理结果已保存，相关待办已更新。')).toBeVisible();
-  await page.getByLabel('处理结果').selectOption('supplement');
+  await choose(page, '处理结果', '已补充，交回复核');
   await page.getByLabel('依据与说明').fill('本人电话补齐项目范围，来源为人工核对记录。');
   await page.getByRole('button', { name: '提交人工处理结果' }).click();
-  await page.getByLabel('处理结果').selectOption('advance');
+  await choose(page, '处理结果', '通过复核');
   await page.getByLabel('依据与说明').fill('据第 1 页访谈项目推进面试，具体能力仍需面试验证');
   await page.getByRole('button', { name: '提交人工处理结果' }).click();
   await expect(
-    page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待安排面试' }),
+    page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待初试' }),
   ).toBeVisible();
   for (const width of [390, 1024, 1440]) {
     await page.setViewportSize({ width, height: 1000 });
@@ -232,32 +240,40 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
   }
   await page.getByRole('button', { name: '关闭详情' }).click();
   await page.getByRole('link', { name: '候选人', exact: true }).click();
-  await page.getByRole('tab', { name: '应聘记录' }).click();
   await page.getByLabel('搜索候选人').fill('虚构林一');
   await page
     .getByRole('row')
     .filter({ hasText: '进人闭环验收岗' })
-    .filter({ hasText: '待安排面试' })
+    .filter({ hasText: '待初试' })
     .getByRole('button', { name: '虚构林一', exact: true })
     .click();
   await expect(
-    page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待安排面试' }),
+    page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待初试' }),
   ).toBeVisible();
   await page.getByRole('button', { name: '关闭详情' }).click();
-  await page.getByRole('tab', { name: '人才档案' }).click();
   await expect(page.getByRole('button', { name: '虚构林一', exact: true })).toHaveCount(2);
   await page.reload();
-  await page.getByRole('tab', { name: '导入记录' }).click();
-  await page.getByRole('button', { name: '进人闭环验收岗', exact: true }).click();
-  await expect(page.getByText('已接收 2 / 2 份，已核对 2 份')).toBeVisible();
-  await page.getByRole('button', { name: '关闭详情' }).click();
-  await page.getByRole('tab', { name: '人才档案' }).click();
-  await page.getByRole('button', { name: '虚构林一', exact: true }).first().click();
-  await page.getByLabel('目标职位', { exact: true }).selectOption(String(job.id));
-  await page.getByLabel('应聘来源', { exact: true }).fill('再次人工加入同一职位');
-  await page.getByRole('button', { name: '建立或打开本次应聘' }).click();
+  // 当前列表按应聘展示；主档复用与导入历史已无独立页面，保留真实 API 持久性与幂等验收。
+  const people: { results: Candidate[] } = await (
+    await page.request.get('/api/v1/candidates/?search=%E8%99%9A%E6%9E%84%E6%9E%97%E4%B8%80')
+  ).json();
+  expect(people.results).toHaveLength(2);
+  const restoredBatch = await (await page.request.get(`/api/v1/imports/${batch.id}/`)).json();
+  expect(restoredBatch).toMatchObject({ received: 2, completed: 2 });
+  const repeated = await post(page, `candidates/${firstApplication.candidate}/apply/`, {
+    request_key: crypto.randomUUID(),
+    job: job.id,
+    source: '再次人工加入同一职位',
+  });
+  expect(repeated.application).toBe(firstApplication.id);
+  await page
+    .getByRole('row')
+    .filter({ hasText: job.title })
+    .filter({ hasText: '待初试' })
+    .getByRole('button', { name: '虚构林一', exact: true })
+    .click();
   await expect(page.getByRole('heading', { name: '虚构林一 · 第 1 次应聘' })).toBeVisible();
-  await page.getByLabel('处理结果').selectOption('reject');
+  await choose(page, '处理结果', '结束应聘（撤回或招聘取消）');
   await page.getByLabel('依据与说明').fill('本次项目经验与职位要求不符，仅结束这一次应聘');
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.getByRole('button', { name: '关闭详情' }).click();
@@ -267,15 +283,25 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
   await page.getByRole('button', { name: '提交人工处理结果' }).click();
   await expect(page.getByText('本次结束原因：', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: '关闭详情' }).click();
-  await page.getByRole('button', { name: '虚构林一', exact: true }).first().click();
-  await page.getByLabel('目标职位', { exact: true }).selectOption(String(job.id));
-  await page.getByLabel('应聘来源', { exact: true }).fill('后续再次投递');
-  await page.getByRole('button', { name: '建立或打开本次应聘' }).click();
+  const reapplied = await post(page, `candidates/${firstApplication.candidate}/apply/`, {
+    request_key: crypto.randomUUID(),
+    job: job.id,
+    source: '后续再次投递',
+  });
+  expect(reapplied.application).not.toBe(firstApplication.id);
+  await page.reload();
+  await page.getByLabel('搜索候选人').fill('虚构林一');
+  await page
+    .getByRole('row')
+    .filter({ hasText: job.title })
+    .filter({ hasText: '第 2 次' })
+    .getByRole('button', { name: '虚构林一', exact: true })
+    .click();
   await expect(page.getByRole('heading', { name: '虚构林一 · 第 2 次应聘' })).toBeVisible();
   await page.getByLabel('依据与说明').fill('冲突后仍保留这段人工核对说明');
-  const apps = await (await page.request.get('/api/v1/applications/')).json();
-  const current = apps.results.find((a: { attempt_no: number }) => a.attempt_no === 2);
-  const full = await (await page.request.get(`/api/v1/applications/${current.id}/`)).json();
+  const full = await (
+    await page.request.get(`/api/v1/applications/${reapplied.application}/`)
+  ).json();
   await post(page, `applications/${full.id}/review/`, {
     version: full.version,
     profile: full.profile,
@@ -293,7 +319,7 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
   await expect(page.getByLabel('依据与说明')).toHaveValue('冲突后仍保留这段人工核对说明');
   await page.getByRole('button', { name: '提交人工处理结果' }).click();
   await expect(
-    page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待安排面试' }),
+    page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待初试' }),
   ).toBeVisible();
   await page.getByLabel('面试轮次').fill('1');
   await page
@@ -321,7 +347,8 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
   await page.getByRole('button', { name: '关闭详情' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('link', { name: '面试', exact: true }).click();
-  await expect(page.getByText('邀请尚未发送', { exact: true })).toBeVisible();
-  await expect(page.locator('table').getByText('虚构林一', { exact: true })).toBeVisible();
+  const interview = page.getByRole('row').filter({ hasText: job.title });
+  await expect(interview.getByText('邀请尚未发送', { exact: true })).toBeVisible();
+  await expect(interview.getByText('虚构林一', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

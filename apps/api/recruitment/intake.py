@@ -49,6 +49,20 @@ def hr_jobs(m):
     )
 
 
+def requirement_data(item):
+    return {
+        "id": item.id,
+        "kind": item.kind,
+        "text": item.text,
+        "rationale": item.rationale,
+        "needs_verification": item.needs_verification,
+        "source_kind": item.source_kind,
+        "source_quote": item.source_quote,
+        "source_reference": item.source_reference,
+        "source_edited": item.source_edited,
+    }
+
+
 def candidates(m):
     return Candidate.objects.filter(
         organization=m.organization, applications__job__in=hr_jobs(m)
@@ -721,6 +735,9 @@ def app_data(a, m, detail=False):
         "ai_status": "not_connected",
     }
     if detail:
+        # AI 初面复用本模块的授权查询，详情运行时引入以避免模块循环导入。
+        from .ai_screening import latest_application_analysis
+
         result.update(
             phone=a.candidate.phone,
             email=a.candidate.email,
@@ -775,12 +792,13 @@ def app_data(a, m, detail=False):
                 .distinct()
                 .order_by("id")
             ],
-            requirements=list(
-                a.job.active_profile.requirements.values("id", "kind", "text", "rationale")
-            )
+            requirements=[
+                requirement_data(item) for item in a.job.active_profile.requirements.all()
+            ]
             if a.job.active_profile_id
             else [],
             job_status=a.job.status,
+            profile_analysis=latest_application_analysis(m, a),
         )
     return result
 

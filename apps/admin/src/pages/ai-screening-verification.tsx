@@ -17,6 +17,7 @@ export type ScreeningSource = {
     filename?: string;
     parse_version?: number | null;
     edited?: boolean;
+    resume_parse_id?: number | null;
   };
   job: {
     id: number;
@@ -24,6 +25,7 @@ export type ScreeningSource = {
     version: number;
     description: string;
     profile_version: number | null;
+    profile_id?: number | null;
     requirements: { kind: string; text: string }[];
   } | null;
   application: { id: number; version: number } | null;
@@ -117,12 +119,16 @@ export function ScreeningVerification({
   initial,
   disabled,
   onEditingChange,
+  onRecordsChange,
+  onBusyChange,
 }: {
   reportId: number;
   questions: { question: string; follow_up: string; answer_points: string[] }[];
   initial?: Verification[];
   disabled: boolean;
   onEditingChange: (editing: boolean) => void;
+  onRecordsChange?: (items: Verification[]) => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [items, setItems] = useState(initial || []);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -137,6 +143,15 @@ export function ScreeningVerification({
   const active = draft !== null || busy;
 
   useEffect(() => setItems(initial || []), [initial]);
+
+  function updateItems(next: Verification[]) {
+    setItems(next);
+    onRecordsChange?.(next);
+  }
+  useEffect(() => {
+    onBusyChange?.(busy);
+    return () => onBusyChange?.(false);
+  }, [busy, onBusyChange]);
 
   useEffect(() => {
     onEditingChange(active);
@@ -197,7 +212,7 @@ export function ScreeningVerification({
         `ai-screenings/${reportId}/verifications/`,
         { ...value, request_key: retry.current.key },
       );
-      setItems(result.items);
+      updateItems(result.items);
       setDraft(null);
       setRevisions(null);
       retry.current = null;
@@ -239,7 +254,7 @@ export function ScreeningVerification({
       const result = await api<Records>(
         `ai-screenings/${reportId}/verifications/?question_index=${index}&page=${page}`,
       );
-      setItems(result.items);
+      updateItems(result.items);
       setRevisions(result);
       setHistoryIndex(index);
     } catch (failure) {
@@ -257,7 +272,7 @@ export function ScreeningVerification({
     setError('');
     try {
       const latest = await api<Records>(`ai-screenings/${reportId}/verifications/`);
-      setItems(latest.items);
+      updateItems(latest.items);
       const selected = latest.items.filter((item) => item.status !== 'withdrawn');
       const text = [
         `AI 初面报告 #${reportId} · HR 手动核实提纲（未发送通知，不代替正式面评）`,
@@ -291,7 +306,7 @@ export function ScreeningVerification({
     setBusy(true);
     try {
       const latest = await api<Records>(`ai-screenings/${reportId}/verifications/`);
-      setItems(latest.items);
+      updateItems(latest.items);
       setDraft({
         ...draft,
         version:

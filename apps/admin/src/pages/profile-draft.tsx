@@ -1,7 +1,11 @@
 import { Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ErrorNotice } from '@/components/feedback';
-import { type EditableRequirement, ProfileRequirements } from '@/components/profile-requirements';
+import {
+  type EditableRequirement,
+  ProfileRequirementSummary,
+  ProfileRequirements,
+} from '@/components/profile-requirements';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSet } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -42,7 +46,7 @@ export function ProfileDraft({
   const [error, setError] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
-    const field = step === 'input' ? '#draft-need' : step === 'save' ? '#draft-title' : 'textarea';
+    const field = step === 'input' ? '#draft-need' : step === 'save' ? '#draft-title' : 'summary';
     formRef.current?.scrollTo({ top: 0 });
     formRef.current?.querySelector<HTMLElement>(field)?.focus({ preventScroll: true });
   }, [step]);
@@ -177,6 +181,11 @@ export function ProfileDraft({
                       setStep('review');
                     }}
                   />
+                  {!matchesInput && (
+                    <p role="status">
+                      招聘需求或业务目标已修改，原草稿需要重新生成并采用。已整理的要求仍保留；恢复原输入可继续核对。
+                    </p>
+                  )}
                   {requirements.length > 0 && matchesInput && (
                     <Button type="button" variant="outline" onClick={() => setStep('review')}>
                       继续核对已整理的画像
@@ -205,6 +214,7 @@ export function ProfileDraft({
                 </>
               ) : step === 'review' ? (
                 <>
+                  <ProfileRequirementSummary requirements={requirements} />
                   <FieldDescription>
                     逐项修改要求、查看原始依据；待核实的必须项需明确后才能使用。保存前不会创建职位。
                   </FieldDescription>

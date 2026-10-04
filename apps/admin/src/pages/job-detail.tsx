@@ -1,7 +1,8 @@
 import { Check, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Blank, ErrorNotice, Loading, Pager } from '@/components/feedback';
-import { ProfileRequirements } from '@/components/profile-requirements';
+import { ProfileRequirementSummary, ProfileRequirements } from '@/components/profile-requirements';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -38,7 +39,7 @@ import {
   type Requirement,
 } from '@/lib/api';
 import { Clarifications } from '@/pages/clarifications';
-import { ProfileAi } from '@/pages/talent-profiles';
+import { ProfileAi, type ProfileGeneration } from '@/pages/talent-profiles';
 
 export function CreateJob({
   me,
@@ -446,7 +447,7 @@ export function JobDetail({
               : '正在读取你获授权的职位信息'}
           </SheetDescription>
         </SheetHeader>
-        <div className="sheet-scroll">
+        <div className={editing && job ? 'flex min-h-0 flex-1 flex-col' : 'sheet-scroll'}>
           {notice && (
             <p className="success-notice" role="status">
               <Check />
@@ -798,6 +799,85 @@ function ProfileContent({ profile: p }: { profile: Profile }) {
   );
 }
 
+function ProfileChanges({
+  job,
+  requirements,
+  jd,
+  businessGoal,
+}: {
+  job: Job;
+  requirements: Requirement[];
+  jd: string;
+  businessGoal: string;
+}) {
+  const [active, setActive] = useState<Profile | null>(
+    job.latest_profile?.id === job.active_profile ? job.latest_profile : null,
+  );
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    if (!job.active_profile || job.latest_profile?.id === job.active_profile) return;
+    const controller = new AbortController();
+    setError('');
+    void (async () => {
+      for (let page = 1; ; page++) {
+        const result = await api<Page<Profile>>(
+          `jobs/${job.id}/profiles/?page=${page}`,
+          undefined,
+          controller.signal,
+        );
+        const current = result.results.find((profile) => profile.id === job.active_profile);
+        if (current) {
+          setActive(current);
+          return;
+        }
+        if (!result.next) throw new Error('未能读取当前生效版，暂时无法比较变化。');
+      }
+    })().catch((e) => {
+      if (e.name !== 'AbortError') setError(e.message);
+    });
+    return () => controller.abort();
+  }, [job.id, job.active_profile, job.latest_profile?.id, retry]);
+  if (!job.active_profile) return null;
+  if (error) return <ErrorNotice message={error} retry={() => setRetry((value) => value + 1)} />;
+  if (!active) return <p role="status">正在读取生效版本，核对本次变化…</p>;
+  const content = (r: Requirement) =>
+    JSON.stringify([r.kind, r.text.trim(), r.rationale.trim(), r.needs_verification]);
+  const remaining = [...active.requirements];
+  let added = 0;
+  let modified = 0;
+  for (const requirement of requirements) {
+    const original =
+      requirement.id == null
+        ? requirement
+        : job.latest_profile?.requirements.find((item) => item.id === requirement.id) ||
+          requirement;
+    const sameId = remaining.findIndex(
+      (before) => requirement.id != null && before.id === requirement.id,
+    );
+    const index =
+      sameId >= 0 ? sameId : remaining.findIndex((before) => content(before) === content(original));
+    if (index < 0) added++;
+    else {
+      if (content(remaining[index]) !== content(requirement)) modified++;
+      remaining.splice(index, 1);
+    }
+  }
+  return (
+    <Alert aria-label="与生效版本比较">
+      <AlertTitle>相对当前生效 v{active.number}</AlertTitle>
+      <AlertDescription>
+        <p>
+          要求变更：新增 {added} · 删除 {remaining.length} · 修改 {modified}
+        </p>
+        {jd.trim() !== active.jd_snapshot.trim() && <p>职位描述有调整</p>}
+        {businessGoal.trim() !== (active.business_goal || '').trim() && <p>业务目标有调整</p>}
+        <p>保存草稿不替换生效版；保存并使用后，后续评估使用新版，历史记录保留。</p>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 function ProfileEditor({
   job,
   busy,
@@ -824,125 +904,170 @@ function ProfileEditor({
   const [jd, setJd] = useState(job.jd);
   const [source, setSource] = useState(job.latest_profile?.source || '');
   const [businessGoal, setBusinessGoal] = useState(job.latest_profile?.business_goal || '');
-  const [generationId, setGenerationId] = useState<number | null>(null);
+  const [generation, setGeneration] = useState<ProfileGeneration | null>(null);
+  const [materialsOpen, setMaterialsOpen] = useState(!job.jd.trim() || !job.latest_profile?.source);
+  const inputChanged = Boolean(
+    generation &&
+      (generation.input.jd !== jd.trim() || generation.input.business_goal !== businessGoal.trim()),
+  );
+  const unverified = requirements.some((r) => r.kind === 'must' && r.needs_verification);
   return (
-    <form
-      onChange={onDirty}
-      onSubmit={async (e) => {
-        e.preventDefault();
-        const activate =
-          (e.nativeEvent as SubmitEvent).submitter?.getAttribute('value') === 'activate';
-        setBusy(true);
-        setError('');
-        try {
-          saved(
-            await api<Job>(`jobs/${job.id}/profiles/`, {
-              version: job.version,
-              jd,
-              source,
-              business_goal: businessGoal,
-              generation_id: generationId,
-              activate,
-              requirements: requirements.map(({ key: _key, ...r }) => r),
-            }),
-          );
-        } catch (e) {
-          setError((e as Error).message);
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <FieldSet disabled={busy}>
-        <FieldGroup>
-          <div className="section-heading">
-            <div>
-              <h2>AI 辅助整理岗位要求</h2>
-              <p>本次保存为 v{(job.latest_profile?.number || 0) + 1}，历史版本会保留。</p>
+    <>
+      <form
+        id="job-profile-form"
+        className="sheet-scroll"
+        onChange={onDirty}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (busy || inputChanged) return;
+          const activate =
+            (e.nativeEvent as SubmitEvent).submitter?.getAttribute('value') === 'activate';
+          setBusy(true);
+          setError('');
+          try {
+            saved(
+              await api<Job>(`jobs/${job.id}/profiles/`, {
+                version: job.version,
+                jd,
+                source,
+                business_goal: businessGoal,
+                generation_id: generation?.id ?? null,
+                activate,
+                requirements: requirements.map(({ key: _key, ...r }) => r),
+              }),
+            );
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <FieldSet disabled={busy}>
+          <FieldGroup>
+            <div className="section-heading">
+              <div>
+                <h2>AI 辅助整理岗位要求</h2>
+                <p>本次保存为 v{(job.latest_profile?.number || 0) + 1}，历史版本会保留。</p>
+              </div>
             </div>
-          </div>
-          <ProfileAi
-            job={job}
-            jd={jd}
-            businessGoal={businessGoal}
-            busy={busy}
-            setBusy={setBusy}
-            restoreInput={(input) => {
-              onDirty();
-              setJd(input.jd);
-              setBusinessGoal(input.business_goal);
-            }}
-            adopt={(generation, items) => {
-              onDirty();
-              setRequirements(items.map((r) => ({ ...r, key: crypto.randomUUID() })));
-              setGenerationId(generation.id);
-              setSource('AI 起草，HR 核对');
-              setError('');
-            }}
-          />
-          <Field>
-            <FieldLabel htmlFor="profile-jd">对外职位描述</FieldLabel>
-            <Textarea
-              id="profile-jd"
-              value={jd}
-              onChange={(e) => setJd(e.target.value)}
-              rows={5}
-              maxLength={30000}
-              required
+            <ProfileRequirementSummary requirements={requirements} />
+            <ProfileChanges
+              job={job}
+              requirements={requirements}
+              jd={jd}
+              businessGoal={businessGoal}
             />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="profile-goal">业务目标（可选）</FieldLabel>
-            <Textarea
-              id="profile-goal"
-              value={businessGoal}
-              maxLength={5000}
-              rows={3}
-              placeholder="希望这个人解决什么问题、入职后完成什么结果？"
-              onChange={(e) => setBusinessGoal(e.target.value)}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="profile-source">要求来源</FieldLabel>
-            <Input
-              id="profile-source"
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              placeholder="例如：招聘需求、业务说明或 HR 补充"
-              maxLength={500}
-              required
-            />
-          </Field>
-          <ProfileRequirements
-            requirements={requirements}
-            busy={busy}
-            onChange={(next) => {
-              onDirty();
-              setRequirements(next);
-            }}
-          />
-          {error && <ErrorNotice message={error} />}
-          <div className="form-actions">
-            <Button variant="outline" onClick={cancel}>
-              取消编辑
-            </Button>
-            <Button type="submit" disabled={busy}>
-              {busy ? '正在保存…' : '保存要求草稿'}
-            </Button>
-            <Button
-              type="submit"
-              value="activate"
-              disabled={busy || requirements.some((r) => r.kind === 'must' && r.needs_verification)}
+            <details
+              className="rounded-lg border p-4"
+              open={materialsOpen}
+              onToggle={(event) => setMaterialsOpen(event.currentTarget.open)}
+              onInvalidCapture={(event) => {
+                event.currentTarget.open = true;
+                setMaterialsOpen(true);
+              }}
             >
-              保存并使用
-            </Button>
-          </div>
-          {requirements.some((r) => r.kind === 'must' && r.needs_verification) && (
-            <p role="status">必须满足的要求还有待核实项，请先明确，或保存草稿继续完善。</p>
-          )}
-        </FieldGroup>
-      </FieldSet>
-    </form>
+              <summary className="cursor-pointer">招聘原文与业务目标</summary>
+              <FieldGroup className="mt-4">
+                <Field>
+                  <FieldLabel htmlFor="profile-jd">对外职位描述</FieldLabel>
+                  <Textarea
+                    id="profile-jd"
+                    value={jd}
+                    onChange={(e) => setJd(e.target.value)}
+                    rows={5}
+                    maxLength={30000}
+                    required
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="profile-goal">业务目标（可选）</FieldLabel>
+                  <Textarea
+                    id="profile-goal"
+                    value={businessGoal}
+                    maxLength={5000}
+                    rows={3}
+                    placeholder="希望这个人解决什么问题、入职后完成什么结果？"
+                    onChange={(e) => setBusinessGoal(e.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="profile-source">要求来源</FieldLabel>
+                  <Input
+                    id="profile-source"
+                    value={source}
+                    onChange={(e) => setSource(e.target.value)}
+                    placeholder="例如：招聘需求、业务说明或 HR 补充"
+                    maxLength={500}
+                    required
+                  />
+                </Field>
+              </FieldGroup>
+            </details>
+            <ProfileAi
+              job={job}
+              jd={jd}
+              businessGoal={businessGoal}
+              busy={busy}
+              setBusy={setBusy}
+              restoreInput={(input) => {
+                onDirty();
+                setJd(input.jd);
+                setBusinessGoal(input.business_goal);
+              }}
+              adopt={(generation, items) => {
+                onDirty();
+                setRequirements(items.map((r) => ({ ...r, key: crypto.randomUUID() })));
+                setGeneration(generation);
+                setSource('AI 起草，HR 核对');
+                setError('');
+              }}
+            />
+            <ProfileRequirements
+              requirements={requirements}
+              busy={busy}
+              onChange={(next) => {
+                onDirty();
+                setRequirements(next);
+              }}
+            />
+          </FieldGroup>
+        </FieldSet>
+      </form>
+      <SheetFooter className="shrink-0 border-t bg-background">
+        {error && <ErrorNotice message={error} />}
+        {inputChanged && (
+          <p role="status">
+            招聘原文或业务目标已修改，已采用的 AI
+            草稿需要重新生成并采用后才能保存。你填写的内容已保留。
+          </p>
+        )}
+        {unverified && (
+          <p role="status">必须满足的要求还有待核实项，请先明确，或保存草稿继续完善。</p>
+        )}
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" disabled={busy} onClick={cancel}>
+            取消编辑
+          </Button>
+          <Button
+            type="submit"
+            form="job-profile-form"
+            variant="outline"
+            disabled={busy || inputChanged}
+          >
+            {busy ? '正在保存…' : '保存要求草稿'}
+          </Button>
+          <Button
+            type="submit"
+            form="job-profile-form"
+            value="activate"
+            disabled={busy || unverified || inputChanged}
+          >
+            保存并使用
+          </Button>
+        </div>
+      </SheetFooter>
+    </>
   );
 }
 

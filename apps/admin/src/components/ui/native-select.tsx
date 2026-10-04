@@ -56,6 +56,7 @@ function NativeSelect({
         aria-required={required || undefined}
         className={cn('native-select', className)}
         clickToHide
+        motion={false}
         disabled={disabled}
         dropdownClassName="candidate-select-dropdown"
         id={id}

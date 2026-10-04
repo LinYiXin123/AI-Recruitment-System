@@ -1,5 +1,5 @@
 import Table from '@douyinfe/semi-ui/lib/es/table';
-import { BriefcaseBusiness, Search, Sparkles } from 'lucide-react';
+import { BriefcaseBusiness, Search, Sparkles, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -16,6 +16,7 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   api,
   dateTime,
@@ -25,8 +26,191 @@ import {
   type Page,
   type Requirement,
 } from '@/lib/api';
+import { type Application, stages } from '@/lib/intake';
 
 export function TalentProfiles({
+  openApplication,
+  ...props
+}: {
+  revision: number;
+  openJob: (id: number, edit?: boolean) => void;
+  openApplication: (id: number) => void;
+  canCreate: boolean;
+}) {
+  return (
+    <Tabs defaultValue="jobs" className="gap-4">
+      <TabsList aria-label="人才画像类型">
+        <TabsTrigger value="jobs">岗位画像</TabsTrigger>
+        <TabsTrigger value="candidates">候选人画像</TabsTrigger>
+      </TabsList>
+      <TabsContent value="jobs">
+        <JobProfiles {...props} />
+      </TabsContent>
+      <TabsContent value="candidates">
+        <CandidateProfiles revision={props.revision} openApplication={openApplication} />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function CandidateProfiles({
+  revision,
+  openApplication,
+}: {
+  revision: number;
+  openApplication: (id: number) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [job, setJob] = useState('');
+  const [page, setPage] = useState(1);
+  const [reload, setReload] = useState(0);
+  const [data, setData] = useState<Page<Application> | null>(null);
+  const [jobs, setJobs] = useState<{ job_id: number; job__title: string }[]>([]);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const controller = new AbortController();
+    setData(null);
+    setError('');
+    const query = new URLSearchParams({ search, job_id: job, page: String(page) });
+    Promise.all([
+      api<Page<Application>>(`applications/?${query}`, undefined, controller.signal),
+      api<{ jobs: { job_id: number; job__title: string }[] }>(
+        'applications/filter-options/',
+        undefined,
+        controller.signal,
+      ),
+    ])
+      .then(([next, options]) => {
+        setData(next);
+        setJobs(options.jobs);
+      })
+      .catch((e) => {
+        if (e.name !== 'AbortError') setError(e.message);
+      });
+    return () => controller.abort();
+  }, [search, job, page, reload, revision]);
+  return (
+    <section className="panel" aria-label="候选人画像工作台">
+      <FieldGroup className="grid items-center gap-2.5 border-b px-[26px] py-5 sm:grid-cols-[minmax(0,1fr)_220px_auto]">
+        <Field>
+          <FieldLabel className="sr-only" htmlFor="profile-candidate-search">
+            搜索候选人或职位
+          </FieldLabel>
+          <Input
+            id="profile-candidate-search"
+            placeholder="搜索候选人或职位..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+          />
+        </Field>
+        <Field>
+          <FieldLabel className="sr-only" id="profile-job-label" htmlFor="profile-job">
+            目标职位
+          </FieldLabel>
+          <NativeSelect
+            id="profile-job"
+            aria-labelledby="profile-job-label"
+            value={job}
+            onChange={(e) => {
+              setJob(e.target.value);
+              setPage(1);
+            }}
+          >
+            <NativeSelectOption value="">全部职位</NativeSelectOption>
+            {jobs.map((item) => (
+              <NativeSelectOption key={item.job_id} value={String(item.job_id)}>
+                {item.job__title}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </Field>
+        <Button
+          variant="outline"
+          className="h-[42px] px-3.5"
+          onClick={() => {
+            setSearch('');
+            setJob('');
+            setPage(1);
+          }}
+        >
+          重置
+        </Button>
+      </FieldGroup>
+      {error ? (
+        <ErrorNotice message={error} retry={() => setReload((v) => v + 1)} />
+      ) : !data ? (
+        <Loading />
+      ) : !data.count ? (
+        <Empty className="candidate-library-empty">
+          <EmptyHeader>
+            <EmptyMedia className="candidate-library-empty-icon">
+              <Users aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyTitle>
+              {search || job ? '没有符合条件的应聘记录' : '还没有可分析的候选人'}
+            </EmptyTitle>
+            <EmptyDescription>
+              {search || job
+                ? '调整筛选后再试。'
+                : '在候选人库关联职位并补充简历后，可在这里对照岗位要求。'}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <>
+          <p className="px-[26px] py-3 text-sm text-muted-foreground">
+            每次应聘按对应岗位分析；同一候选人应聘不同岗位时，分别保留依据与核实记录。
+          </p>
+          <div className="table-container">
+            <Table<Application>
+              rowKey="id"
+              dataSource={data.results}
+              pagination={false}
+              columns={[
+                {
+                  title: '候选人',
+                  dataIndex: 'name',
+                  render: (_value, item) => (
+                    <Button
+                      variant="link"
+                      className="job-link"
+                      onClick={() => openApplication(item.id)}
+                    >
+                      {item.name}
+                    </Button>
+                  ),
+                },
+                { title: '目标职位', dataIndex: 'job_title' },
+                { title: '本次应聘', dataIndex: 'attempt_no', render: (value) => `第 ${value} 次` },
+                {
+                  title: '当前阶段',
+                  dataIndex: 'stage',
+                  render: (value) => <Badge variant="secondary">{stages[value] || value}</Badge>,
+                },
+                { title: '经办 HR', dataIndex: 'owner_name' },
+                {
+                  title: '下一步',
+                  dataIndex: 'id',
+                  render: (_value, item) => (
+                    <Button variant="outline" onClick={() => openApplication(item.id)}>
+                      查看画像与材料
+                    </Button>
+                  ),
+                },
+              ]}
+            />
+          </div>
+          <Pager page={page} count={data.count} onChange={setPage} />
+        </>
+      )}
+    </section>
+  );
+}
+
+function JobProfiles({
   revision,
   openJob,
   canCreate,

@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from .access import member, visible_jobs
 from .employer_brand import enterprise_snapshot as build_enterprise_snapshot
 from .errors import Conflict
-from .intake import extract_resume_text, hr_jobs
+from .intake import extract_resume_text, hr_jobs, requirement_data
 from .llm import LLMServiceError, chat_completion
 from .models import (
     AIScreening,
@@ -59,7 +59,21 @@ SYSTEM_PROMPT = "\n".join(
         "每项含 criterion、quote、reason；quote 须逐字摘自简历原文。",
         "gaps（数组，每项含 criterion、note；只描述材料未提及或不清楚之处，不得据此判定不合格）。",
         "questions（数组，每项完整包含 question、reason、follow_up、answer_points、quote）。",
-        "每个数组最多 5 项。",
+        "evidence、gaps、questions 每个数组最多 5 项。",
+        "有岗位画像要求时另含 requirement_matches 数组，",
+        "完整覆盖 target_job.requirements 中每一条，不受 5 项限制。",
+        "每项包含 requirement_id、status、quote、reason、question。",
+        "requirement_id 必须使用输入中的 id；status 仅可为 supported 或 insufficient。",
+        "supported 只表示简历有直接材料支持，quote 必须逐字摘自简历，",
+        "reason 说明对应关系，不代表事实已人工核实。",
+        "简历缺失、含糊或无法定位依据时为 insufficient，不得推断不符合；",
+        "question 给出下一步具体核实问题。",
+        "exclusion 的 supported 仅表示材料中出现需人工复核的排除信号，不得据此自动淘汰。",
+        "有已生效画像时仅按 target_job.requirements 中已确认的条件分析，",
+        "不从职位名称或企业背景推导额外要求。",
+        "questions 优先选择最多 5 个尚需核实的候选人材料问题；",
+        "属于已确认画像要求的题目增加 requirement_id，没有对应条件时为 null；",
+        "岗位条件待确认由 HR 另行澄清，不混入候选人核实题。",
         "问题围绕简历中的具体项目、本人职责、量化成果和评测口径，优先核实贡献边界、实施细节和结果依据，不编造经历。",
         "question 是可直接提问的具体题目；reason 是考察点；follow_up 是进一步核验细节的追问。",
         "answer_points 是 1 至 5 条字符串组成的合格回答要点，描述需提供的过程、证据或验证方法。",
@@ -124,7 +138,7 @@ def _text(value, maximum):
     return value.strip()[:maximum] if isinstance(value, str) else ""
 
 
-def _parse_analysis(content, resume, has_job=False):
+def _parse_analysis(content, resume, has_job=False, requirements=None):
     content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip(), flags=re.IGNORECASE)
     try:
         data = json.loads(content)
@@ -170,6 +184,8 @@ def _parse_analysis(content, resume, has_job=False):
             if isinstance(item, dict) and _text(item.get(first), 400)
         ]
 
+    requirements = requirements or []
+    confirmed_ids = {item["id"] for item in requirements if not item["needs_verification"]}
     questions = []
     question_items = data.get("questions")
     for item in question_items[:5] if isinstance(question_items, list) else []:
@@ -192,6 +208,15 @@ def _parse_analysis(content, resume, has_job=False):
                 "quote": verified_quote(item.get("quote")),
             }
         )
+        if "requirement_id" in item:
+            requirement_id = item.get("requirement_id")
+            questions[-1]["requirement_id"] = (
+                requirement_id
+                if type(requirement_id) is int and requirement_id in confirmed_ids
+                else None
+            )
+
+    matches = _requirement_matches(data.get("requirement_matches"), requirements, resume, questions)
 
     summary = _text(data["summary"], 800)
     if not summary:
@@ -203,6 +228,7 @@ def _parse_analysis(content, resume, has_job=False):
         or isinstance(score, bool)
         or not isinstance(score, (int, float))
         or not 0 <= score <= 100
+        or (requirements and not any(item["status"] == "supported" for item in matches))
     ):
         score = None
     conclusion = "通用初判"
@@ -216,8 +242,69 @@ def _parse_analysis(content, resume, has_job=False):
         "evidence": evidence,
         "gaps": notes("gaps", "criterion", "note"),
         "questions": questions,
+        "requirement_matches": matches,
         "limitations": "AI 结果仅供参考；请对照简历原文复核，并由 HR 独立作出判断。",
     }
+
+
+def _requirement_matches(raw, requirements, resume, questions):
+    by_id = {}
+    for item in raw if isinstance(raw, list) else []:
+        if isinstance(item, dict) and type(item.get("requirement_id")) is int:
+            by_id.setdefault(item["requirement_id"], []).append(item)
+    matches = []
+    for requirement in requirements:
+        rows = by_id.get(requirement["id"], [])
+        item = rows[0] if len(rows) == 1 else {}
+        raw_quote = item.get("quote")
+        quote = (
+            raw_quote
+            if isinstance(raw_quote, str)
+            and raw_quote.strip()
+            and len(raw_quote) <= 1200
+            and raw_quote in resume
+            else ""
+        )
+        reason = _text(item.get("reason"), 800)
+        valid = (
+            item.get("status") in ("supported", "insufficient")
+            and bool(reason)
+            and (bool(quote) or raw_quote == "")
+            and (item.get("status") != "supported" or bool(quote))
+        )
+        status = item["status"] if valid else "insufficient"
+        question = _text(item.get("question"), 800) if valid else ""
+        if not valid:
+            reason = "模型未提供可核验的对应依据，请对照简历补充核实。"
+        if requirement["needs_verification"]:
+            status = "insufficient"
+            reason = "该岗位条件尚待 HR 确认，本次不据此评分或判断候选人。"
+            question = "请先确认该岗位条件的具体要求与适用范围。"
+        question_index = next(
+            (
+                index
+                for index, value in enumerate(questions)
+                if value.get("requirement_id") == requirement["id"]
+            ),
+            None,
+        )
+        if question_index is not None:
+            question = questions[question_index]["question"]
+        matches.append(
+            {
+                "requirement_id": requirement["id"],
+                "kind": requirement["kind"],
+                "text": requirement["text"],
+                "needs_verification": requirement["needs_verification"],
+                "status": status,
+                "quote": quote,
+                "reason": reason,
+                "question": question
+                or f"请补充与“{requirement['text']}”相关的具体经历和材料依据。",
+                "question_index": question_index,
+            }
+        )
+    return matches
 
 
 def _hr_member(request):
@@ -326,10 +413,7 @@ def _analysis_sources(current_member, data, *, lock=False):
             "description": profile.jd_snapshot if profile else job.jd,
             "profile_id": profile.id if profile else None,
             "profile_version": profile.number if profile else None,
-            "requirements": [
-                {"id": item.id, "kind": item.kind, "text": item.text}
-                for item in profile.requirements.all()
-            ]
+            "requirements": [requirement_data(item) for item in profile.requirements.all()]
             if profile
             else [],
         }
@@ -366,6 +450,7 @@ def _analysis_sources(current_member, data, *, lock=False):
             parse_version=parse.version,
             edited=edited,
             parse_text_digest=hashlib.sha256(parse.text.encode()).hexdigest(),
+            application_parse_ids=_application_parse_ids(application),
             note=data["source_note"]
             or (
                 "基于本次应聘简历解析人工编辑，保留原材料访问约束；不是解析原文。"
@@ -415,6 +500,60 @@ def _analysis_sources(current_member, data, *, lock=False):
             "enterprise": enterprise_context,
         },
     )
+
+
+def _application_parse_ids(application):
+    return list(
+        application.resumes.filter(
+            parse__status="succeeded",
+            parse__document__organization_id=application.organization_id,
+            parse__document__candidate_id=application.candidate_id,
+            parse__document__access_state="active",
+        )
+        .order_by("parse_id")
+        .values_list("parse_id", flat=True)
+    )
+
+
+def _source_status(screening):
+    context = screening.source_context or {}
+    job_context = context.get("job")
+    source = context.get("source") or {}
+    profile_stale = None
+    material_stale = None
+    if job_context and screening.job_id:
+        profile_stale = screening.job.active_profile_id != job_context.get("profile_id")
+    if source.get("parse_text_digest") and screening.resume_parse_id:
+        material_stale = (
+            hashlib.sha256(screening.resume_parse.text.encode()).hexdigest()
+            != source["parse_text_digest"]
+        )
+        if screening.application_id:
+            captured_ids = source.get("application_parse_ids")
+            if isinstance(captured_ids, list):
+                material_stale = material_stale or (
+                    _application_parse_ids(screening.application) != captured_ids
+                )
+            else:
+                # 早期快照没有材料集合，只判断后来新增的可用材料，不补造旧来源。
+                material_stale = (
+                    material_stale
+                    or screening.application.resumes.filter(
+                        parse_id__in=_application_parse_ids(screening.application),
+                        created_at__gt=screening.created_at,
+                    ).exists()
+                )
+    return {"profile_stale": profile_stale, "material_stale": material_stale}
+
+
+def latest_application_analysis(current_member, application):
+    screening = (
+        _visible_screenings(current_member)
+        .filter(application=application, job_id=application.job_id)
+        .select_related("job", "application", "resume_parse")
+        .first()
+    )
+    return _report_data(screening) if screening else None
 
 
 def _question_keys(screening):
@@ -492,9 +631,11 @@ def _report_data(screening, detail=True):
             evidence=result.get("evidence", []),
             gaps=result.get("gaps", []),
             questions=result.get("questions", []),
+            requirement_matches=result.get("requirement_matches", []),
             question_drafts=_question_drafts(screening, saved_questions),
             limitations=result.get("limitations", ""),
             source_context=screening.source_context,
+            source_status=_source_status(screening),
             enterprise_snapshot=screening.enterprise_snapshot,
             verifications=verification_state["items"],
             verification_summary=verification_state["verification_summary"],
@@ -544,10 +685,24 @@ def analyze(request):
         current_member, data
     )
 
+    job_context = source_context["job"]
+    requirements = job_context["requirements"] if job_context else []
+    scoring_job = job_context
+    if job_context and job_context["profile_id"]:
+        scoring_job = {
+            **job_context,
+            # 正式画像已逐项表达标准，原始 JD 可能仍含尚未确认的建议，只保留在来源快照。
+            "description": "",
+            "requirements": [
+                {key: item[key] for key in ("id", "kind", "text", "rationale")}
+                for item in requirements
+                if not item["needs_verification"]
+            ],
+        }
     user_text = json.dumps(
         {
             "resume": data["resume"],
-            "target_job": source_context["job"],
+            "target_job": scoring_job,
             "target_enterprise": source_context["enterprise"],
         },
         ensure_ascii=False,
@@ -599,7 +754,9 @@ def analyze(request):
     except LLMServiceError as exc:
         raise AnalysisUnavailable(f"{AnalysisUnavailable.default_detail} 诊断：{exc}") from exc
 
-    result = _parse_analysis(content, data["resume"], has_job=job is not None)
+    result = _parse_analysis(
+        content, data["resume"], has_job=job is not None, requirements=requirements
+    )
     current_member = _hr_member(request)
     latest_context = _analysis_sources(current_member, data, lock=True)[-1]
     current_member = _hr_member(request)

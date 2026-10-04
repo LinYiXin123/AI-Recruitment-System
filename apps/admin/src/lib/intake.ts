@@ -1,3 +1,4 @@
+import type { ProfileAnalysis } from '@/pages/application-profile';
 import type { Person, Requirement } from './api';
 export const stages: Record<string, string> = {
   pending_review: '待筛选',
@@ -61,6 +62,7 @@ export type Candidate = {
   }[];
 };
 export type Application = {
+  profile_analysis?: ProfileAnalysis | null;
   profile: number;
   id: number;
   candidate: number;

@@ -300,6 +300,8 @@ def same_creation_profile(job, data):
 
 
 def requirement_sources(job, data, member):
+    latest = job.profiles.first()
+    business_goal = data.get("business_goal", latest.business_goal if latest else "")
     generation = None
     if data["generation_id"]:
         generation = get_object_or_404(
@@ -311,6 +313,11 @@ def requirement_sources(job, data, member):
         )
         if generation.job_version != job.version:
             raise Conflict("AI 草稿基于旧版职位，请重新生成或手动整理要求。")
+        if (
+            generation.input_snapshot["jd"] != data["jd"]
+            or generation.input_snapshot["business_goal"] != business_goal
+        ):
+            raise Conflict("岗位需求或业务目标已改变，请重新生成或手动整理要求，原内容已保留。")
     rows = []
     compare = ["kind", "text", "rationale", "needs_verification"]
     for item in data["requirements"]:
@@ -318,7 +325,9 @@ def requirement_sources(job, data, member):
         prior_id = item.get("id")
         index = item.get("generation_index")
         if prior_id:
-            prior = get_object_or_404(ProfileRequirement, pk=prior_id, profile__job=job)
+            prior = get_object_or_404(
+                ProfileRequirement.objects.select_related("profile"), pk=prior_id, profile__job=job
+            )
             row.update(
                 {
                     key: getattr(prior, key)
@@ -331,8 +340,12 @@ def requirement_sources(job, data, member):
                     ]
                 }
             )
-            row["source_edited"] = prior.source_edited or any(
-                row[key] != getattr(prior, key) for key in compare
+            # 沿用历史要求保留原始出处；岗位语境改变同样属于 HR 修订，不冒充重新生成。
+            row["source_edited"] = (
+                prior.source_edited
+                or prior.profile.jd_snapshot != data["jd"]
+                or prior.profile.business_goal != business_goal
+                or any(row[key] != getattr(prior, key) for key in compare)
             )
         elif index is not None:
             if not generation or index >= len(generation.result):
