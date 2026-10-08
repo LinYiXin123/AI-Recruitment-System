@@ -174,10 +174,14 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
   await expect(
     page.getByText('Fictional resume: conducted user interviews.', { exact: false }),
   ).toBeVisible();
-  await page.getByLabel('姓名（人工核对）').fill('虚构林一');
+  await page.getByLabel('姓名', { exact: true }).fill('虚构林一');
+  await expect(page.getByText('未识别到，请手动填写', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('联系方式缺失说明')).toHaveAttribute('required', '');
   await page.getByLabel('联系方式缺失说明').fill('等待本人补充');
   await page.getByRole('button', { name: '查找疑似重复' }).click();
-  await expect(page.getByText('授权范围内暂未找到疑似重复')).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText('在可查看的候选人中未发现重复。');
+  await expect(page.getByLabel('选择候选人', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('判断依据', { exact: true })).toHaveCount(0);
   // 丢失已提交响应后，原样重试不能重复创建人才或应聘。
   let dropped = false;
   await page.route('**/items/*/confirm/', async (route) => {
@@ -187,10 +191,10 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
       await route.abort();
     } else await route.continue();
   });
-  await page.getByRole('button', { name: '确认身份并进入应聘' }).click();
+  await page.getByRole('button', { name: '新建候选人并加入职位' }).click();
   await expect(page.getByText('暂时连接不上服务', { exact: false })).toBeVisible();
-  await expect(page.getByLabel('姓名（人工核对）')).toHaveValue('虚构林一');
-  await page.getByRole('button', { name: '确认身份并进入应聘' }).click();
+  await expect(page.getByLabel('姓名', { exact: true })).toHaveValue('虚构林一');
+  await page.getByRole('button', { name: '新建候选人并加入职位' }).click();
   await expect(page.getByText('已接收 2 / 2 份，已核对 1 份')).toBeVisible();
   await page.getByRole('button', { name: '核对与继续' }).click();
   await page
@@ -198,12 +202,14 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
     .fill('人工摘录第 1 页：另一份同名材料，经历不同，尚未核实。');
   await page.getByRole('button', { name: '保存人工摘录版本' }).click();
   await expect(page.getByText('文字版本 v2 · 人工摘录', { exact: false })).toBeVisible();
-  await page.getByLabel('姓名（人工核对）').fill('虚构林一');
+  await page.getByLabel('姓名', { exact: true }).fill('虚构林一');
   await page.getByLabel('联系方式缺失说明').fill('材料缺少电话');
   await page.getByRole('button', { name: '查找疑似重复' }).click();
-  await expect(page.getByText('发现 1 个疑似主档，请人工核对')).toBeVisible();
-  await page.getByLabel('核对依据 / 同名区分依据').fill('同名但项目与来源不同，人工确认是另一人');
-  await page.getByRole('button', { name: '确认身份并进入应聘' }).click();
+  await expect(page.getByText('发现 1 位相似候选人，请核对是否同一人')).toBeVisible();
+  await expect(page.getByLabel('选择候选人', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('判断依据', { exact: true })).toHaveAttribute('required', '');
+  await page.getByLabel('判断依据', { exact: true }).fill('同名但项目与来源不同，人工确认是另一人');
+  await page.getByRole('button', { name: '新建候选人并加入职位' }).click();
   await expect(page.getByText('已接收 2 / 2 份，已核对 2 份')).toBeVisible();
   const imports: { results: Batch[] } = await (await page.request.get('/api/v1/imports/')).json();
   const imported = imports.results.find((batch) => batch.job === job.id);

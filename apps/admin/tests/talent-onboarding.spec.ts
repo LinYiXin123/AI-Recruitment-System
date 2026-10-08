@@ -360,14 +360,13 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
   await expect(drawer).toBeVisible();
   await expect(drawer.getByText(item.name, { exact: true })).toBeVisible();
   await drawer.getByRole('button', { name: '核对与继续', exact: true }).first().click();
-  await expect(drawer.getByLabel('姓名（人工核对）', { exact: true })).toHaveValue(
-    application.name,
-  );
+  await expect(drawer.getByLabel('姓名', { exact: true })).toHaveValue(application.name);
   await expect(drawer.getByLabel('联系电话', { exact: true })).toHaveValue(storedApplication.phone);
   await expect(drawer.getByLabel('邮箱', { exact: true })).toHaveValue(storedApplication.email);
-  for (const label of ['姓名（人工核对）', '联系电话', '邮箱', '联系方式缺失说明']) {
+  for (const label of ['姓名', '联系电话', '邮箱']) {
     await expect(drawer.getByLabel(label, { exact: true })).toHaveJSProperty('readOnly', true);
   }
+  await expect(drawer.getByLabel('联系方式缺失说明', { exact: true })).toHaveCount(0);
   const confirm = drawer.getByRole('button', { name: '确认属于此人，补入本次应聘', exact: true });
   const note = drawer.getByLabel('核对依据', { exact: true });
   await confirm.click();
@@ -466,6 +465,7 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   let uploaded = 0;
   let useRefreshed = false;
   let confirmed = false;
+  let secondConfirmed = false;
   const batch = (): Batch => ({
     id: 93601,
     job: job.id,
@@ -473,18 +473,20 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
     source: '本人投递',
     total: 2,
     received: uploaded,
-    completed: confirmed ? 1 : 0,
+    completed: Number(confirmed) + Number(secondConfirmed),
     items: [
       {
         ...(useRefreshed ? refreshedItem : firstItem),
         application: confirmed ? application.id : null,
       },
-      secondItem,
+      { ...secondItem, application: secondConfirmed ? otherApplication.id : null },
     ].slice(0, uploaded),
     created_at: '2026-10-08T03:00:00Z',
   });
   const matches: Record<string, unknown>[] = [];
   const confirmations: Record<string, unknown>[] = [];
+  const secondMatches: Record<string, unknown>[] = [];
+  const secondConfirmations: Record<string, unknown>[] = [];
   await page.route('**/api/v1/imports/', (route) => route.fulfill({ status: 201, json: batch() }));
   await page.route('**/api/v1/imports/93601/upload/', (route) => {
     uploaded++;
@@ -501,6 +503,19 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
     confirmations.push(route.request().postDataJSON());
     confirmed = true;
     return route.fulfill({ json: { ...refreshedItem, application: application.id } });
+  });
+  await page.route('**/api/v1/imports/93601/items/93605/matches/', (route) => {
+    secondMatches.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: {
+        results: secondMatches.length === 1 ? [{ ...candidate, display_name: '测试乙' }] : [],
+      },
+    });
+  });
+  await page.route('**/api/v1/imports/93601/items/93605/confirm/', (route) => {
+    secondConfirmations.push(route.request().postDataJSON());
+    secondConfirmed = true;
+    return route.fulfill({ json: { ...secondItem, application: otherApplication.id } });
   });
 
   await page
@@ -524,20 +539,47 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   );
   await drawer.getByRole('button', { name: '开始导入', exact: true }).click();
   await drawer.getByRole('button', { name: '核对与继续', exact: true }).first().click();
-  const name = drawer.getByLabel('姓名（人工核对）', { exact: true });
+  const name = drawer.getByLabel('姓名', { exact: true });
   const phone = drawer.getByLabel('联系电话', { exact: true });
   const email = drawer.getByLabel('邮箱', { exact: true });
+  const contactNote = drawer.getByLabel('联系方式缺失说明', { exact: true });
+  const identityChoice = drawer.getByLabel('选择候选人', { exact: true });
+  const identityNote = drawer.getByLabel('判断依据', { exact: true });
+  const createCandidate = drawer.getByRole('button', {
+    name: '新建候选人并加入职位',
+    exact: true,
+  });
   await expect(name).toHaveValue('测试甲');
   await expect(phone).toHaveValue('13800000000');
   await expect(email).toHaveValue('test@example.com');
+  await expect(contactNote).toHaveCount(0);
+  for (const text of [
+    '来自简历文字，可直接修改',
+    '未识别到，请手动填写',
+    '已手动修改，请核对',
+    '原文中的经历与能力是材料声明，尚未核实。',
+    '请核对姓名和联系方式。识别明确的内容已填入，你可以直接修改。',
+  ]) {
+    await expect(drawer.getByText(text, { exact: true })).toHaveCount(0);
+  }
+  for (const field of [name, phone, email]) {
+    await expect(field).not.toHaveAttribute('aria-describedby');
+  }
   await email.scrollIntoViewIfNeeded();
   await page.screenshot({ path: '../../.local/验收-简历标题姓名识别.png' });
   await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
-  await expect(
-    drawer.getByRole('button', { name: '确认身份并进入应聘', exact: true }),
-  ).toBeVisible();
+  await expect(createCandidate).toBeVisible();
+  await expect(drawer.getByRole('status')).toHaveText('在可查看的候选人中未发现重复。');
+  await expect(identityChoice).toHaveCount(0);
+  await expect(identityNote).toHaveCount(0);
+  await createCandidate.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: '../../.local/验收-简历导入精简.png' });
   await name.fill('测试甲人工修订');
   await email.fill('');
+  await expect(createCandidate).toHaveCount(0);
+  await expect(drawer.getByText('已手动修改，请核对', { exact: true })).toHaveCount(0);
+  await expect(drawer.getByText('未识别到，请手动填写', { exact: true })).toHaveCount(0);
+  await expect(contactNote).toHaveCount(0);
   await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
   await expect(
     drawer.getByRole('alert').filter({ hasText: '虚构查重失败，请重新加载。' }),
@@ -547,12 +589,11 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   await expect(name).toHaveValue('测试甲人工修订');
   await expect(phone).toHaveValue('13900000000');
   await expect(email).toHaveValue('');
-  await expect(drawer.getByRole('button', { name: '确认身份并进入应聘', exact: true })).toHaveCount(
-    0,
-  );
+  await expect(createCandidate).toHaveCount(0);
   expect(confirmations).toHaveLength(0);
   await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
-  await drawer.getByRole('button', { name: '确认身份并进入应聘', exact: true }).click();
+  await expect(identityNote).toHaveCount(0);
+  await createCandidate.click();
   await expect(drawer.getByRole('button', { name: '打开本次应聘', exact: true })).toBeVisible();
   expect(matches).toHaveLength(3);
   expect(matches[2]).toMatchObject({
@@ -560,6 +601,7 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
     display_name: '测试甲人工修订',
     phone: '13900000000',
     email: '',
+    identity_note: '',
   });
   expect(confirmations).toEqual([expect.objectContaining(matches[2])]);
 
@@ -568,5 +610,58 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   await expect(phone).toHaveValue('');
   await expect(email).toHaveValue('');
   await expect(drawer.getByText('识别到多个，请对照原文填写', { exact: true })).toHaveCount(2);
+  await expect(phone).toHaveAttribute('aria-describedby', 'candidate-phone-hint');
+  await expect(email).toHaveAttribute('aria-describedby', 'candidate-email-hint');
   await expect(name).not.toHaveValue('测试甲人工修订');
+  await expect(contactNote).toBeVisible();
+  await expect(contactNote).toHaveAttribute('required', '');
+  await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
+  await expect(contactNote).toBeFocused();
+  expect(secondMatches).toHaveLength(0);
+  await phone.fill('13800000001');
+  await expect(contactNote).toHaveCount(0);
+  await expect(phone).not.toHaveAttribute('aria-describedby');
+  await expect(drawer.getByText('识别到多个，请对照原文填写', { exact: true })).toHaveCount(1);
+  await phone.fill('');
+  await expect(contactNote).toBeVisible();
+  await contactNote.fill('等待本人确认有效联系方式');
+  await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
+  await expect(identityChoice).toBeVisible();
+  await expect(identityNote).toHaveAttribute('required', '');
+  await createCandidate.click();
+  await expect(identityNote).toBeFocused();
+  expect(secondConfirmations).toHaveLength(0);
+  await identityChoice.click();
+  await page.getByRole('option').filter({ hasText: '测试乙' }).click();
+  await expect(
+    drawer.getByRole('button', { name: '关联候选人并加入职位', exact: true }),
+  ).toBeVisible();
+  await expect(contactNote).toHaveCount(0);
+  await identityNote.fill('此前疑似同名记录的判断依据');
+  await name.fill('测试乙已区分');
+  await expect(identityChoice).toHaveCount(0);
+  await expect(identityNote).toHaveCount(0);
+  await expect(createCandidate).toHaveCount(0);
+  await expect(
+    drawer.getByRole('button', { name: '关联候选人并加入职位', exact: true }),
+  ).toHaveCount(0);
+  await expect(contactNote).toBeVisible();
+  await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
+  await expect(drawer.getByRole('status')).toHaveText('在可查看的候选人中未发现重复。');
+  await expect(identityChoice).toHaveCount(0);
+  await expect(identityNote).toHaveCount(0);
+  await createCandidate.click();
+  await expect(drawer.getByRole('button', { name: '打开本次应聘', exact: true })).toHaveCount(2);
+  expect(secondMatches).toHaveLength(2);
+  expect(secondConfirmations).toEqual([
+    expect.objectContaining({
+      parse: secondItem.parse?.id,
+      display_name: '测试乙已区分',
+      phone: '',
+      email: '',
+      candidate: null,
+      contact_note: '等待本人确认有效联系方式',
+      identity_note: '',
+    }),
+  ]);
 });

@@ -1474,11 +1474,7 @@ export function ImportDrawer({
             <AlertTitle>
               已接收 {batch.received} / {batch.total} 份，已核对 {batch.completed} 份
             </AlertTitle>
-            <AlertDescription>
-              自动提取只读取文字，不判断能力。
-              {application ? '核对身份后补入这次应聘。' : '核对身份后才关联应聘。'}来源：
-              {batch.source}
-            </AlertDescription>
+            <AlertDescription>来源：{batch.source}</AlertDescription>
           </Alert>
           {files.some((f) => !f.done) && (
             <div className="flex flex-col gap-3">
@@ -1633,11 +1629,9 @@ function IdentityEditor({
     application?.email ??
     enteredEmail ??
     (identified.email.length === 1 ? identified.email[0] : '');
-  function identityHint(values: string[], entered: string | undefined) {
-    if (entered !== undefined) return '已手动修改，请核对';
-    if (values.length > 1) return '识别到多个，请对照原文填写';
-    return values.length === 1 ? '来自简历文字，可直接修改' : '未识别到，请手动填写';
-  }
+  const ambiguousName = !application && enteredName === undefined && identified.name.length > 1;
+  const ambiguousPhone = !application && enteredPhone === undefined && identified.phone.length > 1;
+  const ambiguousEmail = !application && enteredEmail === undefined && identified.email.length > 1;
   const [contact, setContact] = useState(application?.contact_note ?? '');
   const [note, setNote] = useState('');
   const [candidate, setCandidate] = useState('');
@@ -1654,7 +1648,7 @@ function IdentityEditor({
     contact_note: contact,
     candidate: application?.candidate ?? (candidate ? Number(candidate) : null),
     ...(application ? { application: application.id } : {}),
-    identity_note: note,
+    identity_note: application || candidate || matches?.length ? note : '',
   };
   async function parse(text?: string) {
     setBusy(true);
@@ -1706,7 +1700,6 @@ function IdentityEditor({
             {item.parse.actor_name}
           </p>
           <pre className="resume-text">{item.parse.text}</pre>
-          <p className="text-muted-foreground">原文中的经历与能力是材料声明，尚未核实。</p>
         </>
       ) : (
         <>
@@ -1775,17 +1768,12 @@ function IdentityEditor({
                 </AlertDescription>
               </Alert>
             )}
-            {!application && (
-              <p className="text-muted-foreground">
-                请核对姓名和联系方式。识别明确的内容已填入，你可以直接修改。
-              </p>
-            )}
             <FieldGroup>
               <Field>
-                <FieldLabel htmlFor="candidate-name">姓名（人工核对）</FieldLabel>
+                <FieldLabel htmlFor="candidate-name">姓名</FieldLabel>
                 <Input
                   id="candidate-name"
-                  aria-describedby={!application ? 'candidate-name-hint' : undefined}
+                  aria-describedby={ambiguousName ? 'candidate-name-hint' : undefined}
                   value={name}
                   readOnly={!!application}
                   onChange={(e) => {
@@ -1796,9 +1784,9 @@ function IdentityEditor({
                   required
                   maxLength={100}
                 />
-                {!application && (
+                {ambiguousName && (
                   <FieldDescription id="candidate-name-hint">
-                    {identityHint(identified.name, enteredName)}
+                    识别到多个，请对照原文填写
                   </FieldDescription>
                 )}
               </Field>
@@ -1806,7 +1794,7 @@ function IdentityEditor({
                 <FieldLabel htmlFor="candidate-phone">联系电话</FieldLabel>
                 <Input
                   id="candidate-phone"
-                  aria-describedby={!application ? 'candidate-phone-hint' : undefined}
+                  aria-describedby={ambiguousPhone ? 'candidate-phone-hint' : undefined}
                   type="tel"
                   value={phone}
                   readOnly={!!application}
@@ -1817,9 +1805,9 @@ function IdentityEditor({
                   }}
                   maxLength={32}
                 />
-                {!application && (
+                {ambiguousPhone && (
                   <FieldDescription id="candidate-phone-hint">
-                    {identityHint(identified.phone, enteredPhone)}
+                    识别到多个，请对照原文填写
                   </FieldDescription>
                 )}
               </Field>
@@ -1827,7 +1815,7 @@ function IdentityEditor({
                 <FieldLabel htmlFor="candidate-email">邮箱</FieldLabel>
                 <Input
                   id="candidate-email"
-                  aria-describedby={!application ? 'candidate-email-hint' : undefined}
+                  aria-describedby={ambiguousEmail ? 'candidate-email-hint' : undefined}
                   type="email"
                   value={email}
                   readOnly={!!application}
@@ -1838,38 +1826,37 @@ function IdentityEditor({
                   }}
                   maxLength={254}
                 />
-                {!application && (
+                {ambiguousEmail && (
                   <FieldDescription id="candidate-email-hint">
-                    {identityHint(identified.email, enteredEmail)}
+                    识别到多个，请对照原文填写
                   </FieldDescription>
                 )}
               </Field>
-              <Field>
-                <FieldLabel htmlFor="contact-note">联系方式缺失说明</FieldLabel>
-                <Input
-                  id="contact-note"
-                  value={contact}
-                  readOnly={!!application}
-                  onChange={(e) => setContact(e.target.value)}
-                  required={!phone && !email && !candidate}
-                  maxLength={500}
-                />
-              </Field>
-              {matches !== null && (
+              {!application && !candidate && !phone.trim() && !email.trim() && (
+                <Field>
+                  <FieldLabel htmlFor="contact-note">联系方式缺失说明</FieldLabel>
+                  <Input
+                    id="contact-note"
+                    value={contact}
+                    onChange={(e) => setContact(e.target.value)}
+                    placeholder="例如：简历未提供，等待本人补充"
+                    required
+                    maxLength={500}
+                  />
+                </Field>
+              )}
+              {matches?.length === 0 && <p role="status">在可查看的候选人中未发现重复。</p>}
+              {!!matches?.length && (
                 <>
                   <Alert>
-                    <AlertTitle>
-                      {matches.length
-                        ? `发现 ${matches.length} 个疑似主档，请人工核对`
-                        : '授权范围内暂未找到疑似重复'}
-                    </AlertTitle>
+                    <AlertTitle>发现 {matches.length} 位相似候选人，请核对是否同一人</AlertTitle>
                     <AlertDescription>
-                      同名不自动合并；已有主档只会关联本次应聘，不修改主档联系方式。
+                      选择已有候选人仅关联应聘，不修改其联系方式。
                     </AlertDescription>
                   </Alert>
                   <Field>
                     <FieldLabel id="identity-choice-label" htmlFor="identity-choice">
-                      身份核对结果
+                      选择候选人
                     </FieldLabel>
                     <NativeSelect
                       aria-labelledby="identity-choice-label"
@@ -1878,7 +1865,7 @@ function IdentityEditor({
                       value={candidate}
                       onChange={(e) => setCandidate(e.target.value)}
                     >
-                      <NativeSelectOption value="">建立独立人才主档</NativeSelectOption>
+                      <NativeSelectOption value="">不是以上人选，新建候选人</NativeSelectOption>
                       {matches.map((c) => (
                         <NativeSelectOption key={c.id} value={c.id}>
                           {c.display_name} · {c.phone || c.email || c.contact_note} · 档案 {c.id}
@@ -1895,12 +1882,17 @@ function IdentityEditor({
                     </p>
                   ))}
                   <Field>
-                    <FieldLabel htmlFor="identity-note">核对依据 / 同名区分依据</FieldLabel>
+                    <FieldLabel htmlFor="identity-note">判断依据</FieldLabel>
                     <Textarea
                       id="identity-note"
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
-                      required={!!matches.length || !!candidate}
+                      placeholder={
+                        candidate
+                          ? '例如：电话相同，确认为同一人'
+                          : '例如：姓名相同，但联系方式不同'
+                      }
+                      required
                       maxLength={1000}
                     />
                   </Field>
@@ -1927,7 +1919,9 @@ function IdentityEditor({
                   ? '确认属于此人，补入本次应聘'
                   : matches === null
                     ? '查找疑似重复'
-                    : '确认身份并进入应聘'}
+                    : candidate
+                      ? '关联候选人并加入职位'
+                      : '新建候选人并加入职位'}
             </Button>
           </fieldset>
         </form>
