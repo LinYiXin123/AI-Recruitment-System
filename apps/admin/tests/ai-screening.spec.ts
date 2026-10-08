@@ -431,7 +431,7 @@ test('历史支持服务端分页、刷新后查看与确认删除，失败保�
     id: 901 + index,
     code: `AIS-${901 + index}`,
     candidate_name: `虚构历史人选 ${index + 1}`,
-    match_score: index === 20 ? null : savedAnalysis.match_score,
+    match_score: index === 20 ? null : index === 0 ? 73 : savedAnalysis.match_score,
     conclusion: index === 20 ? '通用初判' : savedAnalysis.conclusion,
     job_title: index === 20 ? '' : savedAnalysis.job_title,
     enterprise_name: index === 20 ? '' : savedAnalysis.enterprise_name,
@@ -479,14 +479,23 @@ test('历史支持服务端分页、刷新后查看与确认删除，失败保�
     '目标职位',
     '企业',
     '结论',
+    '匹配度',
     '分析时间',
     '问题数',
     '操作',
   ]);
+  await expect(history.getByRole('cell', { name: '未评分', exact: true })).toHaveCount(20);
+  await expect(history.getByRole('cell', { name: /^(72|73)$/ })).toHaveCount(0);
+  const firstCandidate = history.locator('tbody tr').first().getByRole('cell').first();
+  await expect(firstCandidate).toContainText(records[0].candidate_name);
+  await expect(firstCandidate).toContainText(records[0].code);
   await expect(history.getByRole('button', { name: '上一页' })).toBeDisabled();
   await history.getByRole('button', { name: '下一页' }).click();
   const lastRow = history.getByRole('row').filter({ hasText: last.candidate_name });
   await expect(lastRow).toBeVisible();
+  await expect(lastRow.getByRole('cell')).toHaveCount(8);
+  await expect(lastRow.getByRole('cell').nth(4)).toHaveText('未评分');
+  await expect(lastRow.getByRole('cell').first()).toContainText(last.code);
   await expect(history.getByRole('button', { name: '下一页' })).toBeDisabled();
   expect(requestedPages).toContain(2);
 

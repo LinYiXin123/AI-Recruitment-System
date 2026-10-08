@@ -1425,13 +1425,20 @@ export function AiScreeningPage() {
                 <caption className="sr-only">历史分析记录列表</caption>
                 <thead>
                   <tr>
-                    {['候选人', '目标职位', '企业', '结论', '分析时间', '问题数', '操作'].map(
-                      (label) => (
-                        <th key={label} scope="col">
-                          {label}
-                        </th>
-                      ),
-                    )}
+                    {[
+                      '候选人',
+                      '目标职位',
+                      '企业',
+                      '结论',
+                      '匹配度',
+                      '分析时间',
+                      '问题数',
+                      '操作',
+                    ].map((label) => (
+                      <th key={label} scope="col">
+                        {label}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -1445,6 +1452,12 @@ export function AiScreeningPage() {
                       <td>{row.enterprise_name || '—'}</td>
                       <td>
                         <Badge variant="secondary">{row.conclusion}</Badge>
+                      </td>
+                      <td
+                        className="whitespace-nowrap text-muted-foreground"
+                        title="暂无经确认的评分规则，旧版模型估算分不作为有效匹配度展示。"
+                      >
+                        未评分
                       </td>
                       <td className="whitespace-nowrap">{analysisTime(row.created_at)}</td>
                       <td>{row.question_count}</td>
