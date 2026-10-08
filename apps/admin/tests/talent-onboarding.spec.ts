@@ -245,7 +245,12 @@ test('同岗位已有进行中应聘时直接打开，不重复创建记录', as
 });
 
 test('补充简历锁定本次应聘，核对失败保留依据并可重试，返回后使用新材料', async ({ page }) => {
-  await prepare(page, [application]);
+  const storedApplication = {
+    ...application,
+    phone: '13700000000',
+    email: 'archive@example.com',
+  };
+  await prepare(page, [storedApplication]);
   const item: ImportItem = {
     id: 93502,
     name: 'fictional-supplement.pdf',
@@ -255,7 +260,7 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
       id: 93504,
       version: 1,
       status: 'succeeded',
-      text: '虚构渠道候选人，负责合作项目和复盘。仅供验收。',
+      text: '姓名：测试乙\n电话：13800000000\n邮箱：other@example.com\n负责合作项目和复盘，仅供验收。',
       error: '',
       parser_version: '验收模拟文字提取',
       actor_name: '测试 HR',
@@ -316,7 +321,7 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
   await page.route(`**/api/v1/applications/${application.id}/`, (route) =>
     route.fulfill({
       json: {
-        ...application,
+        ...storedApplication,
         resumes: confirmed
           ? [{ document: item.document, name: item.name, download: false, parse: item.parse }]
           : [],
@@ -358,6 +363,8 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
   await expect(drawer.getByLabel('姓名（人工核对）', { exact: true })).toHaveValue(
     application.name,
   );
+  await expect(drawer.getByLabel('联系电话', { exact: true })).toHaveValue(storedApplication.phone);
+  await expect(drawer.getByLabel('邮箱', { exact: true })).toHaveValue(storedApplication.email);
   for (const label of ['姓名（人工核对）', '联系电话', '邮箱', '联系方式缺失说明']) {
     await expect(drawer.getByLabel(label, { exact: true })).toHaveJSProperty('readOnly', true);
   }
@@ -399,6 +406,9 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
     application: application.id,
     candidate: application.candidate,
     parse: item.parse?.id,
+    display_name: storedApplication.name,
+    phone: storedApplication.phone,
+    email: storedApplication.email,
     identity_note: '原文姓名和本人补充说明与此档案一致。',
   });
   expect(confirmations[1]).toEqual(confirmations[0]);
@@ -411,4 +421,152 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
     detail.getByRole('button', { name: 'AI 分析候选人画像', exact: true }),
   ).toBeEnabled();
   expect(analysisRequests).toBe(0);
+});
+
+test('新简历自动填写身份，重新加载保留人工修改和主动留空，多联系方式需人工核对', async ({
+  page,
+}) => {
+  await prepare(page, []);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const firstItem: ImportItem = {
+    id: 93602,
+    name: 'fictional-identity.pdf',
+    document: 93603,
+    application: null,
+    parse: {
+      id: 93604,
+      version: 1,
+      status: 'succeeded',
+      text: '[第 1 页]\n测试甲 求职意向：开发工程师\n电话：+86 138 0000 0000\n邮箱：test@example.com\n教育经历\n虚构大学，软件工程。',
+      error: '',
+      parser_version: '验收模拟文字提取',
+      actor_name: '测试 HR',
+    },
+  };
+  const secondItem: ImportItem = {
+    ...firstItem,
+    id: 93605,
+    name: 'fictional-multiple-contacts.pdf',
+    document: 93606,
+    parse: firstItem.parse && {
+      ...firstItem.parse,
+      id: 93607,
+      text: '姓名：测试乙\n电话：13800000001 / 13900000001\n邮箱：one@example.com / two@example.com\n教育经历\n虚构大学。',
+    },
+  };
+  const refreshedItem: ImportItem = {
+    ...firstItem,
+    parse: firstItem.parse && {
+      ...firstItem.parse,
+      id: 93608,
+      version: 2,
+      text: '姓名：测试丙\n电话：139 0000 0000\n邮箱：fresh@example.com\n教育经历\n虚构大学，软件工程。',
+    },
+  };
+  let uploaded = 0;
+  let useRefreshed = false;
+  let confirmed = false;
+  const batch = (): Batch => ({
+    id: 93601,
+    job: job.id,
+    job_title: job.title,
+    source: '本人投递',
+    total: 2,
+    received: uploaded,
+    completed: confirmed ? 1 : 0,
+    items: [
+      {
+        ...(useRefreshed ? refreshedItem : firstItem),
+        application: confirmed ? application.id : null,
+      },
+      secondItem,
+    ].slice(0, uploaded),
+    created_at: '2026-10-08T03:00:00Z',
+  });
+  const matches: Record<string, unknown>[] = [];
+  const confirmations: Record<string, unknown>[] = [];
+  await page.route('**/api/v1/imports/', (route) => route.fulfill({ status: 201, json: batch() }));
+  await page.route('**/api/v1/imports/93601/upload/', (route) => {
+    uploaded++;
+    return route.fulfill({ status: 201, json: uploaded === 1 ? firstItem : secondItem });
+  });
+  await page.route('**/api/v1/imports/93601/', (route) => route.fulfill({ json: batch() }));
+  await page.route('**/api/v1/imports/93601/items/93602/matches/', (route) => {
+    matches.push(route.request().postDataJSON());
+    return matches.length === 2
+      ? route.fulfill({ status: 503, json: { errors: { detail: '虚构查重失败，请重新加载。' } } })
+      : route.fulfill({ json: { results: [] } });
+  });
+  await page.route('**/api/v1/imports/93601/items/93602/confirm/', (route) => {
+    confirmations.push(route.request().postDataJSON());
+    confirmed = true;
+    return route.fulfill({ json: { ...refreshedItem, application: application.id } });
+  });
+
+  await page
+    .getByRole('row')
+    .filter({ hasText: job.title })
+    .getByRole('button', { name: '查看候选人', exact: true })
+    .click();
+  await page.getByRole('button', { name: '选择候选人', exact: true }).first().click();
+  await page
+    .getByRole('dialog', { name: '选择候选人', exact: true })
+    .getByRole('button', { name: '导入新的简历', exact: true })
+    .click();
+  const drawer = page.getByRole('dialog');
+  await drawer.getByLabel('材料来源', { exact: true }).fill('本人投递');
+  await drawer.getByLabel('简历文件', { exact: true }).setInputFiles(
+    [firstItem, secondItem].map((item) => ({
+      name: item.name,
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4\n% Fictional identity extraction fixture\n%%EOF'),
+    })),
+  );
+  await drawer.getByRole('button', { name: '开始导入', exact: true }).click();
+  await drawer.getByRole('button', { name: '核对与继续', exact: true }).first().click();
+  const name = drawer.getByLabel('姓名（人工核对）', { exact: true });
+  const phone = drawer.getByLabel('联系电话', { exact: true });
+  const email = drawer.getByLabel('邮箱', { exact: true });
+  await expect(name).toHaveValue('测试甲');
+  await expect(phone).toHaveValue('13800000000');
+  await expect(email).toHaveValue('test@example.com');
+  await email.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: '../../.local/验收-简历自动填写.png' });
+  await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
+  await expect(
+    drawer.getByRole('button', { name: '确认身份并进入应聘', exact: true }),
+  ).toBeVisible();
+  await name.fill('测试甲人工修订');
+  await email.fill('');
+  await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
+  await expect(
+    drawer.getByRole('alert').filter({ hasText: '虚构查重失败，请重新加载。' }),
+  ).toBeVisible();
+  useRefreshed = true;
+  await drawer.getByRole('button', { name: '重新加载', exact: true }).click();
+  await expect(name).toHaveValue('测试甲人工修订');
+  await expect(phone).toHaveValue('13900000000');
+  await expect(email).toHaveValue('');
+  await expect(drawer.getByRole('button', { name: '确认身份并进入应聘', exact: true })).toHaveCount(
+    0,
+  );
+  expect(confirmations).toHaveLength(0);
+  await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
+  await drawer.getByRole('button', { name: '确认身份并进入应聘', exact: true }).click();
+  await expect(drawer.getByRole('button', { name: '打开本次应聘', exact: true })).toBeVisible();
+  expect(matches).toHaveLength(3);
+  expect(matches[2]).toMatchObject({
+    parse: refreshedItem.parse?.id,
+    display_name: '测试甲人工修订',
+    phone: '13900000000',
+    email: '',
+  });
+  expect(confirmations).toEqual([expect.objectContaining(matches[2])]);
+
+  await drawer.getByRole('button', { name: '核对与继续', exact: true }).click();
+  await expect(name).toHaveValue('测试乙');
+  await expect(phone).toHaveValue('');
+  await expect(email).toHaveValue('');
+  await expect(drawer.getByText('识别到多个，请对照原文填写', { exact: true })).toHaveCount(2);
+  await expect(name).not.toHaveValue('测试甲人工修订');
 });

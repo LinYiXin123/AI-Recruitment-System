@@ -21,7 +21,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@/components/ui/empty';
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import {
@@ -38,6 +38,7 @@ import {
   type Batch,
   type Candidate,
   type ImportItem,
+  identifyResume,
   reviewActions,
   stages,
 } from '@/lib/intake';
@@ -1615,9 +1616,25 @@ function IdentityEditor({
   application?: Application;
 }) {
   const [item, setItem] = useState(initialItem);
-  const [name, setName] = useState(application?.name ?? '');
-  const [phone, setPhone] = useState(application?.phone ?? '');
-  const [email, setEmail] = useState(application?.email ?? '');
+  const identified = identifyResume(item.parse?.status === 'succeeded' ? item.parse.text : '');
+  const [enteredName, setName] = useState<string>();
+  const [enteredPhone, setPhone] = useState<string>();
+  const [enteredEmail, setEmail] = useState<string>();
+  const name =
+    application?.name ?? enteredName ?? (identified.name.length === 1 ? identified.name[0] : '');
+  const phone =
+    application?.phone ??
+    enteredPhone ??
+    (identified.phone.length === 1 ? identified.phone[0] : '');
+  const email =
+    application?.email ??
+    enteredEmail ??
+    (identified.email.length === 1 ? identified.email[0] : '');
+  function identityHint(values: string[], entered: string | undefined) {
+    if (entered !== undefined) return '已手动修改，请核对';
+    if (values.length > 1) return '识别到多个，请对照原文填写';
+    return values.length === 1 ? '来自简历文字，可直接修改' : '未识别到，请手动填写';
+  }
   const [contact, setContact] = useState(application?.contact_note ?? '');
   const [note, setNote] = useState('');
   const [candidate, setCandidate] = useState('');
@@ -1664,7 +1681,11 @@ function IdentityEditor({
             try {
               const fresh = await api<Batch>(`imports/${batch.id}/`);
               const updated = fresh.items.find((i) => i.id === item.id);
-              if (updated) setItem(updated);
+              if (updated) {
+                setItem(updated);
+                setMatches(null);
+                setCandidate('');
+              }
               setError('');
             } catch (e) {
               setError((e as Error).message);
@@ -1751,11 +1772,17 @@ function IdentityEditor({
                 </AlertDescription>
               </Alert>
             )}
+            {!application && (
+              <p className="text-muted-foreground">
+                请核对姓名和联系方式。识别明确的内容已填入，你可以直接修改。
+              </p>
+            )}
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="candidate-name">姓名（人工核对）</FieldLabel>
                 <Input
                   id="candidate-name"
+                  aria-describedby={!application ? 'candidate-name-hint' : undefined}
                   value={name}
                   readOnly={!!application}
                   onChange={(e) => {
@@ -1766,11 +1793,17 @@ function IdentityEditor({
                   required
                   maxLength={100}
                 />
+                {!application && (
+                  <FieldDescription id="candidate-name-hint">
+                    {identityHint(identified.name, enteredName)}
+                  </FieldDescription>
+                )}
               </Field>
               <Field>
                 <FieldLabel htmlFor="candidate-phone">联系电话</FieldLabel>
                 <Input
                   id="candidate-phone"
+                  aria-describedby={!application ? 'candidate-phone-hint' : undefined}
                   type="tel"
                   value={phone}
                   readOnly={!!application}
@@ -1781,11 +1814,17 @@ function IdentityEditor({
                   }}
                   maxLength={32}
                 />
+                {!application && (
+                  <FieldDescription id="candidate-phone-hint">
+                    {identityHint(identified.phone, enteredPhone)}
+                  </FieldDescription>
+                )}
               </Field>
               <Field>
                 <FieldLabel htmlFor="candidate-email">邮箱</FieldLabel>
                 <Input
                   id="candidate-email"
+                  aria-describedby={!application ? 'candidate-email-hint' : undefined}
                   type="email"
                   value={email}
                   readOnly={!!application}
@@ -1796,6 +1835,11 @@ function IdentityEditor({
                   }}
                   maxLength={254}
                 />
+                {!application && (
+                  <FieldDescription id="candidate-email-hint">
+                    {identityHint(identified.email, enteredEmail)}
+                  </FieldDescription>
+                )}
               </Field>
               <Field>
                 <FieldLabel htmlFor="contact-note">联系方式缺失说明</FieldLabel>
