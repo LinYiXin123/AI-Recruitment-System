@@ -1,8 +1,8 @@
 import type { ProfileAnalysis } from '@/pages/application-profile';
 import type { Person, Requirement } from './api';
 
-export function identifyResume(text: string) {
-  // ponytail: 只识别头部明确标注的身份和常见联系方式；复杂排版留给人工核对，不猜姓名。
+export function identifyResume(text: string, filename = '') {
+  // ponytail: 用头部文字及文件名交叉核对姓名；复杂排版仍需人工核对，不凭文件名生成身份。
   const header = text
     .normalize('NFKC')
     .replace(/\[(?:第\s*\d+\s*页|段落\s*\d+)\][ \t]*/g, '')
@@ -15,12 +15,55 @@ export function identifyResume(text: string) {
     .join('\n');
   const name = [
     ...header.matchAll(
-      /(?:姓[ \t]*名|^[ \t]*(?:Full[ \t]+)?Name)[ \t]*:[ \t]*([\p{Script=Han}·]{2,20}|[A-Za-z]+(?:[ \t]+[A-Za-z'-]+){0,4})(?=[ \t\r\n|,，;；]|$)/gimu,
+      /(?:姓[ \t]*名|^[ \t]*(?:Full[ \t]+)?Name)[ \t]*:[ \t]*([\p{Script=Han}·](?:[ \t]*[\p{Script=Han}·]){1,19}|[A-Za-z]+(?:[ \t]+[A-Za-z'-]+){0,4})(?=[ \t\r\n|,，;；]|$)/gimu,
     ),
     ...header.matchAll(
       /^[ \t]*([\p{Script=Han}·]{2,20})[ \t]+(?=(?:求职意向|性别|电话|手机|邮箱)[ \t]*:)/gmu,
     ),
-  ].map((match) => match[1].trim());
+  ].map((match) =>
+    /^[\p{Script=Han}· \t]+$/u.test(match[1]) ? match[1].replace(/[ \t]/g, '') : match[1].trim(),
+  );
+  if (!name.length) {
+    const lines = header
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(
+        (line) => line && !/^(?:个人简历|求职简历|简历|基本信息|个人信息|Resume|CV)$/i.test(line),
+      );
+    const fileNames = filename
+      .normalize('NFKC')
+      .replace(/\.(?:pdf|docx)$/i, '')
+      .replace(/个人简历|求职简历|简历|\b(?:resume|cv)\b/gi, '|')
+      .split(/[|_（）()[\]—–-]+/)
+      .map((value) => value.replace(/\s/g, '').toLowerCase());
+    for (const [index, line] of lines.slice(0, 3).entries()) {
+      const prefix = line.split(/[|丨/／—–]|[ \t]+[-·][ \t]+/, 1)[0].trim();
+      const chinesePrefix = prefix.split(
+        /[ \t]+(?=[A-Za-z]|\S*(?:工程|经理|开发|设计|运营|销售|助理|专员|主管|总监|顾问|实习))/,
+        1,
+      )[0];
+      const compact = chinesePrefix.replace(/[ \t]/g, '');
+      const isChinese = /^[\p{Script=Han}][\p{Script=Han}·]{0,6}[\p{Script=Han}]$/u.test(compact);
+      const value = isChinese ? compact : prefix;
+      const isEnglish = /^[A-Za-z][A-Za-z'-]*(?:[ \t]+[A-Za-z][A-Za-z'-]*){1,3}$/.test(value);
+      if (
+        (!isChinese && !isEnglish) ||
+        /简历|求职|个人|信息|工程|经理|开发|设计|运营|销售|助理|专员|主管|总监|顾问|实习|应届|本科|硕士|博士|大学|学院|学校|公司|集团|项目|经历|技能|教育|工作|证书|目标|方向|介绍|招聘|resume|engineer|developer|designer|manager|university|college|company|skills|experience|education/i.test(
+          value,
+        )
+      )
+        continue;
+      const fileAgrees = fileNames.includes(value.replace(/\s/g, '').toLowerCase());
+      const separatedTitle = prefix.length < line.length;
+      const splitOnSpace = chinesePrefix.length < prefix.length;
+      const personalDetails =
+        /电话|手机|邮箱|性别|年龄|求职意向|应聘岗位|本科|硕士|博士|毕业|Phone|Email|@|1[3-9]\d{9}/i.test(
+          [lines[index - 1] ?? '', ...lines.slice(index + 1, index + 3)].join('\n'),
+        );
+      if (fileAgrees || (isChinese && !splitOnSpace && (separatedTitle || personalDetails)))
+        name.push(value);
+    }
+  }
   const phone = Array.from(
     header.matchAll(
       /(?<![\dA-Za-z])(?:(?:\+86|0086|86)[ \t-]*)?(1[3-9]\d[ \t-]?\d{4}[ \t-]?\d{4})(?![\dA-Za-z])/g,

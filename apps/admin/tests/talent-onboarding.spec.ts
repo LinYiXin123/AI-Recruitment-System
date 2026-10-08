@@ -430,14 +430,14 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   await page.setViewportSize({ width: 1440, height: 1000 });
   const firstItem: ImportItem = {
     id: 93602,
-    name: 'fictional-identity.pdf',
+    name: '测试甲简历.pdf',
     document: 93603,
     application: null,
     parse: {
       id: 93604,
       version: 1,
       status: 'succeeded',
-      text: '[第 1 页]\n测试甲 求职意向：开发工程师\n电话：+86 138 0000 0000\n邮箱：test@example.com\n教育经历\n虚构大学，软件工程。',
+      text: '[第 1 页]\n\n测试甲 | AI 应用开发\n电话：+86 138 0000 0000\n邮箱：test@example.com\n教育经历\n虚构大学，软件工程。',
       error: '',
       parser_version: '验收模拟文字提取',
       actor_name: '测试 HR',
@@ -531,7 +531,7 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   await expect(phone).toHaveValue('13800000000');
   await expect(email).toHaveValue('test@example.com');
   await email.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: '../../.local/验收-简历自动填写.png' });
+  await page.screenshot({ path: '../../.local/验收-简历标题姓名识别.png' });
   await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
   await expect(
     drawer.getByRole('button', { name: '确认身份并进入应聘', exact: true }),

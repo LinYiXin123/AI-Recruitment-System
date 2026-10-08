@@ -1616,7 +1616,10 @@ function IdentityEditor({
   application?: Application;
 }) {
   const [item, setItem] = useState(initialItem);
-  const identified = identifyResume(item.parse?.status === 'succeeded' ? item.parse.text : '');
+  const identified = identifyResume(
+    item.parse?.status === 'succeeded' ? item.parse.text : '',
+    item.name,
+  );
   const [enteredName, setName] = useState<string>();
   const [enteredPhone, setPhone] = useState<string>();
   const [enteredEmail, setEmail] = useState<string>();
