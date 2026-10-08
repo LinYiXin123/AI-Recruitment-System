@@ -32,13 +32,14 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
-import { api, dateTime, type Job, kindLabel, type Page } from '@/lib/api';
+import { ApiError, api, dateTime, type Job, kindLabel, type Page } from '@/lib/api';
 import {
   type Application,
   type Batch,
   type Candidate,
   type ImportItem,
   identifyResume,
+  resumeFormFields,
   reviewActions,
   stages,
 } from '@/lib/intake';
@@ -392,6 +393,24 @@ type CandidateFilterOptions = {
   jobs: { job_id: number; job__title: string }[];
 };
 
+type CandidateRecord = Candidate & {
+  current_city: string;
+  education_level: string;
+  school: string;
+  work_years: string;
+  expected_salary: string;
+  source: string;
+  gender: string;
+  birthday: string;
+  intended_role: string;
+  current_salary: string;
+  work_experience: string;
+  education_experience: string;
+  remarks: string;
+  resume_text: string;
+  resume_documents: Application['resumes'];
+};
+
 export type CandidateLibraryActions = {
   exportModule: () => void;
   openCreateCandidate: () => void;
@@ -437,16 +456,13 @@ export const Candidates = forwardRef<
   const [source, setSource] = useState('');
   const [educationLevel, setEducationLevel] = useState('');
   const [page, setPage] = useState(1);
-  const [data, setData] = useState<Page<Application> | null>(null);
+  const [data, setData] = useState<Page<CandidateRecord> | null>(null);
   const [filters, setFilters] = useState<CandidateFilterOptions>(emptyCandidateFilters);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [reload, setReload] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [importing, setImporting] = useState<{
-    id: number | 'new';
-    initialFiles?: File[];
-  } | null>(null);
+  const [detail, setDetail] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
 
   const query = new URLSearchParams({ page: String(page) });
@@ -455,13 +471,13 @@ export const Candidates = forwardRef<
   if (job) query.set('job', job);
   if (source) query.set('source', source);
   if (educationLevel) query.set('education_level', educationLevel);
-  const applicationUrl = `applications/?${query.toString()}`;
+  const applicationUrl = `candidates/?${query.toString()}`;
 
   useEffect(() => {
     const controller = new AbortController();
     setData(null);
     setError('');
-    api<Page<Application>>(applicationUrl, undefined, controller.signal)
+    api<Page<CandidateRecord>>(applicationUrl, undefined, controller.signal)
       .then(setData)
       .catch((e) => {
         if (e.name !== 'AbortError') setError(e.message);
@@ -493,29 +509,49 @@ export const Candidates = forwardRef<
     try {
       const exportQuery = new URLSearchParams(query);
       exportQuery.delete('page');
-      const rows: Application[] = [];
+      const rows: CandidateRecord[] = [];
       let currentPage = 1;
       let total = 0;
       do {
-        const response = await api<Page<Application>>(
-          `applications/?${exportQuery.toString()}&page=${currentPage}`,
+        const response = await api<Page<CandidateRecord>>(
+          `candidates/?${exportQuery.toString()}&page=${currentPage}`,
         );
+        if (!response.results.length && rows.length < response.count)
+          throw new Error('列表已变化，请重新导出。');
         total = response.count;
         rows.push(...response.results);
         currentPage += 1;
       } while (rows.length < total);
       const csv = [
-        ['候选人', '本次职位', '应聘次数', '应聘阶段', '接手 HR', '来源'],
+        [
+          '姓名',
+          '应聘职位',
+          '现居城市',
+          '最高学历',
+          '工作年限',
+          '期望薪资',
+          '简历来源',
+          '当前状态',
+        ],
         ...rows.map((item) => [
-          item.name,
-          item.job_title,
-          `第 ${item.attempt_no} 次`,
-          stages[item.stage],
-          item.owner_name,
+          item.display_name,
+          item.applications.map((a) => a.job__title).join('、'),
+          item.current_city,
+          item.education_level,
+          item.work_years,
+          item.expected_salary,
           item.source,
+          item.applications.map((a) => stages[a.stage]).join('、') || '待筛选',
         ]),
       ]
-        .map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(','))
+        .map((row) =>
+          row
+            .map((cell) => {
+              const value = String(cell ?? '');
+              return `"${(/^[\s]*[=+@-]/.test(value) ? `'${value}` : value).replaceAll('"', '""')}"`;
+            })
+            .join(','),
+        )
         .join('\r\n');
       const url = URL.createObjectURL(
         new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }),
@@ -525,7 +561,7 @@ export const Candidates = forwardRef<
       link.download = '候选人库.csv';
       link.click();
       URL.revokeObjectURL(url);
-      setNotice(`已导出当前授权范围内的 ${rows.length} 条应聘记录。`);
+      setNotice(`已导出当前授权范围内的 ${rows.length} 位候选人。`);
     } catch (e) {
       setNotice(`导出未完成：${(e as Error).message}`);
     } finally {
@@ -646,42 +682,75 @@ export const Candidates = forwardRef<
               <EmptyMedia className="candidate-library-empty-icon">
                 <BriefcaseBusiness aria-hidden="true" />
               </EmptyMedia>
-              <EmptyTitle>还没有数据</EmptyTitle>
-              <EmptyDescription>点击右上角「新增候选人」开始录入第一条</EmptyDescription>
+              <EmptyTitle>
+                {search || stage || job || source || educationLevel
+                  ? '没有符合条件的候选人'
+                  : '还没有数据'}
+              </EmptyTitle>
+              <EmptyDescription>
+                {search || stage || job || source || educationLevel
+                  ? '调整筛选条件，或点击「重置」查看全部。'
+                  : '点击右上角「新增候选人」开始录入第一条'}
+              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
           <>
             <div className="table-container">
-              <Table<Application>
+              <Table<CandidateRecord>
                 rowKey="id"
                 dataSource={data.results}
                 pagination={false}
                 columns={[
                   {
-                    title: '候选人',
+                    title: '姓名',
                     width: 180,
-                    render: (_, application) => (
-                      <Button variant="link" onClick={() => openApplication(application.id)}>
-                        {application.name}
+                    render: (_, candidate) => (
+                      <div className="flex flex-col items-start">
+                        <Button variant="link" onClick={() => setDetail(candidate.id)}>
+                          {candidate.display_name}
+                        </Button>
+                        <span className="text-xs text-muted-foreground">
+                          CAND-{String(candidate.id).padStart(4, '0')}
+                        </span>
+                      </div>
+                    ),
+                  },
+                  {
+                    title: '应聘职位',
+                    width: 180,
+                    render: (_, c) => c.applications.map((a) => a.job__title).join('、') || '—',
+                  },
+                  { title: '现居城市', width: 110, render: (_, c) => c.current_city || '—' },
+                  { title: '最高学历', width: 100, render: (_, c) => c.education_level || '—' },
+                  { title: '工作年限', width: 110, render: (_, c) => c.work_years || '—' },
+                  { title: '期望薪资', width: 120, render: (_, c) => c.expected_salary || '—' },
+                  { title: '简历来源', width: 120, render: (_, c) => c.source || '—' },
+                  {
+                    title: '当前状态',
+                    width: 130,
+                    render: (_, c) => (
+                      <div className="flex flex-wrap gap-1">
+                        {(c.applications.length
+                          ? [...new Set(c.applications.map((a) => a.stage))]
+                          : ['pending_review']
+                        ).map((value) => (
+                          <Badge variant="secondary" key={value}>
+                            {stages[value] || value}
+                          </Badge>
+                        ))}
+                      </div>
+                    ),
+                  },
+                  {
+                    title: '操作',
+                    width: 80,
+                    render: (_, c) => (
+                      <Button variant="link" onClick={() => setDetail(c.id)}>
+                        详情
                       </Button>
                     ),
                   },
-                  { title: '本次职位', dataIndex: 'job_title', width: 230 },
-                  {
-                    title: '次数',
-                    width: 90,
-                    render: (_, application) => `第 ${application.attempt_no} 次`,
-                  },
-                  {
-                    title: '应聘阶段',
-                    width: 150,
-                    render: (_, application) => (
-                      <Badge variant="secondary">{stages[application.stage]}</Badge>
-                    ),
-                  },
-                  { title: '接手 HR', dataIndex: 'owner_name', width: 130 },
-                  { title: '来源', dataIndex: 'source', width: 180 },
                 ]}
               />
             </div>
@@ -692,25 +761,20 @@ export const Candidates = forwardRef<
       {creating && (
         <CreateCandidateDialog
           close={() => setCreating(false)}
-          openImport={(initialFiles) => {
+          saved={() => {
             setCreating(false);
-            setImporting({ id: 'new', initialFiles });
-          }}
-          saved={(application) => {
-            setCreating(false);
+            resetFilters();
+            setNotice('候选人已保存。');
             changed();
-            openApplication(application);
           }}
         />
       )}
-      {importing !== null && (
-        <ImportDrawer
-          id={importing.id}
-          initialFiles={importing.initialFiles}
-          close={() => setImporting(null)}
-          changed={changed}
+      {detail !== null && (
+        <CandidateDetails
+          id={detail}
+          close={() => setDetail(null)}
           openApplication={(id) => {
-            setImporting(null);
+            setDetail(null);
             openApplication(id);
           }}
         />
@@ -718,6 +782,114 @@ export const Candidates = forwardRef<
     </>
   );
 });
+
+function CandidateDetails({
+  id,
+  close,
+  openApplication,
+}: {
+  id: number;
+  close: () => void;
+  openApplication: (id: number) => void;
+}) {
+  const [person, setPerson] = useState<CandidateRecord | null>(null);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setError('');
+    api<CandidateRecord>(`candidates/${id}/`, undefined, controller.signal)
+      .then(setPerson)
+      .catch((e) => {
+        if (e.name !== 'AbortError') setError(e.message);
+      });
+    return () => controller.abort();
+  }, [id, reload]);
+  return (
+    <Modal
+      visible
+      title={person ? `${person.display_name} · 候选人详情` : '候选人详情'}
+      width={940}
+      className="candidate-create-modal"
+      onCancel={close}
+      footer={
+        <Button variant="outline" onClick={close}>
+          关闭
+        </Button>
+      }
+    >
+      {error ? (
+        <ErrorNotice message={error} retry={() => setReload((value) => value + 1)} />
+      ) : !person ? (
+        <Loading />
+      ) : (
+        <div className="flex flex-col gap-5">
+          <dl className="candidate-create-grid">
+            {[
+              ['姓名', person.display_name],
+              ['联系方式', person.phone],
+              ['邮箱', person.email],
+              ['现居城市', person.current_city],
+              ['最高学历', person.education_level],
+              ['毕业院校', person.school],
+              ['工作年限', person.work_years],
+              ['意向岗位', person.intended_role],
+              ['当前薪资', person.current_salary],
+              ['期望薪资', person.expected_salary],
+              ['简历来源', person.source],
+              ['联系方式备注', person.contact_note],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-sm text-muted-foreground">{label}</dt>
+                <dd className="whitespace-pre-wrap break-words">{value || '—'}</dd>
+              </div>
+            ))}
+          </dl>
+          {person.applications.length > 0 && (
+            <section className="flex flex-col gap-2" aria-label="应聘记录">
+              <h3>应聘记录</h3>
+              {person.applications.map((application) => (
+                <div key={application.id} className="flex flex-wrap items-center gap-2">
+                  <Button variant="link" onClick={() => openApplication(application.id)}>
+                    {application.job__title} · 第 {application.attempt_no} 次应聘
+                  </Button>
+                  <Badge variant="secondary">{stages[application.stage]}</Badge>
+                </div>
+              ))}
+            </section>
+          )}
+          {[
+            ['工作经历', person.work_experience],
+            ['教育经历', person.education_experience],
+            ['备注', person.remarks],
+            ['简历原文', person.resume_text],
+          ]
+            .filter(([, value]) => value)
+            .map(([label, value]) => (
+              <section key={label} className="flex flex-col gap-2">
+                <h3>{label}</h3>
+                <pre className="resume-text">{value}</pre>
+              </section>
+            ))}
+          {person.resume_documents?.length > 0 && (
+            <section className="flex flex-col gap-2" aria-label="简历附件">
+              <h3>简历附件</h3>
+              {person.resume_documents.map((document) => (
+                <div key={document.document}>
+                  {document.download ? (
+                    <a href={`/api/v1/documents/${document.document}/download/`}>{document.name}</a>
+                  ) : (
+                    <span>{document.name}</span>
+                  )}
+                </div>
+              ))}
+            </section>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
 
 function CandidateDatePicker({
   id,
@@ -864,15 +1036,7 @@ function CandidateDatePicker({
   );
 }
 
-function CreateCandidateDialog({
-  close,
-  openImport,
-  saved,
-}: {
-  close: () => void;
-  openImport: (initialFiles?: File[]) => void;
-  saved: (application: number) => void;
-}) {
+function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () => void }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -898,20 +1062,41 @@ function CreateCandidateDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [draggingResume, setDraggingResume] = useState(false);
+  const [attachment, setAttachment] = useState<Pick<
+    ImportItem,
+    'document' | 'name' | 'parse'
+  > | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [contactNote, setContactNote] = useState('待补充联系方式');
+  const autofilled = useRef<Record<string, string>>({});
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const resumeInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    api<Page<Job>>('jobs/?status=open&page=1', undefined, controller.signal)
-      .then((response) => setJobs(response.results.filter((item) => item.permissions.edit)))
-      .catch((e) => {
-        if (e.name !== 'AbortError') setError(e.message);
-      });
+    async function loadJobs() {
+      const rows: Job[] = [];
+      let page = 1;
+      let response: Page<Job>;
+      do {
+        response = await api<Page<Job>>(
+          `jobs/?status=open&page=${page}`,
+          undefined,
+          controller.signal,
+        );
+        rows.push(...response.results.filter((item) => item.permissions.edit));
+        page += 1;
+      } while (response.next);
+      setJobs(rows);
+    }
+    loadJobs().catch((e) => {
+      if (e.name !== 'AbortError') setError(e.message);
+    });
     return () => controller.abort();
   }, []);
 
-  function importSelectedResume(list: FileList | File[]) {
+  async function importSelectedResume(list: FileList | File[]) {
+    if (busy) return;
     const files = Array.from(list);
     if (files.length !== 1) {
       setError('请一次选择一份简历文件。');
@@ -922,7 +1107,53 @@ function CreateCandidateDialog({
       return;
     }
     setError('');
-    openImport(files);
+    setBusy(true);
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('request_key', crypto.randomUUID());
+      form.append('file', files[0]);
+      const result = await api<Pick<ImportItem, 'document' | 'name' | 'parse'>>(
+        'candidates/preview-resume/',
+        form,
+      );
+      setAttachment(result);
+      if (result.parse?.status !== 'succeeded') {
+        setError(`${result.parse?.error || '未读取到文字。'}原表单内容已保留，请核对后保存。`);
+        return;
+      }
+      const fields = resumeFormFields(result.parse?.text ?? '', result.name);
+      const setters: Record<string, (update: (value: string) => string) => void> = {
+        display_name: setName,
+        phone: setPhone,
+        email: setEmail,
+        gender: setGender,
+        current_city: setCurrentCity,
+        birthday: setBirthday,
+        intended_role: setIntendedRole,
+        education_level: setEducationLevel,
+        school: setSchool,
+        work_years: setWorkYears,
+        current_salary: setCurrentSalary,
+        expected_salary: setExpectedSalary,
+        work_experience: setWorkExperience,
+        education_experience: setEducationExperience,
+        resume_text: setResumeText,
+      };
+      for (const [field, setValue] of Object.entries(setters)) {
+        const value = fields[field as keyof typeof fields] ?? '';
+        const previous = autofilled.current[field];
+        setValue((current) => (!current || current === previous ? value : current));
+      }
+      autofilled.current = fields;
+      if (result.parse?.status !== 'succeeded')
+        setError(result.parse?.error || '未读取到文字，请手动填写后保存。');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setUploading(false);
+      setBusy(false);
+    }
   }
 
   return (
@@ -934,18 +1165,17 @@ function CreateCandidateDialog({
       className="candidate-create-modal"
       maskClosable={!busy}
       closable={!busy}
-      onCancel={close}
+      closeOnEsc={!busy}
+      onCancel={() => {
+        if (!busy) close();
+      }}
       footer={
         <div className="candidate-create-footer">
           <Button type="button" variant="outline" disabled={busy} onClick={close}>
             取消
           </Button>
-          <Button
-            type="submit"
-            form="create-candidate-form"
-            disabled={busy || !job || !source || !stage}
-          >
-            {busy ? '正在保存…' : '保存'}
+          <Button type="submit" form="create-candidate-form" disabled={busy || !stage}>
+            {uploading ? '正在识别…' : busy ? '正在保存…' : '保存'}
           </Button>
         </div>
       }
@@ -955,15 +1185,16 @@ function CreateCandidateDialog({
         className="candidate-create-form"
         onSubmit={async (event) => {
           event.preventDefault();
+          if (busy) return;
           setBusy(true);
           setError('');
           try {
-            const result = await api<{ candidate: number; application: number }>('candidates/', {
+            await api<{ candidate: number; application: number | null }>('candidates/', {
               request_key: requestKey,
               display_name: name,
               phone,
               email,
-              contact_note: '',
+              contact_note: !phone.trim() && !email.trim() ? contactNote : '',
               gender,
               current_city: currentCity,
               identity_number: identityNumber,
@@ -980,13 +1211,17 @@ function CreateCandidateDialog({
               education_experience: educationExperience,
               remarks,
               resume_text: resumeText,
-              job: Number(job),
+              job: job ? Number(job) : null,
               source,
+              ...(attachment
+                ? { resume_document: attachment.document, resume_parse: attachment.parse?.id }
+                : {}),
             });
-            saved(result.application);
+            saved();
           } catch (e) {
             setError((e as Error).message);
-            setRequestKey(crypto.randomUUID());
+            if (e instanceof ApiError && e.status >= 400 && e.status < 500)
+              setRequestKey(crypto.randomUUID());
           } finally {
             setBusy(false);
           }
@@ -1007,15 +1242,16 @@ function CreateCandidateDialog({
             onDrop={(event) => {
               event.preventDefault();
               setDraggingResume(false);
-              importSelectedResume(event.dataTransfer.files);
+              void importSelectedResume(event.dataTransfer.files);
             }}
           >
             <FileText aria-hidden="true" className="candidate-resume-icon" />
             <span>
-              拖拽简历到此处，或 <strong>点击选择文件</strong>
+              {uploading ? '正在识别简历…' : attachment ? attachment.name : '拖拽简历到此处，或'}{' '}
+              {!uploading && <strong>{attachment ? '更换文件' : '点击选择文件'}</strong>}
             </span>
-            <small>可自动识别：PDF（文字型）/ Word(.docx) / 纯文本 / 图片(.jpg/.png，OCR)</small>
-            <small>仅保存附件：旧版 Word(.doc)</small>
+            <small>可识别：文字型 PDF / Word(.docx) / 纯文本</small>
+            <small>图片与旧版 Word(.doc) 保存为附件，信息可手动填写</small>
             <small>单文件 ≤ 10MB</small>
           </button>
           <Input
@@ -1024,13 +1260,14 @@ function CreateCandidateDialog({
             type="file"
             accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
             onChange={(event) => {
-              if (event.target.files) importSelectedResume(event.target.files);
+              if (event.target.files) void importSelectedResume(event.target.files);
               event.target.value = '';
             }}
             disabled={busy}
           />
         </Field>
         {error && <ErrorNotice message={error} />}
+        {attachment && <p role="status">已选择：{attachment.name}，保存时一并归档。</p>}
         <FieldGroup className="candidate-create-grid">
           <Field>
             <FieldLabel htmlFor="new-candidate-name">姓名 *</FieldLabel>
@@ -1121,15 +1358,19 @@ function CreateCandidateDialog({
               className="candidate-select"
               id="new-candidate-job"
               aria-label="应聘职位"
-              aria-required="true"
               value={job}
-              onChange={(value) => setJob(typeof value === 'string' ? value : '')}
-              placeholder="请选择职位"
+              onChange={(value) => {
+                const selected = typeof value === 'string' ? value : '';
+                setJob(selected);
+                if (!selected) setStage('pending_review');
+              }}
+              placeholder="暂不关联职位"
               disabled={busy}
               filter
               clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
+              <Select.Option value="">暂不关联职位</Select.Option>
               {jobs.map((item) => (
                 <Select.Option key={item.id} value={String(item.id)}>
                   {item.title} · {item.department_name}
@@ -1154,7 +1395,6 @@ function CreateCandidateDialog({
               className="candidate-select"
               id="new-candidate-source"
               aria-label="简历来源"
-              aria-required="true"
               value={source}
               onChange={(value) => setSource(typeof value === 'string' ? value : '')}
               placeholder="请选择简历来源"
@@ -1239,7 +1479,7 @@ function CreateCandidateDialog({
               aria-label="当前状态"
               value={stage}
               onChange={(value) => setStage(typeof value === 'string' ? value : '')}
-              disabled={busy}
+              disabled={busy || !job}
               clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
@@ -1254,6 +1494,19 @@ function CreateCandidateDialog({
               <Select.Option value="talent_pool">人才库</Select.Option>
             </Select>
           </Field>
+          {!phone.trim() && !email.trim() && (
+            <Field className="candidate-create-full">
+              <FieldLabel htmlFor="new-candidate-contact-note">联系方式待补充</FieldLabel>
+              <Input
+                id="new-candidate-contact-note"
+                value={contactNote}
+                onChange={(event) => setContactNote(event.target.value)}
+                required
+                disabled={busy}
+                maxLength={500}
+              />
+            </Field>
+          )}
           <Field className="candidate-create-full">
             <FieldLabel htmlFor="new-candidate-expected-start">预计入职日期</FieldLabel>
             <CandidateDatePicker

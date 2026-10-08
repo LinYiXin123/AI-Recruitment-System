@@ -153,7 +153,12 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
     requirements: [{ kind: 'must', text: '具备访谈经验' }],
   });
   await post(page, `jobs/${job.id}/change-status/`, { version: job.version, status: 'open' });
-  await page.getByRole('link', { name: '候选人', exact: true }).click();
+  await page.getByRole('link', { name: '人才画像', exact: true }).click();
+  await page.getByRole('tab', { name: '简历对照', exact: true }).click();
+  await page.getByRole('button', { name: '选择候选人', exact: true }).first().click();
+  await page.getByRole('dialog').getByLabel('目标职位', { exact: true }).click();
+  await page.getByRole('option').filter({ hasText: job.title }).click();
+  await page.getByRole('button', { name: '导入新的简历', exact: true }).click();
   const files = [
     {
       name: 'fictional-resume.pdf',
@@ -162,9 +167,6 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
     },
     { name: 'fictional-scan.pdf', mimeType: 'application/pdf', buffer: pdf() },
   ];
-  await page.getByRole('button', { name: '新增候选人', exact: true }).click();
-  await page.locator('.candidate-resume-input').setInputFiles(files[0]);
-  await choose(page, '目标职位', job.title);
   await page.getByLabel('材料来源', { exact: true }).fill('本人提供的虚构验收材料');
   await page.getByLabel('简历文件', { exact: true }).setInputFiles(files);
   await page.getByRole('button', { name: '开始导入', exact: true }).click();
@@ -253,13 +255,14 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
     .filter({ hasText: '待初试' })
     .getByRole('button', { name: '虚构林一', exact: true })
     .click();
+  await page.getByRole('button', { name: `${job.title} · 第 1 次应聘`, exact: true }).click();
   await expect(
     page.getByRole('dialog').locator('[data-slot="badge"]').filter({ hasText: '待初试' }),
   ).toBeVisible();
   await page.getByRole('button', { name: '关闭详情' }).click();
   await expect(page.getByRole('button', { name: '虚构林一', exact: true })).toHaveCount(2);
   await page.reload();
-  // 当前列表按应聘展示；主档复用与导入历史已无独立页面，保留真实 API 持久性与幂等验收。
+  // 列表按人才主档展示，复用档案后从详情进入对应应聘。
   const people: { results: Candidate[] } = await (
     await page.request.get('/api/v1/candidates/?search=%E8%99%9A%E6%9E%84%E6%9E%97%E4%B8%80')
   ).json();
@@ -278,6 +281,7 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
     .filter({ hasText: '待初试' })
     .getByRole('button', { name: '虚构林一', exact: true })
     .click();
+  await page.getByRole('button', { name: `${job.title} · 第 1 次应聘`, exact: true }).click();
   await expect(page.getByRole('heading', { name: '虚构林一 · 第 1 次应聘' })).toBeVisible();
   await choose(page, '处理结果', '结束应聘（撤回或招聘取消）');
   await page.getByLabel('依据与说明').fill('本次项目经验与职位要求不符，仅结束这一次应聘');
@@ -300,9 +304,10 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
   await page
     .getByRole('row')
     .filter({ hasText: job.title })
-    .filter({ hasText: '第 2 次' })
+    .filter({ hasText: `CAND-${String(firstApplication.candidate).padStart(4, '0')}` })
     .getByRole('button', { name: '虚构林一', exact: true })
     .click();
+  await page.getByRole('button', { name: `${job.title} · 第 2 次应聘`, exact: true }).click();
   await expect(page.getByRole('heading', { name: '虚构林一 · 第 2 次应聘' })).toBeVisible();
   await page.getByLabel('依据与说明').fill('冲突后仍保留这段人工核对说明');
   const full = await (

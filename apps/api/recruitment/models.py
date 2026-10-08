@@ -377,10 +377,18 @@ class Candidate(Timestamped):
     education_experience = models.TextField(blank=True)
     remarks = models.TextField(blank=True)
     resume_text = models.TextField(blank=True)
+    source = models.CharField(max_length=200, blank=True)
+    request_key = models.UUIDField(null=True, blank=True)
+    creation_payload = models.JSONField(default=dict, blank=True)
     created_by = models.ForeignKey(Membership, on_delete=models.PROTECT)
 
     class Meta:
         indexes = [models.Index(fields=["organization", "display_name"], name="candidate_org_name")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "request_key"], name="candidate_creation_request"
+            )
+        ]
 
 
 class Application(Timestamped):
@@ -581,16 +589,20 @@ class ResumeDocument(Timestamped):
     size = models.PositiveIntegerField()
     sha256 = models.CharField(max_length=64)
     uploaded_by = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    request_key = models.UUIDField(null=True, blank=True)
     access_state = models.CharField(max_length=20, default="active")
 
     class Meta:
         constraints = [
+            models.UniqueConstraint(
+                fields=["uploaded_by", "request_key"], name="resume_preview_request"
+            ),
             models.CheckConstraint(
                 condition=Q(size__gt=0, size__lte=20 * 1024 * 1024), name="resume_file_size"
             ),
             models.CheckConstraint(
                 condition=Q(
-                    file_type__in=["pdf", "docx"],
+                    file_type__in=["pdf", "docx", "txt", "doc", "jpg", "jpeg", "png"],
                     access_state__in=["active", "quarantine", "deleted"],
                 ),
                 name="resume_file_state",

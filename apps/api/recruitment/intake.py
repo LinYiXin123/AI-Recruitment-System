@@ -3,10 +3,12 @@ import json
 import re
 import subprocess
 import sys
+import uuid
 from datetime import date
 from pathlib import Path
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import IntegrityError, transaction
 from django.db.models import Max, Q
 from django.http import FileResponse
@@ -64,9 +66,41 @@ def requirement_data(item):
 
 
 def candidates(m):
-    return Candidate.objects.filter(
-        organization=m.organization, applications__job__in=hr_jobs(m)
-    ).distinct()
+    own_unassigned = Q(created_by=m, applications__isnull=True)
+    if not department_ids(m, ["hr"]).exists():
+        own_unassigned = Q(pk__in=[])
+    return (
+        Candidate.objects.filter(organization=m.organization)
+        .filter(Q(applications__job__in=hr_jobs(m)) | own_unassigned)
+        .distinct()
+    )
+
+
+def require_hr(m):
+    if not department_ids(m, ["hr"]).exists():
+        raise PermissionDenied("当前没有候选人录入权限。")
+
+
+CANDIDATE_FIELDS = (
+    "display_name",
+    "phone",
+    "email",
+    "contact_note",
+    "gender",
+    "current_city",
+    "identity_number",
+    "birthday",
+    "intended_role",
+    "education_level",
+    "school",
+    "work_years",
+    "current_salary",
+    "expected_salary",
+    "work_experience",
+    "education_experience",
+    "remarks",
+    "resume_text",
+)
 
 
 def audit(m, job, action_name, application=None, note=""):
@@ -145,7 +179,13 @@ class IdentityInput(serializers.Serializer):
 
 class CandidateCreateInput(IdentityInput):
     request_key = serializers.UUIDField()
-    job = serializers.IntegerField(min_value=1)
+    job = serializers.IntegerField(min_value=1, required=False, allow_null=True, default=None)
+    resume_document = serializers.IntegerField(
+        min_value=1, required=False, allow_null=True, default=None
+    )
+    resume_parse = serializers.IntegerField(
+        min_value=1, required=False, allow_null=True, default=None
+    )
     source = serializers.ChoiceField(
         choices=[
             "BOSS直聘",
@@ -158,7 +198,10 @@ class CandidateCreateInput(IdentityInput):
             "校园招聘",
             "官网投递",
             "其他",
-        ]
+        ],
+        required=False,
+        allow_blank=True,
+        default="",
     )
     gender = serializers.ChoiceField(
         choices=["男", "女"], required=False, allow_blank=True, default=""
@@ -235,6 +278,10 @@ class CandidateCreateInput(IdentityInput):
     def validate(self, data):
         if not data["phone"] and not data["email"] and not data["contact_note"]:
             raise ValidationError("请至少填写手机号或邮箱。")
+        if not data["job"] and data["stage"] != "pending_review":
+            raise ValidationError("未关联职位时只能先入库，不能记录应聘阶段。")
+        if bool(data["resume_document"]) != bool(data["resume_parse"]):
+            raise ValidationError("请同时提交简历附件及本次核对的文字版本。")
         if data["identity_number"] and not data["birthday"]:
             raw_birthday = data["identity_number"][6:14]
             try:
@@ -254,19 +301,100 @@ def possible_matches(m, data):
     return candidates(m).filter(query).order_by("id")
 
 
-def candidate_data(c, m):
-    return {
+def standalone_download_allowed(c, m):
+    return (
+        c.created_by_id == m.id
+        and not c.applications.exists()
+        and department_ids(m, ["hr"])
+        .filter(department_id__in=department_ids(m, ["resume_download"]))
+        .exists()
+    )
+
+
+def candidate_data(c, m, detail=False):
+    applications = list(
+        c.applications.filter(job__in=hr_jobs(m))
+        .select_related("owner__user", "job")
+        .order_by("-id")
+    )
+    result = {
         "id": c.id,
         "display_name": c.display_name,
         "phone": c.phone,
         "email": c.email,
         "contact_note": c.contact_note,
-        "applications": list(
-            c.applications.filter(job__in=hr_jobs(m)).values(
-                "id", "job_id", "job__title", "attempt_no", "stage"
-            )
-        ),
+        "current_city": c.current_city,
+        "education_level": c.education_level,
+        "work_years": c.work_years,
+        "expected_salary": c.expected_salary,
+        "source": c.source or (applications[0].source if applications else ""),
+        "created_at": c.created_at,
+        "applications": [
+            {
+                "id": a.id,
+                "job_id": a.job_id,
+                "job__title": a.job.title,
+                "attempt_no": a.attempt_no,
+                "stage": a.stage,
+                "source": a.source,
+                "owner_name": display_name(a.owner),
+            }
+            for a in applications
+        ],
     }
+    if detail:
+        docs = (
+            ResumeDocument.objects.filter(candidate=c)
+            .filter(
+                Q(parses__applicationresume__application__in=applications)
+                | Q(uploaded_by=m, candidate__applications__isnull=True)
+            )
+            .distinct()
+        )
+        result.update({field: getattr(c, field) for field in CANDIDATE_FIELDS})
+        source_doc = c.creation_payload.get("resume_document")
+        source_job = c.creation_payload.get("job")
+        source_visible = (
+            docs.filter(pk=source_doc, access_state="active").exists()
+            if source_doc
+            else (
+                any(a.job_id == source_job for a in applications)
+                if source_job
+                else c.created_by_id == m.id
+            )
+        )
+        if not source_visible:
+            # 附件失去授权后，不通过保存在主档的文字副本继续提供原材料。
+            for field in [
+                "identity_number",
+                "birthday",
+                "current_salary",
+                "work_experience",
+                "education_experience",
+                "remarks",
+                "resume_text",
+            ]:
+                result[field] = ""
+        result["resume_documents"] = []
+        for doc in docs:
+            visible_parses = doc.parses.filter(applicationresume__application__in=applications)
+            parse = visible_parses.first() if applications else doc.parses.first()
+            if doc.id == source_doc:
+                result["resume_text"] = parse.text if parse and doc.access_state == "active" else ""
+            download = standalone_download_allowed(c, m) or any(
+                a.job.department_id in department_ids(m, ["resume_download"])
+                and a.resumes.filter(parse__document=doc).exists()
+                for a in applications
+            )
+            result["resume_documents"].append(
+                {
+                    "document": doc.id,
+                    "name": doc.original_name,
+                    "download": download and doc.access_state == "active",
+                    "parse": parse_data(parse) if doc.access_state == "active" else None,
+                }
+            )
+    return result
 
 
 def parse_data(p):
@@ -319,6 +447,10 @@ def file_path(doc):
 
 
 def extract_resume_text(path, kind):
+    if kind not in ["pdf", "docx", "txt"]:
+        return {
+            "error": "附件已保留。图片 OCR 和旧版 DOC 识别未接通，请人工填写或改用 PDF、DOCX、TXT。"
+        }
     try:
         process = subprocess.run(
             [
@@ -352,7 +484,7 @@ def create_parse(doc, m, key, manual=None):
     return ResumeParse.objects.create(
         document=doc,
         version=(doc.parses.aggregate(n=Max("version"))["n"] or 0) + 1,
-        parser_version="人工摘录" if manual is not None else "pypdf6.19 / DOCX段落 v1",
+        parser_version="人工摘录" if manual is not None else "pypdf6.19 / DOCX段落 / TXT v1",
         status="succeeded" if result.get("text") else "failed",
         text=result.get("text", ""),
         error=result.get("error", ""),
@@ -611,8 +743,9 @@ class ImportViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
 class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
     def get_queryset(self):
         search = self.request.query_params.get("search", "")[:100]
-        return (
-            candidates(member(self.request))
+        m = member(self.request)
+        qs = (
+            candidates(m)
             .filter(
                 Q(display_name__icontains=search)
                 | Q(phone__icontains=search)
@@ -620,6 +753,33 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
             )
             .order_by("-id")
         )
+        if self.request.query_params.get("education_level"):
+            qs = qs.filter(education_level=self.request.query_params["education_level"][:20])
+        app_filters = {}
+        if self.request.query_params.get("job"):
+            try:
+                app_filters["job_id"] = int(self.request.query_params["job"])
+            except ValueError:
+                raise ValidationError("职位筛选无效。") from None
+        stage = self.request.query_params.get("stage")
+        if stage:
+            app_filters["stage"] = stage
+        if app_filters:
+            matching = Application.objects.filter(job__in=hr_jobs(m), **app_filters)
+            allowed = Q(applications__in=matching)
+            if stage == "pending_review" and not app_filters.get("job_id"):
+                allowed |= Q(applications__isnull=True)
+            qs = qs.filter(allowed)
+        source = self.request.query_params.get("source", "")[:200]
+        if source:
+            qs = qs.filter(
+                Q(source=source)
+                | Q(
+                    source="",
+                    applications__in=Application.objects.filter(job__in=hr_jobs(m), source=source),
+                )
+            )
+        return qs.distinct()
 
     def list(self, request):
         return self.get_paginated_response(
@@ -630,12 +790,96 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
         )
 
     def retrieve(self, request, pk=None):
-        return Response(candidate_data(self.get_object(), member(request)))
+        return Response(candidate_data(self.get_object(), member(request), detail=True))
+
+    @action(detail=False, methods=["post"], url_path="preview-resume")
+    def preview_resume(self, request):
+        m = member(request)
+        require_hr(m)
+        key = validated(ParseInput, request.data)["request_key"]
+        upload = request.FILES.get("file")
+        if not upload or not upload.size or upload.size > 10 * 1024 * 1024:
+            raise ValidationError("请选择 10MB 以内的非空简历附件。")
+        raw = upload.read()
+        kind = Path(upload.name).suffix.lower().lstrip(".")
+        signatures = {
+            "pdf": (b"%PDF-",),
+            "docx": (b"PK\x03\x04",),
+            "doc": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+            "jpg": (b"\xff\xd8\xff",),
+            "jpeg": (b"\xff\xd8\xff",),
+            "png": (b"\x89PNG\r\n\x1a\n",),
+        }
+        if kind != "txt" and (kind not in signatures or not raw.startswith(signatures[kind])):
+            raise ValidationError("文件内容与格式不符，请上传 PDF、DOCX、TXT、DOC、JPG 或 PNG。")
+        digest = hashlib.sha256(raw).hexdigest()
+        saved_path = None
+        try:
+            with transaction.atomic():
+                Membership.objects.select_for_update().get(pk=m.pk)
+                doc = ResumeDocument.objects.filter(uploaded_by=m, request_key=key).first()
+                if doc:
+                    if doc.sha256 != digest or doc.file_type != kind:
+                        raise Conflict("这个上传请求已用于其他附件，请重新选择文件。")
+                    if doc.access_state != "active":
+                        raise PermissionDenied("该附件已停止访问。")
+                    if doc.candidate_id:
+                        get_object_or_404(candidates(m), pk=doc.candidate_id)
+                else:
+                    doc = ResumeDocument.objects.create(
+                        organization=m.organization,
+                        uploaded_by=m,
+                        request_key=key,
+                        original_name=Path(upload.name).name[:255],
+                        file_type=kind,
+                        size=len(raw),
+                        sha256=digest,
+                    )
+                    settings.PRIVATE_RESUME_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    saved_path = file_path(doc)
+                    with saved_path.open("xb") as stream:
+                        saved_path.chmod(0o600)
+                        stream.write(raw)
+                    create_parse(doc, m, key)
+                result = {
+                    "document": doc.id,
+                    "name": doc.original_name,
+                    "parse": parse_data(doc.parses.first()),
+                }
+            return Response(result, status=201 if saved_path else 200)
+        except Exception:
+            if saved_path:
+                saved_path.unlink(missing_ok=True)
+            raise
 
     @transaction.atomic
     def create(self, request):
         m = member(request)
+        require_hr(m)
         data = validated(CandidateCreateInput, request.data)
+        Membership.objects.select_for_update().get(pk=m.pk)
+        payload = {
+            "fingerprint": hashlib.sha256(
+                json.dumps(data, cls=DjangoJSONEncoder, sort_keys=True).encode("utf-8")
+            ).hexdigest(),
+            "resume_document": data["resume_document"],
+            "job": data["job"],
+        }
+        old = Candidate.objects.filter(
+            organization=m.organization, request_key=data["request_key"]
+        ).first()
+        if old:
+            if old.created_by_id != m.id or old.creation_payload != payload:
+                raise Conflict("该保存请求已用于其他内容，请刷新后再试。")
+            get_object_or_404(candidates(m), pk=old.pk)
+            entry = ApplicationEntry.objects.filter(
+                organization=m.organization, actor=m, request_key=data["request_key"]
+            ).first()
+            if entry:
+                get_object_or_404(hr_jobs(m), pk=entry.application.job_id)
+            return Response(
+                {"candidate": old.id, "application": entry.application_id if entry else None}
+            )
         existing = (
             ApplicationEntry.objects.select_related("application__candidate")
             .filter(organization=m.organization, request_key=data["request_key"])
@@ -643,80 +887,73 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
         )
         if existing:
             person = existing.application.candidate
+            get_object_or_404(hr_jobs(m), pk=existing.application.job_id)
             if (
                 existing.actor_id != m.id
                 or existing.application.job_id != data["job"]
                 or existing.source != data["source"]
                 or existing.application.stage != data["stage"]
                 or existing.application.expected_start_date != data["expected_start_date"]
-                or any(
-                    getattr(person, field) != data[field]
-                    for field in [
-                        "display_name",
-                        "phone",
-                        "email",
-                        "contact_note",
-                        "gender",
-                        "current_city",
-                        "identity_number",
-                        "birthday",
-                        "intended_role",
-                        "education_level",
-                        "school",
-                        "work_years",
-                        "current_salary",
-                        "expected_salary",
-                        "work_experience",
-                        "education_experience",
-                        "remarks",
-                        "resume_text",
-                    ]
-                )
+                or any(getattr(person, field) != data[field] for field in CANDIDATE_FIELDS)
+                or data["resume_document"] is not None
             ):
                 raise Conflict("该保存请求已用于另一位候选人，请刷新后再试。")
             return Response({"candidate": person.id, "application": existing.application_id})
 
-        job = open_job(m, data["job"])
+        job = open_job(m, data["job"]) if data["job"] else None
+        doc = parse = None
+        if data["resume_document"]:
+            doc = get_object_or_404(
+                ResumeDocument.objects.select_for_update(),
+                pk=data["resume_document"],
+                organization=m.organization,
+                uploaded_by=m,
+                candidate__isnull=True,
+                request_key__isnull=False,
+                access_state="active",
+            )
+            parse = doc.parses.first()
+            if not parse or parse.id != data["resume_parse"]:
+                raise Conflict("简历文字版本已改变，请重新核对附件。")
         if possible_matches(m, data).exists():
             raise Conflict("发现疑似重复候选人，请先从已有档案核对后加入本次应聘。")
-        person = Candidate.objects.create(
-            organization=m.organization,
-            created_by=m,
-            **{
-                field: data[field]
-                for field in [
-                    "display_name",
-                    "phone",
-                    "email",
-                    "contact_note",
-                    "gender",
-                    "current_city",
-                    "identity_number",
-                    "birthday",
-                    "intended_role",
-                    "education_level",
-                    "school",
-                    "work_years",
-                    "current_salary",
-                    "expected_salary",
-                    "work_experience",
-                    "education_experience",
-                    "remarks",
-                    "resume_text",
-                ]
-            },
+        try:
+            with transaction.atomic():
+                person = Candidate.objects.create(
+                    organization=m.organization,
+                    created_by=m,
+                    source=data["source"],
+                    request_key=data["request_key"],
+                    creation_payload=payload,
+                    **{field: data[field] for field in CANDIDATE_FIELDS},
+                )
+        except IntegrityError:
+            raise Conflict("这个保存请求已被使用，请重新核对后提交。") from None
+        if doc:
+            doc.candidate = person
+            doc.save(update_fields=["candidate", "updated_at"])
+            if data["resume_text"].strip() and data["resume_text"].strip() != parse.text:
+                parse = create_parse(doc, m, uuid.uuid4(), manual=data["resume_text"])
+        application = None
+        if job:
+            application = enter_application(
+                m,
+                person,
+                job,
+                data["source"],
+                data["request_key"],
+                data["stage"],
+                data["expected_start_date"],
+            )
+            if parse:
+                ApplicationResume.objects.create(
+                    application=application, parse=parse, assigned_by=m
+                )
+            audit(m, job, "人工新增候选人并建立应聘", application, note=f"候选人 {person.id}")
+        return Response(
+            {"candidate": person.id, "application": application.id if application else None},
+            status=201,
         )
-        application = enter_application(
-            m,
-            person,
-            job,
-            data["source"],
-            data["request_key"],
-            data["stage"],
-            data["expected_start_date"],
-        )
-        audit(m, job, "人工新增候选人并建立应聘", application, note=f"候选人 {person.id}")
-        return Response({"candidate": person.id, "application": application.id}, status=201)
 
     @action(detail=True, methods=["post"])
     @transaction.atomic
@@ -730,7 +967,18 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
         m = member(request)
         data = validated(EntryInput, request.data)
         job = get_object_or_404(hr_jobs(m), pk=data["job"])
+        Candidate.objects.select_for_update().get(pk=person.pk)
+        standalone = person.created_by_id == m.id and not person.applications.exists()
         a = enter_application(m, person, job, data["source"], data["request_key"])
+        if standalone:
+            for doc in ResumeDocument.objects.filter(
+                candidate=person, uploaded_by=m, request_key__isnull=False, access_state="active"
+            ):
+                parse = doc.parses.first()
+                if parse:
+                    ApplicationResume.objects.get_or_create(
+                        application=a, parse=parse, defaults={"assigned_by": m}
+                    )
         return Response({"application": a.id})
 
 
@@ -739,6 +987,10 @@ def app_data(a, m, detail=False):
         "id": a.id,
         "candidate": a.candidate_id,
         "name": a.candidate.display_name,
+        "current_city": a.candidate.current_city,
+        "education_level": a.candidate.education_level,
+        "work_years": a.candidate.work_years,
+        "expected_salary": a.candidate.expected_salary,
         "job": a.job_id,
         "job_title": a.job.title,
         "attempt_no": a.attempt_no,
@@ -1012,13 +1264,19 @@ class DocumentViewSet(GenericViewSet):
             .distinct()
             .first()
         )
-        if not job:
+        own_standalone = (
+            doc.candidate_id
+            and doc.uploaded_by_id == m.id
+            and standalone_download_allowed(doc.candidate, m)
+        )
+        if not job and not own_standalone:
             raise PermissionDenied("当前没有该简历原件的下载授权。")
         try:
             stream = file_path(doc).open("rb")
         except FileNotFoundError:
             raise ValidationError("原件暂时不可用，请联系维护人员恢复文件。") from None
-        audit(m, job, "下载简历原件", note=f"文件 {doc.id}")
+        if job:
+            audit(m, job, "下载简历原件", note=f"文件 {doc.id}")
         response = FileResponse(
             stream,
             as_attachment=True,

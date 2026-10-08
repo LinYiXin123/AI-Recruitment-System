@@ -5,6 +5,7 @@ import json
 import re
 import sys
 import zipfile
+from pathlib import Path
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
@@ -138,9 +139,7 @@ def extract(path, kind):
                         url = _safe_url(action.get("/URI"))
                         if url and url not in links:
                             links.append(url)
-                missing_links = [
-                    url for url in links if html.escape(url, quote=True) not in rich
-                ]
+                missing_links = [url for url in links if html.escape(url, quote=True) not in rich]
                 for url in missing_links:
                     chunks.append(f"[简历链接] {url}")
                     rich += (
@@ -148,6 +147,17 @@ def extract(path, kind):
                         f'rel="noopener noreferrer">{html.escape(url)}</a>'
                     )
                 rich_chunks.append(f"<p>[第 {i + 1} 页]</p><div>{rich}</div>")
+    elif kind == "txt":
+        raw = Path(path).read_bytes()
+        encoding = "utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+        try:
+            text = raw.decode(encoding)
+        except UnicodeError:
+            raise ValueError("TXT 编码无法识别，请另存为 UTF-8 后上传。") from None
+        if any(ord(character) < 32 and character not in "\n\r\t\f" for character in text):
+            raise ValueError("TXT 含有非文字内容，请另存为有效文本后上传。")
+        chunks.append(text)
+        rich_chunks.append(_linkify(text))
     else:
         with zipfile.ZipFile(path) as archive:
             entries = archive.infolist()

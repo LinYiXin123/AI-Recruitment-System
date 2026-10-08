@@ -79,6 +79,118 @@ export function identifyResume(text: string, filename = '') {
   return { name: [...new Set(name)], phone: [...new Set(phone)], email: [...new Set(email)] };
 }
 
+export type ResumeFormFields = Partial<
+  Record<
+    | 'display_name'
+    | 'phone'
+    | 'email'
+    | 'gender'
+    | 'current_city'
+    | 'birthday'
+    | 'intended_role'
+    | 'education_level'
+    | 'school'
+    | 'work_years'
+    | 'current_salary'
+    | 'expected_salary'
+    | 'work_experience'
+    | 'education_experience'
+    | 'resume_text',
+    string
+  >
+>;
+
+export function resumeFormFields(text: string, filename = ''): ResumeFormFields {
+  const fields: ResumeFormFields = {};
+  if (!text.trim()) return fields;
+  fields.resume_text = text.trim();
+  const identity = identifyResume(text, filename);
+  if (identity.name.length === 1) fields.display_name = identity.name[0];
+  if (identity.phone.length === 1) fields.phone = identity.phone[0];
+  if (identity.email.length === 1) fields.email = identity.email[0];
+
+  // ponytail: 仅回填明确标签和分节；无标签、冲突或复杂排版留给人工核对，不推算缺失信息。
+  const normalized = text.normalize('NFKC').replace(/\[(?:第\s*\d+\s*页|段落\s*\d+)\][ \t]*/g, '');
+  const sections = Array.from(
+    normalized.matchAll(
+      /^[ \t]*(教育经历|教育背景|工作经历|工作经验(?![ \t]*:[ \t]*\d)|实习经历|项目经历|项目经验|专业技能|技能特长|自我评价|个人评价|荣誉奖项|证书|推荐人|证明人|紧急联系人|Education|Work Experience|Projects|Skills|References?|Emergency Contacts?)[ \t]*(?::[ \t]*|\r?$)/gim,
+    ),
+  );
+  const header = normalized
+    .slice(0, sections[0]?.index ?? normalized.length)
+    .split('\n')
+    .filter((line) => !/推荐人|证明人|紧急联系人|招聘(?:联系人|电话|邮箱)|\bHR\b/i.test(line))
+    .join('\n');
+  const labels: Record<string, keyof ResumeFormFields> = {
+    性别: 'gender',
+    现居城市: 'current_city',
+    现居地: 'current_city',
+    目前所在地: 'current_city',
+    当前城市: 'current_city',
+    生日: 'birthday',
+    出生日期: 'birthday',
+    意向岗位: 'intended_role',
+    意向职位: 'intended_role',
+    求职意向: 'intended_role',
+    应聘岗位: 'intended_role',
+    应聘职位: 'intended_role',
+    最高学历: 'education_level',
+    学历: 'education_level',
+    毕业院校: 'school',
+    毕业学校: 'school',
+    工作年限: 'work_years',
+    工作经验: 'work_years',
+    当前薪资: 'current_salary',
+    目前薪资: 'current_salary',
+    期望薪资: 'expected_salary',
+    期望薪酬: 'expected_salary',
+  };
+  const values = new Map<keyof ResumeFormFields, Set<string>>();
+  for (const match of header.matchAll(
+    /(?:^|[ \t|丨,，;；])([^\s:|丨,，;；]{2,12})[ \t]*:[ \t]*(.*?)(?=[ \t|丨,，;；]+[^\s:|丨,，;；]{2,12}[ \t]*:|\r?$)/gm,
+  )) {
+    const key = labels[match[1]];
+    const value = match[2].trim();
+    if (!key || !value) continue;
+    const found = values.get(key) ?? new Set<string>();
+    found.add(value);
+    values.set(key, found);
+  }
+  for (const [key, found] of values) {
+    if (found.size === 1) fields[key] = [...found][0];
+  }
+  if (fields.gender && !['男', '女'].includes(fields.gender)) delete fields.gender;
+  if (
+    fields.education_level &&
+    !['高中及以下', '大专', '本科', '硕士', '博士', '其他'].includes(fields.education_level)
+  )
+    delete fields.education_level;
+  if (fields.birthday) {
+    const birthday = fields.birthday.match(/^(?:(\d{4})[-/.年])?(\d{1,2})[-/.月](\d{1,2})日?$/);
+    const year = birthday?.[1] ?? '2000';
+    const month = birthday?.[2].padStart(2, '0');
+    const day = birthday?.[3].padStart(2, '0');
+    const iso = `${year}-${month}-${day}`;
+    const date = new Date(`${iso}T00:00:00Z`);
+    if (birthday && !Number.isNaN(date.getTime()) && date.toISOString().startsWith(iso))
+      fields.birthday = birthday[1] ? iso : `${month}-${day}`;
+    else delete fields.birthday;
+  }
+  for (const [index, section] of sections.entries()) {
+    const key = /^(?:教育|Education)/i.test(section[1])
+      ? 'education_experience'
+      : /^(?:工作|Work Experience)/i.test(section[1])
+        ? 'work_experience'
+        : null;
+    if (!key) continue;
+    const value = normalized
+      .slice(section.index + section[0].length, sections[index + 1]?.index ?? normalized.length)
+      .trim();
+    if (value) fields[key] = [fields[key], value].filter(Boolean).join('\n\n');
+  }
+  return fields;
+}
+
 export const stages: Record<string, string> = {
   pending_review: '待筛选',
   needs_information: '待补充',
