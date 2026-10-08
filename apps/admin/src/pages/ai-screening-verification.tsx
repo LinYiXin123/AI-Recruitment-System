@@ -2,6 +2,7 @@ import Select from '@douyinfe/semi-ui/lib/es/select';
 import { Copy } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ErrorNotice } from '@/components/feedback';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
@@ -66,6 +67,41 @@ type Draft = Pick<
 >;
 type Records = { items: Verification[]; history: Verification[]; count: number; page: number };
 
+export function ScreeningQualityNotice({
+  report,
+}: {
+  report: { quality_version?: number; analysis_date?: string | null; analysis_issues?: string[] };
+}) {
+  return (
+    <>
+      {report.quality_version !== 2 && (
+        <Alert role="status">
+          <AlertTitle>旧版报告，建议重新分析</AlertTitle>
+          <AlertDescription>
+            原始记录已保留，未经过本轮日期、原文引用及问题关联校验。历史分数不再展示；请对照原始材料复核，不直接据此判断人选。
+          </AlertDescription>
+        </Alert>
+      )}
+      {!!report.analysis_issues?.length && (
+        <Alert role="status">
+          <AlertTitle>分析质量提示</AlertTitle>
+          <AlertDescription>
+            <p>以下问题来自模型输出，不代表候选人材料不足。</p>
+            <ul className="list-disc pl-5">
+              {report.analysis_issues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+      {report.analysis_date && (
+        <p className="text-sm text-muted-foreground">日期判断基准：{report.analysis_date}</p>
+      )}
+    </>
+  );
+}
+
 export function ScreeningSourceDetails({ source }: { source?: ScreeningSource | null }) {
   if (!source)
     return <p className="ai-screening-help">旧报告未记录分析来源版本，不能补作当时的材料依据。</p>;
@@ -123,7 +159,12 @@ export function ScreeningVerification({
   onBusyChange,
 }: {
   reportId: number;
-  questions: { question: string; follow_up: string; answer_points: string[] }[];
+  questions: {
+    question: string;
+    follow_up: string;
+    answer_points: string[];
+    origin?: 'generated' | 'verification_fallback';
+  }[];
   initial?: Verification[];
   disabled: boolean;
   onEditingChange: (editing: boolean) => void;
@@ -344,6 +385,9 @@ export function ScreeningVerification({
             <p>
               第 {index + 1} 题 · {question.question}
             </p>
+            {question.origin === 'verification_fallback' && (
+              <Badge variant="outline">系统补齐的核实题</Badge>
+            )}
             <Badge variant="secondary">{item ? statuses[item.status] : '未采用'}</Badge>
             {item && (
               <>

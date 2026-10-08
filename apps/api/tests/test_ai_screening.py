@@ -3,6 +3,7 @@ import json
 import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from threading import Barrier
 from unittest.mock import patch
 
@@ -16,7 +17,7 @@ from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from rest_framework.test import APIClient
 
-from recruitment.ai_screening import _hr_member, _parse_analysis
+from recruitment.ai_screening import SYSTEM_PROMPT, _hr_member, _parse_analysis
 from recruitment.models import (
     AIScreening,
     AIScreeningVerification,
@@ -200,11 +201,17 @@ def test_analysis_returns_only_verifiable_resume_quotes_and_job_context():
     assert response.status_code == 200
     assert len(response.data["evidence"]) == 1
     assert response.data["evidence"][0]["quote"] == "与研发团队完成上线"
-    assert response.data["questions"] == model_result["questions"]
+    assert response.data["questions"] == [
+        {**model_result["questions"][0], "requirement_id": None, "origin": "generated"}
+    ]
     sent_context = json.loads(complete.call_args.kwargs["user_text"])
     assert sent_context["resume"] == resume
     assert sent_context["target_job"]["title"] == "产品经理"
     assert sent_context["target_job"]["description"] == job.jd
+    assert sent_context["analysis_date"] == timezone.localdate().isoformat()
+    assert response.data["analysis_date"] == sent_context["analysis_date"]
+    assert response.data["quality_version"] == 2
+    assert len(response.data["analysis_issues"]) == 1
     assert complete.call_args.kwargs["max_tokens"] == 393_216
     assert complete.call_args.kwargs["thinking"] == {"type": "disabled"}
     assert complete.call_args.kwargs["response_format"] == {"type": "json_object"}
@@ -230,7 +237,7 @@ def test_analysis_accepts_resume_without_optional_context(optional_context):
     assert context["target_job"] is None and context["target_enterprise"] is None
 
 
-def test_question_details_preserve_legacy_questions_and_discard_invalid_fields_and_quotes():
+def test_new_analysis_does_not_publish_incomplete_or_unverifiable_questions():
     result = _parse_analysis(
         json.dumps(
             {
@@ -258,29 +265,8 @@ def test_question_details_preserve_legacy_questions_and_discard_invalid_fields_a
         "负责审批模块，并与研发团队 完成上线。",
     )
 
-    assert result["questions"] == [
-        {
-            "question": "如何验证上线效果？",
-            "reason": "结果验证。",
-            "follow_up": "",
-            "answer_points": [],
-            "quote": "",
-        },
-        {
-            "question": "如何划分团队职责？",
-            "reason": "",
-            "follow_up": "",
-            "answer_points": ["说明本人职责与交付物。"],
-            "quote": "与研发团队\n完成上线",
-        },
-        {
-            "question": "有无量化结果？",
-            "reason": "",
-            "follow_up": "请提供数据来源。",
-            "answer_points": [],
-            "quote": "",
-        },
-    ]
+    assert result["questions"] == []
+    assert result["analysis_issues"] == ["模型的一道题目结构不完整或引用无法核验，未采用为面试题。"]
 
 
 @pytest.mark.parametrize(
@@ -343,7 +329,7 @@ def test_selected_application_respects_empty_job_without_sending_candidate_name(
     else:
         assert sent_context["target_job"]["title"] == "产品经理"
         assert response.data["job_id"] == job.id
-        assert response.data["match_score"] == result["match_score"]
+        assert response.data["match_score"] is None
         assert response.data["conclusion"] == "待复核"
     assert response.data["application_id"] == application.id
     assert "仅用于权限测试的姓名" not in complete.call_args.kwargs["user_text"]
@@ -417,8 +403,8 @@ def complete_report():
     }
 
 
-@pytest.mark.parametrize("score", [True, "90", -1, 101, float("nan"), None])
-def test_invalid_or_unverifiable_scores_are_not_published(score):
+@pytest.mark.parametrize("score", [73, True, "90", -1, 101, float("nan"), None])
+def test_uncalibrated_model_scores_are_not_published(score):
     report = {**complete_report(), "match_score": score, "conclusion": "建议录用"}
     parsed = _parse_analysis(json.dumps(report), "负责产品上线", has_job=True)
     assert parsed["match_score"] is None
@@ -427,6 +413,89 @@ def test_invalid_or_unverifiable_scores_are_not_published(score):
     assert _parse_analysis(json.dumps(valid), "未提供项目证据", has_job=True)["match_score"] is None
     generic = _parse_analysis(json.dumps(valid), "负责产品上线")
     assert generic["match_score"] is None and generic["conclusion"] == "通用初判"
+
+
+def test_analysis_prompt_keeps_dates_partial_material_and_forecast_qualifiers():
+    for rule in (
+        "以 analysis_date 为本次分析日期",
+        "不能推出当前仍在读或已经毕业",
+        "不擅自增加连续、全职",
+        "自由接单",
+        "未来结束日期可能是预计计划",
+        "预计收益不得写成已经实现",
+        "部分能力有材料时列出已有部分与待补部分",
+        "summary、evidence、requirement_matches、gaps 必须一致",
+    ):
+        assert rule in SYSTEM_PROMPT
+
+
+def test_analysis_date_is_captured_but_does_not_break_next_day_idempotency():
+    client, _, job = hr_context()
+    payload = {"request_key": str(uuid.uuid4()), "resume": "负责产品上线", "job_id": job.id}
+    with patch(
+        "recruitment.ai_screening.chat_completion", return_value=json.dumps(complete_report())
+    ) as complete:
+        with patch("recruitment.ai_screening.timezone.localdate", return_value=date(2026, 10, 8)):
+            first = client.post("/api/v1/ai-screenings/", payload, format="json")
+        with patch("recruitment.ai_screening.timezone.localdate", return_value=date(2026, 10, 9)):
+            retry = client.post("/api/v1/ai-screenings/", payload, format="json")
+    assert first.status_code == retry.status_code == 200
+    assert first.data == retry.data
+    assert first.data["analysis_date"] == "2026-10-08"
+    complete.assert_called_once()
+    assert json.loads(complete.call_args.kwargs["user_text"])["analysis_date"] == "2026-10-08"
+
+
+def test_generic_conflicts_need_two_distinct_quotes_and_preserve_forecast_wording():
+    report = {
+        "summary": "项目预计节省时间，尚未给出实测结果。",
+        "gaps": [
+            {
+                "criterion": "时间矛盾",
+                "kind": "material_conflict",
+                "note": "两段记录需核实。",
+                "quotes": ["2025年实习", "2026年同一实习"],
+            },
+            {
+                "criterion": "未核验冲突",
+                "kind": "material_conflict",
+                "note": "没有两段依据。",
+                "quotes": ["2025年实习", "2025年\n实习"],
+            },
+        ],
+        "evidence": [
+            {
+                "criterion": "预计收益",
+                "quote": "预计每天节省30分钟",
+                "reason": "仅为计划目标，不是已实测成果。",
+            }
+        ],
+    }
+    result = _parse_analysis(json.dumps(report), "2025年实习；2026年同一实习；预计每天节省30分钟")
+    assert len(result["gaps"]) == 1
+    assert result["gaps"][0]["kind"] == "material_conflict"
+    assert result["evidence"][0]["quote"] == "预计每天节省30分钟"
+    assert "缺少两段可核验原文" in result["analysis_issues"][0]
+
+
+@pytest.mark.parametrize("kind", ["material_missing", "material_conflict"])
+def test_generic_material_gaps_do_not_silently_discard_forged_quotes(kind):
+    report = {
+        "summary": "需要人工核查材料。",
+        "gaps": [
+            {
+                "criterion": "经验时间",
+                "kind": kind,
+                "note": "不能静默发布的错误依据断言。",
+                "quotes": ["2025年实习", "2026年同一实习", "不存在的经历"],
+            },
+        ],
+    }
+    result = _parse_analysis(json.dumps(report), "2025年实习；2026年同一实习")
+    assert result["gaps"] == []
+    assert result["analysis_issues"] == [
+        "模型的一条待核实事项引用无法核验，未作为候选人材料缺口或冲突展示。"
+    ]
 
 
 def test_report_persists_snapshots_and_repeated_request_reuses_saved_result():
@@ -463,7 +532,7 @@ def test_report_persists_snapshots_and_repeated_request_reuses_saved_result():
     stored = AIScreening.objects.get()
     assert len(stored.input_digest) == 64
     assert "完整原文不重复保存" not in json.dumps(stored.result, ensure_ascii=False)
-    assert first.data["match_score"] == 73
+    assert first.data["match_score"] is None
     assert first.data["candidate_name"] == "测试候选人"
     assert first.data["job_title"] == "产品经理"
     assert first.data["conclusion"] == "待复核"
@@ -745,15 +814,18 @@ def test_empty_or_incomplete_questions_cannot_be_saved(questions):
     assert not QuestionTemplate.objects.exists() and not QuestionTemplateEvent.objects.exists()
 
 
-def test_saving_questions_rolls_back_earlier_questions_when_later_question_is_invalid():
-    client, _, _ = hr_context()
+def test_saving_legacy_questions_rolls_back_when_later_question_is_invalid():
+    client, membership, _ = hr_context()
     result = complete_report()
     result["questions"].append({"question": "缺少追问与答案要点", "reason": "待完善"})
-    with patch("recruitment.ai_screening.chat_completion", return_value=json.dumps(result)):
-        report = client.post(
-            "/api/v1/ai-screenings/", {"resume": "负责产品上线"}, format="json"
-        ).data
-    url = f"/api/v1/ai-screenings/{report['id']}/"
+    report = AIScreening.objects.create(
+        organization=membership.organization,
+        creator=membership,
+        request_key=uuid.uuid4(),
+        input_digest="1" * 64,
+        result=result,
+    )
+    url = f"/api/v1/ai-screenings/{report.id}/"
     response = client.post(f"{url}questions/", {"confirmed": True}, format="json")
     assert response.status_code == 400
     assert not QuestionTemplate.objects.exists() and not QuestionTemplateEvent.objects.exists()

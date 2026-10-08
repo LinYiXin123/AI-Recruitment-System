@@ -159,7 +159,8 @@ test('按本次应聘和简历分析，逐项依据、核实记录及失败重�
   const matches = panel.getByRole('region', { name: '岗位要求与材料对照' });
   await expect(matches).toContainText('简历原文：开发内部检索工具');
   await expect(matches).toContainText('材料支持 1 项');
-  await expect(matches).toContainText('信息不足 2 项');
+  await expect(matches).toContainText('信息不足 1 项');
+  await expect(matches).toContainText('岗位要求待确认 1 项');
   await expect(matches).toContainText('岗位要求待确认');
   await page.route('**/api/v1/ai-screenings/901/verifications/', (route) =>
     route.fulfill({
@@ -202,6 +203,38 @@ test('按本次应聘和简历分析，逐项依据、核实记录及失败重�
   await expect(panel.getByRole('alert')).toHaveCount(0);
   expect(keys[1]).toBe(keys[2]);
   expect(keys[0]).not.toBe(keys[1]);
+});
+
+test('候选人画像共享报告也显示版本、日期、模型异常和系统补题来源', async ({ page }) => {
+  const current: ProfileAnalysis = {
+    ...report,
+    quality_version: 2,
+    analysis_date: '2026-10-08',
+    analysis_issues: ['虚构模型引用未能通过原文校验，请重新分析。'],
+    requirement_matches: report.requirement_matches.map((item, index) =>
+      index === 1
+        ? { ...item, status: 'analysis_error', quote: '', reason: '引用无法定位，不评价人选能力。' }
+        : item,
+    ),
+    questions: report.questions.map((item) => ({ ...item, origin: 'verification_fallback' })),
+  };
+  await page.route('**/api/v1/ai-screenings/', (route) => route.fulfill({ json: current }));
+  const panel = await prepare(page, { ...application, profile_analysis: report });
+  await expect(panel.getByText('旧版报告，建议重新分析', { exact: true })).toBeVisible();
+  await expect(panel).toContainText('原始记录已保留');
+  await expect(panel.getByText(/日期判断基准/)).toHaveCount(0);
+  await panel.getByRole('button', { name: '重新分析当前材料', exact: true }).click();
+  await expect(panel.getByText('旧版报告，建议重新分析', { exact: true })).toHaveCount(0);
+  await expect(panel).toContainText('日期判断基准：2026-10-08');
+  const quality = panel.getByRole('status').filter({ hasText: '分析质量提示' });
+  await expect(quality).toContainText('以下问题来自模型输出，不代表候选人材料不足');
+  await expect(quality).toContainText('虚构模型引用未能通过原文校验，请重新分析。');
+  const matches = panel.getByRole('region', { name: '岗位要求与材料对照' });
+  await expect(matches).toContainText('分析需重试 1 项');
+  await expect(matches).toContainText('信息不足 0 项');
+  const verification = panel.getByRole('region', { name: '人工核实', exact: true });
+  await expect(verification.getByText('系统补齐的核实题', { exact: true })).toBeVisible();
+  await expect(verification).toContainText(current.questions[0].question);
 });
 
 test('历史报告标出标准和材料过期，缺少简历或标准时不能生成', async ({ page }) => {

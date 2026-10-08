@@ -1,4 +1,3 @@
-import Progress from '@douyinfe/semi-ui/lib/es/progress';
 import Select from '@douyinfe/semi-ui/lib/es/select';
 import { Bot, Copy, Crosshair, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
@@ -20,6 +19,7 @@ import { ApiError, api, type Job, type Page } from '@/lib/api';
 import type { Application } from '@/lib/intake';
 import { AiQuestionSelection } from './ai-question-selection';
 import {
+  ScreeningQualityNotice,
   type ScreeningSource,
   ScreeningSourceDetails,
   ScreeningVerification,
@@ -61,14 +61,23 @@ type ScreeningResult = {
   enterprise_snapshot?: EnterpriseSnapshot | null;
   saved_question_count?: number;
   questions_saved?: boolean;
-  match_score?: number | null;
+  quality_version?: number;
+  analysis_date?: string | null;
+  analysis_issues?: string[];
   conclusion?: string;
   follow_up_direction?: string;
   summary: string;
   evidence: { criterion: string; quote: string; reason: string }[];
-  gaps: { criterion: string; note: string }[];
+  gaps: {
+    criterion: string;
+    note: string;
+    kind?: 'material_missing' | 'material_conflict' | 'analysis_error';
+    requirement_id?: number | null;
+    quotes?: string[];
+  }[];
   questions: {
     requirement_id?: number | null;
+    origin?: 'generated' | 'verification_fallback';
     question: string;
     reason: string;
     follow_up: string;
@@ -87,7 +96,6 @@ type ScreeningHistory = {
   job_title: string;
   enterprise_name: string;
   conclusion: string;
-  match_score: number | null;
   created_at: string;
   question_count: number;
 };
@@ -708,6 +716,10 @@ export function AiScreeningPage() {
       .map((item, index) =>
         [
           `${index + 1}. 题目：${item.question}`,
+          item.requirement_id
+            ? `对应岗位要求：${analysis.requirement_matches?.find((match) => match.requirement_id === item.requirement_id)?.text || `#${item.requirement_id}`}`
+            : '',
+          item.origin === 'verification_fallback' ? '来源：系统补齐的核实题' : '',
           `考察点：${item.reason || '未提供'}`,
           item.quote ? `简历依据：${item.quote}` : '',
           `追问：${item.follow_up || '模型未提供，请补充'}`,
@@ -721,7 +733,9 @@ export function AiScreeningPage() {
       )
       .join('\n\n');
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(
+        `面试核实提纲：回答要点仅供人工核实，不自动判定合格。\n\n${text}`,
+      );
       setCopyNotice('已复制面试提纲，包含题目、追问和合格回答要点。');
     } catch {
       setCopyNotice('复制未成功，请选中下方提纲手动复制。');
@@ -1171,39 +1185,17 @@ export function AiScreeningPage() {
                     </AlertDescription>
                   </Alert>
                 )}
+                <ScreeningQualityNotice report={analysis} />
                 <div className="ai-report-overview">
-                  <div className="ai-report-score">
-                    <Progress
-                      type="circle"
-                      width={64}
-                      strokeWidth={7}
-                      percent={analysis.match_score ?? 0}
-                      stroke="var(--warning)"
-                      orbitStroke="var(--border)"
-                      motion={false}
-                      showInfo
-                      format={() => analysis.match_score ?? '—'}
-                      aria-label="匹配度分值"
-                      aria-valuetext={
-                        analysis.match_score == null
-                          ? '未评分'
-                          : `${analysis.match_score} 分，满分 100`
-                      }
-                    />
-                    <div>
-                      <p className="text-muted-foreground">匹配度分值</p>
-                      <p>{analysis.match_score == null ? '未评分' : '满分 100'}</p>
-                    </div>
-                  </div>
                   <div className="ai-report-meta">
-                    <Badge variant="secondary">{analysis.conclusion || '待复核'}</Badge>
+                    <Badge variant="secondary">AI 材料整理 · 待人工核实</Badge>
                     <p>目标职位：{analysis.job_title || '—'}</p>
                     <p>分析时间：{analysisTime(analysis.created_at)}</p>
                   </div>
                 </div>
                 <section>
                   <ScreeningSourceDetails source={analysis.source_context} />
-                  <h3>匹配理由</h3>
+                  <h3>材料整理</h3>
                   <p>{analysis.summary}</p>
                   {analysis.requirement_matches && analysis.requirement_matches.length > 0 && (
                     <RequirementMatches
@@ -1228,15 +1220,49 @@ export function AiScreeningPage() {
                   </details>
                 </section>
                 <section>
-                  <h3>风险点</h3>
+                  <h3>待核实事项</h3>
                   {analysis.gaps.length ? (
-                    <ol className="ai-report-risks">
-                      {analysis.gaps.map((item) => (
-                        <li key={`${item.criterion}-${item.note}`}>
-                          {item.criterion}：{item.note}
-                        </li>
-                      ))}
-                    </ol>
+                    <div className="flex flex-col gap-4">
+                      {(
+                        [
+                          ['material_missing', '材料待补充'],
+                          ['material_conflict', '材料存在矛盾'],
+                          ['analysis_error', '分析需重试'],
+                        ] as const
+                      ).map(([kind, title]) => {
+                        const gaps = analysis.gaps.filter(
+                          (item) => (item.kind || 'material_missing') === kind,
+                        );
+                        if (!gaps.length) return null;
+                        return (
+                          <section key={kind} aria-label={title} className="flex flex-col gap-2">
+                            <h4>{title}</h4>
+                            {kind === 'analysis_error' && (
+                              <p className="text-sm text-muted-foreground">
+                                请重新分析或对照原文人工核实，不作为人选负面判断。
+                              </p>
+                            )}
+                            <ol className="flex list-decimal flex-col gap-3 pl-5">
+                              {gaps.map((item) => (
+                                <li key={`${item.requirement_id}-${item.criterion}`}>
+                                  <p>
+                                    {item.criterion}：{item.note}
+                                  </p>
+                                  {item.quotes?.map((quote) => (
+                                    <blockquote
+                                      key={quote}
+                                      className="border-l-2 pl-3 text-sm whitespace-pre-wrap"
+                                    >
+                                      简历原文：{quote}
+                                    </blockquote>
+                                  ))}
+                                </li>
+                              ))}
+                            </ol>
+                          </section>
+                        );
+                      })}
+                    </div>
                   ) : (
                     <p className="text-muted-foreground">
                       模型未列出待核实信息，不代表不存在风险。
@@ -1245,11 +1271,35 @@ export function AiScreeningPage() {
                 </section>
                 <section aria-labelledby="ai-questions-title">
                   <h3 id="ai-questions-title">建议面试问题</h3>
+                  <p className="text-sm text-muted-foreground">
+                    合格回答要点仅供人工核实，不自动判定合格。优先核实重要的材料缺口与矛盾。
+                  </p>
                   {analysis.questions.length ? (
                     <ol className="ai-report-questions">
                       {analysis.questions.map((item, index) => (
                         <li key={`${item.question}-${item.reason}`}>
                           <article aria-label={`第 ${index + 1} 题`}>
+                            {(item.requirement_id || item.origin === 'verification_fallback') && (
+                              <div className="mb-2 flex flex-wrap gap-2">
+                                {item.requirement_id && (
+                                  <Badge variant="outline">
+                                    对应岗位要求 #{item.requirement_id}
+                                  </Badge>
+                                )}
+                                {item.origin === 'verification_fallback' && (
+                                  <Badge variant="secondary">系统补齐的核实题</Badge>
+                                )}
+                              </div>
+                            )}
+                            {item.requirement_id && (
+                              <p className="mb-2 text-sm text-muted-foreground">
+                                {
+                                  analysis.requirement_matches?.find(
+                                    (match) => match.requirement_id === item.requirement_id,
+                                  )?.text
+                                }
+                              </p>
+                            )}
                             {item.question}（考察点：{item.reason || '模型未提供'}）{' → 追问：'}
                             {item.follow_up || '模型未提供，请补充。'}
                             {' → 合格：'}
@@ -1375,20 +1425,13 @@ export function AiScreeningPage() {
                 <caption className="sr-only">历史分析记录列表</caption>
                 <thead>
                   <tr>
-                    {[
-                      '候选人',
-                      '目标职位',
-                      '企业',
-                      '结论',
-                      '匹配度',
-                      '分析时间',
-                      '问题数',
-                      '操作',
-                    ].map((label) => (
-                      <th key={label} scope="col">
-                        {label}
-                      </th>
-                    ))}
+                    {['候选人', '目标职位', '企业', '结论', '分析时间', '问题数', '操作'].map(
+                      (label) => (
+                        <th key={label} scope="col">
+                          {label}
+                        </th>
+                      ),
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -1403,7 +1446,6 @@ export function AiScreeningPage() {
                       <td>
                         <Badge variant="secondary">{row.conclusion}</Badge>
                       </td>
-                      <td>{row.match_score ?? '—'}</td>
                       <td className="whitespace-nowrap">{analysisTime(row.created_at)}</td>
                       <td>{row.question_count}</td>
                       <td>

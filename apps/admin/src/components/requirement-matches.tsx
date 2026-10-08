@@ -7,8 +7,9 @@ export type RequirementMatch = {
   kind: 'must' | 'preferred' | 'exclusion';
   text: string;
   needs_verification: boolean;
-  status: 'supported' | 'insufficient';
+  status: 'supported' | 'insufficient' | 'contradictory' | 'analysis_error';
   quote: string;
+  quotes?: string[];
   reason: string;
   question: string;
   question_index: number | null;
@@ -29,10 +30,11 @@ export function RequirementMatches({
         此报告没有逐项对照记录。使用已生效的岗位画像重新分析后，可查看每条要求的材料依据。
       </p>
     );
-  const supported = items.filter(
-    (item) => item.status === 'supported' && item.kind !== 'exclusion' && !item.needs_verification,
+  const confirmed = items.filter((item) => !item.needs_verification);
+  const supported = confirmed.filter(
+    (item) => item.status === 'supported' && item.kind !== 'exclusion',
   ).length;
-  const signals = items.filter(
+  const signals = confirmed.filter(
     (item) => item.status === 'supported' && item.kind === 'exclusion',
   ).length;
   return (
@@ -42,15 +44,32 @@ export function RequirementMatches({
         <div className="flex flex-wrap gap-2">
           <Badge variant="secondary">材料支持 {supported} 项</Badge>
           <Badge variant="outline">
-            信息不足 {items.filter((i) => i.status === 'insufficient').length} 项
+            信息不足 {confirmed.filter((i) => i.status === 'insufficient').length} 项
           </Badge>
+          {items.length > confirmed.length && (
+            <Badge variant="outline">岗位要求待确认 {items.length - confirmed.length} 项</Badge>
+          )}
+          {confirmed.some((i) => i.status === 'contradictory') && (
+            <Badge variant="outline">
+              材料矛盾待核实 {confirmed.filter((i) => i.status === 'contradictory').length} 项
+            </Badge>
+          )}
+          {confirmed.some((i) => i.status === 'analysis_error') && (
+            <Badge variant="outline">
+              分析需重试 {confirmed.filter((i) => i.status === 'analysis_error').length} 项
+            </Badge>
+          )}
           {signals > 0 && <Badge variant="outline">排除信号待核实 {signals} 项</Badge>}
         </div>
         <p className="text-sm text-muted-foreground">
           材料支持表示简历中有相关原文，不代表能力已核实。信息不足不等于不符合要求。
+          分析异常来自模型输出，不代表候选人存在负面情况。
         </p>
       </div>
       {items.map((item) => {
+        const quotes = [
+          ...new Set(item.quotes?.length ? item.quotes : item.quote ? [item.quote] : []),
+        ];
         const indices = questions.flatMap((question, index) =>
           question.requirement_id === item.requirement_id ? [index] : [],
         );
@@ -64,7 +83,11 @@ export function RequirementMatches({
               <Badge variant="outline">{kindLabel[item.kind]}</Badge>
               <Badge
                 variant={
-                  item.status === 'supported' && item.kind !== 'exclusion' ? 'secondary' : 'outline'
+                  item.status === 'supported' &&
+                  item.kind !== 'exclusion' &&
+                  !item.needs_verification
+                    ? 'secondary'
+                    : 'outline'
                 }
               >
                 {item.needs_verification
@@ -73,20 +96,29 @@ export function RequirementMatches({
                     ? item.kind === 'exclusion'
                       ? '发现相关信号 · 待核实'
                       : '材料有依据'
-                    : '信息不足'}
+                    : item.status === 'contradictory'
+                      ? '材料矛盾待核实'
+                      : item.status === 'analysis_error'
+                        ? '分析需重试'
+                        : '信息不足'}
               </Badge>
             </div>
             <p className="font-medium">{item.text}</p>
-            {item.quote && (
-              <blockquote className="border-l-2 pl-3 text-sm whitespace-pre-wrap">
-                简历原文：{item.quote}
+            {quotes.map((quote) => (
+              <blockquote key={quote} className="border-l-2 pl-3 text-sm whitespace-pre-wrap">
+                简历原文：{quote}
               </blockquote>
-            )}
+            ))}
             <p className="text-sm text-muted-foreground">{item.reason}</p>
             {item.question && <p className="text-sm">建议核实：{item.question}</p>}
             {indices.length > 0 && (
               <p className="text-sm text-muted-foreground">
                 对应下方核实问题 {indices.map((i) => i + 1).join('、')}
+              </p>
+            )}
+            {item.question && !indices.length && (
+              <p className="text-sm text-muted-foreground">
+                本条未纳入本次主问题，可按上述问题另行核实。
               </p>
             )}
             {records.map((verified) => (

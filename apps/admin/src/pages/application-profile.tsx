@@ -9,6 +9,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { ApiError, api, dateTime } from '@/lib/api';
 import type { Application } from '@/lib/intake';
 import {
+  ScreeningQualityNotice,
   type ScreeningSource,
   ScreeningSourceDetails,
   ScreeningVerification,
@@ -20,6 +21,9 @@ export type ProfileAnalysis = {
   code: string;
   created_at: string;
   summary: string;
+  quality_version?: number;
+  analysis_date?: string | null;
+  analysis_issues?: string[];
   requirement_matches: RequirementMatch[];
   source_context: ScreeningSource | null;
   source_status?: { profile_stale: boolean | null; material_stale: boolean | null };
@@ -28,6 +32,7 @@ export type ProfileAnalysis = {
     follow_up: string;
     answer_points: string[];
     requirement_id?: number | null;
+    origin?: 'generated' | 'verification_fallback';
   }[];
   verifications: Verification[];
 };
@@ -205,6 +210,7 @@ export function ApplicationProfile({
               </AlertDescription>
             </Alert>
           )}
+          <ScreeningQualityNotice report={report} />
           <p className="whitespace-pre-wrap">{report.summary}</p>
           <RequirementMatches
             items={report.requirement_matches}

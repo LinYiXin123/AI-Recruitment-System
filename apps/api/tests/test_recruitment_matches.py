@@ -134,7 +134,6 @@ def test_unconfirmed_preferences_stay_out_of_model_input_and_keep_full_snapshot(
     [
         "missing",
         "forged_quote",
-        "whitespace_quote",
         "unknown_id",
         "duplicate",
         "bool_id",
@@ -142,7 +141,7 @@ def test_unconfirmed_preferences_stay_out_of_model_input_and_keep_full_snapshot(
         "missing_reason",
     ],
 )
-def test_unverifiable_or_ambiguous_model_matches_are_insufficient(variant):
+def test_unverifiable_or_ambiguous_model_matches_are_analysis_errors_not_material_gaps(variant):
     requirements = [{"id": 1, "kind": "must", "text": "交付产品", "needs_verification": False}]
     row = model_match(1)
     raw = [row]
@@ -150,8 +149,6 @@ def test_unverifiable_or_ambiguous_model_matches_are_insufficient(variant):
         raw = []
     elif variant == "forged_quote":
         row["quote"] = "提升转化率 30%"
-    elif variant == "whitespace_quote":
-        row["quote"] = "负责产品\n上线"
     elif variant == "unknown_id":
         row["requirement_id"] = 999
     elif variant == "duplicate":
@@ -170,18 +167,12 @@ def test_unverifiable_or_ambiguous_model_matches_are_insufficient(variant):
     )
     assert len(result["requirement_matches"]) == 1
     item = result["requirement_matches"][0]
-    assert item["requirement_id"] == 1 and item["status"] == "insufficient"
-    assert item["reason"] == "模型未提供可核验的对应依据，请对照简历补充核实。"
-    assert item["question"] and item["question_index"] is None
-    if variant in (
-        "missing",
-        "forged_quote",
-        "whitespace_quote",
-        "unknown_id",
-        "duplicate",
-        "bool_id",
-    ):
-        assert item["quote"] == ""
+    assert item["requirement_id"] == 1 and item["status"] == "analysis_error"
+    assert "不代表候选人缺少相关经历" in item["reason"]
+    assert item["question"] and item["question_index"] == 0
+    assert item["quote"] == "" and item["quotes"] == []
+    assert result["gaps"][0]["kind"] == "analysis_error"
+    assert result["questions"][0]["origin"] == "verification_fallback"
     assert result["match_score"] is None
 
 
@@ -205,14 +196,146 @@ def test_every_requirement_is_returned_and_question_links_only_use_confirmed_sna
     }
     result = _parse_analysis(json.dumps(report), "负责产品上线", True, requirements)
     assert len(result["requirement_matches"]) == 7
-    assert [item.get("requirement_id") for item in result["questions"]] == [2, None, None, None]
+    assert [item.get("requirement_id") for item in result["questions"]] == [2, 1, 3, 4, 5]
     assert result["requirement_matches"][1]["question_index"] == 0
     assert all(
         item["question_index"] is None
         for item in result["requirement_matches"]
-        if item["requirement_id"] != 2
+        if item["requirement_id"] in (6, 7)
     )
     assert result["requirement_matches"][-1]["status"] == "insufficient"
+
+
+def test_resume_quote_whitespace_is_normalized_consistently_across_report_sections():
+    quote = "负责产品\n上线"
+    requirements = [{"id": 1, "kind": "must", "text": "交付产品", "needs_verification": False}]
+    report = complete_report()
+    report["evidence"][0]["quote"] = quote
+    report["questions"][0].update(quote=quote, requirement_id=1)
+    report["requirement_matches"] = [model_match(1, quote=quote)]
+    result = _parse_analysis(json.dumps(report), "负责产品上线", True, requirements)
+    assert result["requirement_matches"][0]["status"] == "supported"
+    assert result["requirement_matches"][0]["quotes"] == [quote]
+    assert result["requirement_matches"][0]["question"] == report["questions"][0]["question"]
+    assert (
+        result["requirement_matches"][0]["question"] != report["requirement_matches"][0]["question"]
+    )
+    assert result["evidence"][0]["quote"] == result["questions"][0]["quote"] == quote
+    assert result["analysis_issues"] == []
+
+
+@pytest.mark.parametrize(
+    "quotes,expected",
+    [
+        (["2025年实习", "2026年同一实习"], "contradictory"),
+        (["2025年实习"], "analysis_error"),
+        (["2025年实习", "2025年\n实习"], "analysis_error"),
+        (["2025年实习", "不存在的经历"], "analysis_error"),
+    ],
+)
+def test_material_conflicts_require_two_distinct_verifiable_quotes(quotes, expected):
+    requirements = [{"id": 1, "kind": "must", "text": "一年相关经验", "needs_verification": False}]
+    report = {
+        **complete_report(),
+        "requirement_matches": [
+            model_match(
+                1,
+                status="contradictory",
+                quote="",
+                quotes=quotes,
+                reason="同一段实习记录的年份不同，需核实具体年份，并非直接判断经历不实。",
+                question="同一段实习的实际起止年月是什么？",
+            )
+        ],
+    }
+    result = _parse_analysis(json.dumps(report), "2025年实习；2026年同一实习", True, requirements)
+    item = result["requirement_matches"][0]
+    assert item["status"] == expected
+    assert result["gaps"][0]["kind"] == (
+        "material_conflict" if expected == "contradictory" else "analysis_error"
+    )
+    assert len(item["quotes"]) == (2 if expected == "contradictory" else 0)
+
+
+def test_partial_material_is_kept_and_mandatory_gaps_get_complete_linked_questions_first():
+    requirements = [
+        {
+            "id": index,
+            "kind": "must" if index <= 3 else "preferred",
+            "text": f"岗位要求{index}",
+            "needs_verification": False,
+        }
+        for index in range(1, 8)
+    ]
+    requirements[1]["text"] = "数据集制作与LoRA训练"
+    rows = [model_match(index) for index in range(1, 8)]
+    rows[1].update(
+        status="insufficient",
+        quote="负责采集双摄像头数据并训练ACT策略",
+        reason="有数据采集和训练材料；未说明是否进行LoRA训练，需要核实，不等于没有数据集经验。",
+        question="在已有数据采集和ACT训练之外，是否实际进行过LoRA训练？",
+    )
+    rows[2].update(status="insufficient", quote="", reason="需要补充与该要求对应的材料。")
+    report = {
+        **complete_report(),
+        "gaps": [{"criterion": "伪造另一套风险", "note": "未提及数据集制作。"}],
+        "requirement_matches": rows,
+        "questions": [
+            {**complete_report()["questions"][0], "requirement_id": 1},
+            {**complete_report()["questions"][0], "requirement_id": 999},
+        ],
+    }
+    result = _parse_analysis(
+        json.dumps(report), "负责产品上线；负责采集双摄像头数据并训练ACT策略", True, requirements
+    )
+    assert [item["requirement_id"] for item in result["questions"]] == [2, 3, 1, 4, 5]
+    assert result["questions"][0]["origin"] == "verification_fallback"
+    assert result["questions"][2]["origin"] == "generated"
+    assert all(
+        item["question"] and item["reason"] and item["follow_up"] and item["answer_points"]
+        for item in result["questions"]
+    )
+    assert result["gaps"][0]["quotes"] == ["负责采集双摄像头数据并训练ACT策略"]
+    assert "未提及数据集制作" not in json.dumps(result, ensure_ascii=False)
+    assert len(result["requirement_matches"]) == 7
+    assert all(item["question"] for item in result["requirement_matches"])
+    assert result["requirement_matches"][5]["status"] == "supported"
+    assert result["requirement_matches"][5]["question_index"] is None
+
+
+def test_supported_exclusion_signal_is_prioritized_ahead_of_five_other_material_gaps():
+    requirements = [
+        {
+            "id": index,
+            "kind": "exclusion" if index == 7 else "must",
+            "text": f"岗位要求{index}",
+            "needs_verification": False,
+        }
+        for index in range(1, 8)
+    ]
+    rows = [
+        model_match(index, status="insufficient", quote="", reason="需补充具体材料。")
+        for index in range(1, 7)
+    ]
+    rows.append(
+        model_match(
+            7,
+            quote="职责与已披露的合作约束可能冲突",
+            reason="出现需人工核实的排除信号，不能据此淘汰。",
+            question="该合作约束与本岗位职责是否实际冲突？请说明适用范围。",
+        )
+    )
+    result = _parse_analysis(
+        json.dumps({**complete_report(), "requirement_matches": rows}),
+        "职责与已披露的合作约束可能冲突",
+        True,
+        requirements,
+    )
+    assert len(result["questions"]) == 5
+    assert result["questions"][0]["requirement_id"] == 7
+    assert result["requirement_matches"][-1]["question_index"] == 0
+    assert result["requirement_matches"][-1]["status"] == "supported"
+    assert result["conclusion"] == "待复核" and result["match_score"] is None
 
 
 def test_only_unconfirmed_conditions_cannot_produce_a_score_or_candidate_verification_link():
@@ -223,7 +346,7 @@ def test_only_unconfirmed_conditions_cannot_produce_a_score_or_candidate_verific
     report, prompt = analyze(client, application, parse, requirements)
     assert prompt["target_job"]["requirements"] == []
     assert report["match_score"] is None
-    assert report["questions"][0]["requirement_id"] is None
+    assert report["questions"] == []
     assert all(
         item["status"] == "insufficient" and item["question_index"] is None
         for item in report["requirement_matches"]
@@ -252,6 +375,9 @@ def test_old_reports_do_not_backfill_requirement_matches_or_source_status():
     report = client.get(f"/api/v1/applications/{application.id}/").data["profile_analysis"]
     assert report["id"] == stored.id
     assert report["requirement_matches"] == [] and report["source_context"] is None
+    assert report["quality_version"] == 1 and report["analysis_date"] is None
+    assert report["match_score"] == 73
+    assert report["analysis_issues"] == []
     assert report["source_status"] == {"profile_stale": None, "material_stale": None}
 
 

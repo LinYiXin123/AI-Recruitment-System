@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { RequirementMatch } from '../src/components/requirement-matches';
 import { login } from './helpers';
 
 const screeningCollection = /\/api\/v1\/ai-screenings\/(?:\?.*)?$/;
@@ -157,8 +158,8 @@ test('初面提纲包含题目、追问和回答要点，重新分析失败可�
   await expect(question).toContainText(result.questions[0].follow_up);
   await expect(question).toContainText('合格');
   await expect(question).toContainText(result.questions[0].answer_points[0]);
-  await expect(page.locator('.ai-result-content')).toContainText('待复核');
-  await expect(page.locator('.ai-report-score')).toContainText('—');
+  await expect(page.locator('.ai-result-content')).toContainText('AI 材料整理 · 待人工核实');
+  await expect(page.locator('.ai-report-score')).toHaveCount(0);
   await expect(page.locator('.ai-result-content')).not.toContainText('undefined');
   await expect(page.getByRole('button', { name: '挑选题目入库' })).toBeDisabled();
   await page.getByRole('button', { name: '复制提纲' }).click();
@@ -168,6 +169,7 @@ test('初面提纲包含题目、追问和回答要点，重新分析失败可�
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toContain('追问：测试样本如何选取，如何避免偏差？');
   expect(copied).toContain('给出基线与改进结果。');
+  expect(copied).toContain('回答要点仅供人工核实，不自动判定合格');
   await page.getByRole('button', { name: '重新分析', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('模型服务网络连接失败或超时');
   await expect(page.getByRole('alert')).toContainText('上次分析结果仍保留');
@@ -227,17 +229,19 @@ test('完整分析按参考结构呈现，题目经确认入库且失败可重�
   await page.getByRole('button', { name: '开始分析', exact: true }).click();
 
   const result = page.locator('.ai-result-content');
-  await expect(result).toContainText('72');
-  await expect(result).toContainText('待复核');
+  await expect(result.locator('.ai-report-score')).toHaveCount(0);
+  await expect(result.getByText('72', { exact: true })).toHaveCount(0);
+  await expect(result).toContainText('AI 材料整理 · 待人工核实');
   await expect(result).toContainText(savedAnalysis.job_title);
   await expect(result).toContainText('2026');
-  await expect(result.getByRole('heading', { name: '匹配理由', exact: true })).toBeVisible();
+  await expect(result.getByRole('heading', { name: '材料整理', exact: true })).toBeVisible();
   await expect(result).toContainText(savedAnalysis.summary);
   const evidence = result.locator('details').filter({ hasText: '简历依据 ·' });
   await expect(evidence.locator('blockquote')).toBeHidden();
   await evidence.locator('summary').click();
   await expect(evidence.locator('blockquote')).toHaveText(savedAnalysis.evidence[0].quote);
-  await expect(result.getByRole('heading', { name: '风险点', exact: true })).toBeVisible();
+  await expect(result.getByRole('heading', { name: '风险点', exact: true })).toHaveCount(0);
+  await expect(result).toContainText('旧版报告，建议重新分析');
   await expect(result).toContainText(savedAnalysis.gaps[0].note);
   const question = result.getByRole('article', { name: '第 1 题' });
   await expect(question).toContainText(savedAnalysis.questions[0].question);
@@ -284,6 +288,141 @@ test('完整分析按参考结构呈现，题目经确认入库且失败可重�
   await expect(bankLink).toHaveCSS('display', 'inline-block');
   await bankLink.click();
   await expect(page).toHaveURL(/#question-bank$/);
+});
+
+test('新版报告区分缺材料、材料矛盾和分析错误，核实题与岗位要求对应', async ({ page }) => {
+  const matches = [
+    {
+      requirement_id: 701,
+      kind: 'must',
+      text: '能够开发检索工具',
+      needs_verification: false,
+      status: 'supported',
+      quote: '独立开发内部检索工具',
+      quotes: ['独立开发内部检索工具'],
+      reason: '材料说明个人职责，实际质量仍须核实。',
+      question: '请说明本人实现和测试的具体部分。',
+      question_index: 0,
+    },
+    {
+      requirement_id: 702,
+      kind: 'preferred',
+      text: '说明实际节省时间的测量依据',
+      needs_verification: false,
+      status: 'insufficient',
+      quote: '预计每天节省 30 分钟',
+      quotes: ['预计每天节省 30 分钟'],
+      reason: '原文是预期效果，尚未提供实际测量结果。',
+      question: '预计节省时间是否已经实测？',
+      question_index: 1,
+    },
+    {
+      requirement_id: 703,
+      kind: 'must',
+      text: '核对相关项目的实际起止时间',
+      needs_verification: false,
+      status: 'contradictory',
+      quote: '实习经历：2025.09—2025.11',
+      quotes: ['实习经历：2025.09—2025.11', '同一项目：2026.09—2026.11'],
+      reason: '两段材料所列年份不同，需要确认实际时间，不据此判断经历虚假。',
+      question: '两个年份分别代表什么？',
+      question_index: 2,
+    },
+    {
+      requirement_id: 704,
+      kind: 'must',
+      text: '说明接口测试方法',
+      needs_verification: false,
+      status: 'analysis_error',
+      quote: '',
+      quotes: [],
+      reason: '模型提供的引用无法定位，不能据此判断候选人缺少能力。',
+      question: '',
+      question_index: null,
+    },
+  ] satisfies RequirementMatch[];
+  const report = {
+    ...savedAnalysis,
+    quality_version: 2,
+    analysis_date: '2026-10-08',
+    match_score: null,
+    requirement_matches: matches,
+    gaps: matches.slice(1).map((item, index) => ({
+      criterion: item.text,
+      requirement_id: item.requirement_id,
+      kind: ['material_missing', 'material_conflict', 'analysis_error'][index],
+      note: item.reason,
+      quotes: item.quotes,
+    })),
+    analysis_issues: ['模型引用无法定位，请重新分析。'],
+    question_count: 3,
+    questions: matches.slice(0, 3).map((item, index) => ({
+      ...savedAnalysis.questions[0],
+      question: item.question,
+      requirement_id: item.requirement_id,
+      quote: item.quote,
+      origin: index === 1 ? 'verification_fallback' : 'generated',
+    })),
+    verifications: [
+      {
+        id: 1101,
+        question_index: 1,
+        version: 1,
+        status: 'supported',
+        answer: '已经进行一周对照测试。',
+        evidence: '虚构人工核实：已查看脱敏耗时记录。',
+        next_step: '补充不同场景的样本。',
+        recorder_name: '虚构测试 HR',
+        created_at: '2026-10-08T02:00:00Z',
+        contact_name: '',
+        due_on: null,
+      },
+    ],
+  };
+  await page.route(screeningCollection, (route) =>
+    route.request().method() === 'POST' ? route.fulfill({ json: report }) : route.fallback(),
+  );
+  await login(page);
+  await page.getByRole('link', { name: 'AI 初面' }).click();
+  await page.getByRole('textbox', { name: '简历内容' }).fill('虚构材料，仅用于报告展示回归测试。');
+  await page.getByRole('button', { name: '开始分析', exact: true }).click();
+
+  const result = page.locator('.ai-result-content');
+  await expect(result).toContainText('2026-10-08');
+  await expect(result.locator('.ai-report-score')).toHaveCount(0);
+  await expect(result.getByRole('heading', { name: '材料整理', exact: true })).toBeVisible();
+  for (const title of ['材料待补充', '材料存在矛盾', '分析需重试']) {
+    await expect(result.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  }
+  await expect(result.getByRole('heading', { name: '风险点', exact: true })).toHaveCount(0);
+  const comparison = result.getByRole('region', { name: '岗位要求与材料对照' });
+  await expect(comparison).toContainText('材料支持 1 项');
+  await expect(comparison).toContainText('信息不足 1 项');
+  await expect(comparison).toContainText('材料矛盾待核实 1 项');
+  await expect(comparison).toContainText('分析需重试 1 项');
+  const conflict = comparison.getByRole('article').filter({ hasText: matches[2].text });
+  await expect(conflict.locator('blockquote')).toHaveCount(2);
+  for (const quote of matches[2].quotes) await expect(conflict).toContainText(quote);
+  const error = comparison.getByRole('article').filter({ hasText: matches[3].text });
+  await expect(error).toContainText('分析需重试');
+  await expect(error).not.toContainText('信息不足');
+  await expect(error).toContainText('不能据此判断候选人缺少能力');
+
+  const secondQuestion = result.getByRole('article', { name: '第 2 题' });
+  await expect(secondQuestion).toContainText(matches[1].text);
+  await expect(secondQuestion).toContainText('对应岗位要求 #702');
+  await expect(secondQuestion).toContainText('系统补齐的核实题');
+  await expect(secondQuestion).toContainText('追问');
+  await expect(secondQuestion).toContainText('合格');
+  await expect(result.getByRole('region', { name: '建议面试问题' })).toContainText(
+    '合格回答要点仅供人工核实，不自动判定合格',
+  );
+  await expect(secondQuestion).toContainText(report.questions[1].answer_points[0]);
+  const supplemented = comparison.getByRole('article').filter({ hasText: matches[1].text });
+  await expect(supplemented).toContainText('对应下方核实问题 2');
+  await expect(supplemented).toContainText(report.verifications[0].evidence);
+  await expect(conflict).not.toContainText(report.verifications[0].evidence);
+  await expect(supplemented).toContainText(matches[1].reason);
 });
 
 test('历史支持服务端分页、刷新后查看与确认删除，失败保留记录', async ({ page }) => {
@@ -340,7 +479,6 @@ test('历史支持服务端分页、刷新后查看与确认删除，失败保�
     '目标职位',
     '企业',
     '结论',
-    '匹配度',
     '分析时间',
     '问题数',
     '操作',
@@ -367,8 +505,8 @@ test('历史支持服务端分页、刷新后查看与确认删除，失败保�
   await expect(historyNotice).toContainText('仅查看历史；左侧输入未替换');
   await expect(page.getByRole('button', { name: '分析当前简历', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: '重新分析', exact: true })).toHaveCount(0);
-  await expect(result).toContainText('通用初判');
-  await expect(result.locator('.ai-report-score')).toContainText('—');
+  await expect(result).toContainText('AI 材料整理 · 待人工核实');
+  await expect(result.locator('.ai-report-score')).toHaveCount(0);
   await expect(result).not.toContainText('undefined');
   await expect(resume).toHaveText('当前正在编辑的虚构简历，不应被历史记录替换。');
   await expect(result.getByRole('article', { name: '第 1 题' })).toContainText(
