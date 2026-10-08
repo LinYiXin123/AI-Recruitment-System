@@ -109,6 +109,7 @@ class ParseInput(serializers.Serializer):
 
 class IdentityInput(serializers.Serializer):
     parse = serializers.IntegerField(min_value=1, required=False)
+    application = serializers.IntegerField(min_value=1, required=False)
     display_name = serializers.CharField(max_length=100)
     phone = serializers.CharField(max_length=32, required=False, allow_blank=True, default="")
     email = serializers.EmailField(required=False, allow_blank=True, default="")
@@ -130,6 +131,8 @@ class IdentityInput(serializers.Serializer):
         return value.casefold()
 
     def validate(self, data):
+        if data.get("application") and not data["candidate"]:
+            raise ValidationError({"candidate": "补充本次应聘材料时，请选定已有的人才主档。"})
         if (
             not data["candidate"]
             and not data["phone"]
@@ -572,7 +575,21 @@ class ImportViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 created_by=m,
                 **{key: data[key] for key in ["display_name", "phone", "email", "contact_note"]},
             )
-        a = enter_application(m, person, job, batch.source, item.request_key)
+        if "application" in data:
+            Candidate.objects.select_for_update().get(pk=person.pk)
+            Job.objects.select_for_update().get(pk=job.pk)
+            job = open_job(m, job.pk)
+            a = get_object_or_404(
+                Application.objects.select_for_update(),
+                pk=data["application"],
+                organization=m.organization,
+                job=job,
+                candidate=person,
+            )
+            if a.closed_at is not None:
+                raise Conflict("本次应聘已结束，不能继续补充材料。请返回查看当前应聘状态。")
+        else:
+            a = enter_application(m, person, job, batch.source, item.request_key)
         item.document.candidate = person
         item.document.save(update_fields=["candidate"])
         ApplicationResume.objects.get_or_create(

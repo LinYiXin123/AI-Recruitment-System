@@ -49,7 +49,7 @@ import { type InterviewActions, Interviews } from '@/pages/interviews';
 import { CreateJob, JobDetail } from '@/pages/job-detail';
 import { ProfileDraft } from '@/pages/profile-draft';
 import { QuestionBank } from '@/pages/question-bank';
-import { TalentProfiles } from '@/pages/talent-profiles';
+import { type ProfileContext, TalentProfiles } from '@/pages/talent-profiles';
 import { Jobs, type JobsActions, Today } from '@/pages/workspace';
 
 type Route =
@@ -145,6 +145,7 @@ export default function App() {
   const [jobId, setJobId] = useState<number | null>(null);
   const [jobTab, setJobTab] = useState('requirements');
   const [jobEditing, setJobEditing] = useState(false);
+  const [profileContext, setProfileContext] = useState<ProfileContext>({ tab: 'jobs', job: null });
   const [creating, setCreating] = useState<'job' | 'profile' | null>(null);
   const [revision, setRevision] = useState(0);
   const [leaving, setLeaving] = useState(false);
@@ -337,83 +338,82 @@ export default function App() {
           id="main-content"
           tabIndex={-1}
         >
-          {route !== 'employer-brand' && route !== 'question-bank' && (
-            <div className="page-heading">
-              <div>
-                <h1>{current.title}</h1>
-                <p>{current.description}</p>
-              </div>
-              <div className="page-actions">
-                {route === 'today' && (
-                  <>
-                    <Button variant="outline" onClick={() => setRevision((value) => value + 1)}>
-                      刷新
-                    </Button>
-                    <Button
-                      disabled={!dashboardData}
-                      title="导出本页全部招聘总览数据"
-                      onClick={() => dashboardData && exportDashboard(dashboardData)}
-                    >
-                      导出全部数据
-                    </Button>
-                  </>
-                )}
-                {route === 'jobs' && (
-                  <>
-                    <Button variant="outline" onClick={() => jobsRef.current?.exportModule()}>
-                      导出本模块
-                    </Button>
-                    {me.departments.length > 0 && (
-                      <Button onClick={() => setCreating('job')}>
-                        <Plus data-icon="inline-start" />
-                        新建职位
+          {route !== 'employer-brand' &&
+            route !== 'question-bank' &&
+            route !== 'talent-profiles' && (
+              <div className="page-heading">
+                <div>
+                  <h1>{current.title}</h1>
+                  <p>{current.description}</p>
+                </div>
+                <div className="page-actions">
+                  {route === 'today' && (
+                    <>
+                      <Button variant="outline" onClick={() => setRevision((value) => value + 1)}>
+                        刷新
                       </Button>
-                    )}
-                  </>
-                )}
-                {route === 'talent-profiles' && me.departments.length > 0 && (
-                  <Button onClick={() => setCreating('profile')}>
-                    <Sparkles data-icon="inline-start" />
-                    AI 起草画像
-                  </Button>
-                )}
-                {route === 'candidates' && (
-                  <>
-                    <Button
-                      variant="outline"
-                      onClick={() => candidateLibraryRef.current?.exportModule()}
-                    >
-                      导出本模块
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => candidateLibraryRef.current?.showMailboxSyncStatus()}
-                    >
-                      从邮箱同步
-                    </Button>
-                    <Button onClick={() => candidateLibraryRef.current?.openCreateCandidate()}>
-                      新增候选人
-                    </Button>
-                  </>
-                )}
-                {route === 'interviews' && (
-                  <>
-                    <Button variant="outline" onClick={() => interviewRef.current?.exportModule()}>
-                      导出本模块
-                    </Button>
-                    <Button
-                      title="前往候选人详情安排真实面试记录"
-                      onClick={() => {
-                        window.location.hash = 'candidates';
-                      }}
-                    >
-                      新增面试记录
-                    </Button>
-                  </>
-                )}
+                      <Button
+                        disabled={!dashboardData}
+                        title="导出本页全部招聘总览数据"
+                        onClick={() => dashboardData && exportDashboard(dashboardData)}
+                      >
+                        导出全部数据
+                      </Button>
+                    </>
+                  )}
+                  {route === 'jobs' && (
+                    <>
+                      <Button variant="outline" onClick={() => jobsRef.current?.exportModule()}>
+                        导出本模块
+                      </Button>
+                      {me.departments.length > 0 && (
+                        <Button onClick={() => setCreating('job')}>
+                          <Plus data-icon="inline-start" />
+                          新建职位
+                        </Button>
+                      )}
+                    </>
+                  )}
+                  {route === 'candidates' && (
+                    <>
+                      <Button
+                        variant="outline"
+                        onClick={() => candidateLibraryRef.current?.exportModule()}
+                      >
+                        导出本模块
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => candidateLibraryRef.current?.showMailboxSyncStatus()}
+                      >
+                        从邮箱同步
+                      </Button>
+                      <Button onClick={() => candidateLibraryRef.current?.openCreateCandidate()}>
+                        新增候选人
+                      </Button>
+                    </>
+                  )}
+                  {route === 'interviews' && (
+                    <>
+                      <Button
+                        variant="outline"
+                        onClick={() => interviewRef.current?.exportModule()}
+                      >
+                        导出本模块
+                      </Button>
+                      <Button
+                        title="前往候选人详情安排真实面试记录"
+                        onClick={() => {
+                          window.location.hash = 'candidates';
+                        }}
+                      >
+                        新增面试记录
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
           {error && <ErrorNotice message={error} retry={() => setError('')} />}
           {route === 'today' ? (
             <Today revision={revision} onLoaded={setDashboardData} />
@@ -443,6 +443,10 @@ export default function App() {
           ) : route === 'talent-profiles' ? (
             <TalentProfiles
               revision={revision}
+              context={profileContext}
+              setContext={setProfileContext}
+              create={() => setCreating('profile')}
+              changed={() => setRevision((value) => value + 1)}
               openJob={(id, edit) => openJob(id, 'requirements', edit)}
               openApplication={setApplicationId}
               canCreate={me.departments.length > 0}
@@ -611,6 +615,11 @@ export default function App() {
           id={jobId}
           initialTab={jobTab}
           initialEditing={jobEditing}
+          onViewCandidates={(job) => {
+            setJobId(null);
+            setProfileContext({ tab: 'candidates', job });
+            window.location.hash = 'talent-profiles';
+          }}
           close={() => setJobId(null)}
           changed={() => setRevision((value) => value + 1)}
         />

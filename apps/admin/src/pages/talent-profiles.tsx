@@ -27,41 +27,161 @@ import {
   type Requirement,
 } from '@/lib/api';
 import { type Application, stages } from '@/lib/intake';
+import { ImportDrawer, ProfileCandidatePicker } from '@/pages/intake';
+
+export type ProfileContext = {
+  tab: 'jobs' | 'candidates';
+  job: Pick<Job, 'id' | 'title'> | null;
+};
 
 export function TalentProfiles({
   openApplication,
+  context,
+  setContext,
+  create,
+  changed,
   ...props
 }: {
   revision: number;
   openJob: (id: number, edit?: boolean) => void;
   openApplication: (id: number) => void;
   canCreate: boolean;
+  context: ProfileContext;
+  setContext: (context: ProfileContext) => void;
+  create: () => void;
+  changed: () => void;
 }) {
+  const [choosing, setChoosing] = useState(false);
+  const [importJob, setImportJob] = useState<Job | null>(null);
+  const [jobDetails, setJobDetails] = useState<Job | null>(null);
+  const [jobError, setJobError] = useState('');
+  const [jobReload, setJobReload] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setJobDetails(null);
+    setJobError('');
+    if (context.job) {
+      api<Job>(`jobs/${context.job.id}/`, undefined, controller.signal)
+        .then(setJobDetails)
+        .catch((e) => {
+          if (e.name !== 'AbortError') setJobError(e.message);
+        });
+    }
+    return () => controller.abort();
+  }, [context.job, props.revision, jobReload]);
+  const canChoose = context.job
+    ? jobDetails?.permissions.edit && jobDetails.status === 'open' && jobDetails.active_profile
+    : props.canCreate;
   return (
-    <Tabs defaultValue="jobs" className="gap-4">
-      <TabsList aria-label="人才画像类型">
-        <TabsTrigger value="jobs">岗位画像</TabsTrigger>
-        <TabsTrigger value="candidates">候选人画像</TabsTrigger>
-      </TabsList>
-      <TabsContent value="jobs">
-        <JobProfiles {...props} />
-      </TabsContent>
-      <TabsContent value="candidates">
-        <CandidateProfiles revision={props.revision} openApplication={openApplication} />
-      </TabsContent>
-    </Tabs>
+    <>
+      <div className="page-heading">
+        <div>
+          <h1>人才画像</h1>
+          <p>
+            {context.tab === 'jobs'
+              ? '先确定招人要求，再选择简历，看看写到了什么、还需要问什么。'
+              : '选一个职位和候选人，用简历对照招人要求。AI 提供依据，由你核实。'}
+          </p>
+        </div>
+        <div className="page-actions">
+          {context.tab === 'jobs' ? (
+            props.canCreate && (
+              <Button onClick={create}>
+                <Sparkles data-icon="inline-start" />
+                AI 起草招人要求
+              </Button>
+            )
+          ) : canChoose ? (
+            <Button onClick={() => setChoosing(true)}>
+              <Users data-icon="inline-start" />
+              选择候选人
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      <Tabs
+        value={context.tab}
+        onValueChange={(tab) => setContext({ ...context, tab: tab as ProfileContext['tab'] })}
+        className="gap-4"
+      >
+        <TabsList aria-label="人才画像类型">
+          <TabsTrigger value="jobs">招人要求</TabsTrigger>
+          <TabsTrigger value="candidates">简历对照</TabsTrigger>
+        </TabsList>
+        <TabsContent value="jobs">
+          <JobProfiles {...props} chooseJob={(job) => setContext({ tab: 'candidates', job })} />
+        </TabsContent>
+        <TabsContent value="candidates">
+          {jobError && (
+            <ErrorNotice message={jobError} retry={() => setJobReload((value) => value + 1)} />
+          )}
+          <CandidateProfiles
+            key={context.job?.id ?? 'all'}
+            revision={props.revision}
+            openApplication={openApplication}
+            selectedJob={context.job}
+            selectJob={(job) => setContext({ tab: 'candidates', job })}
+            chooseCandidate={canChoose ? () => setChoosing(true) : undefined}
+          />
+          {jobDetails && !canChoose && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              {!jobDetails.permissions.edit
+                ? '你可以查看要求；选择人选需要这个职位的操作权限。'
+                : '此职位需要已启用招人要求并开始招聘，才能加入候选人。'}
+              <Button variant="link" onClick={() => props.openJob(jobDetails.id)}>
+                查看职位
+              </Button>
+            </p>
+          )}
+        </TabsContent>
+      </Tabs>
+      {choosing && (
+        <ProfileCandidatePicker
+          initialJob={context.job}
+          close={() => setChoosing(false)}
+          importResume={(job) => {
+            setChoosing(false);
+            setImportJob(job);
+          }}
+          openApplication={(id) => {
+            setChoosing(false);
+            changed();
+            openApplication(id);
+          }}
+        />
+      )}
+      {importJob && (
+        <ImportDrawer
+          id="new"
+          initialJob={importJob}
+          changed={changed}
+          close={() => setImportJob(null)}
+          openApplication={(id) => {
+            setImportJob(null);
+            changed();
+            openApplication(id);
+          }}
+        />
+      )}
+    </>
   );
 }
 
 function CandidateProfiles({
   revision,
   openApplication,
+  selectedJob,
+  selectJob,
+  chooseCandidate,
 }: {
   revision: number;
   openApplication: (id: number) => void;
+  selectedJob: ProfileContext['job'];
+  selectJob: (job: ProfileContext['job']) => void;
+  chooseCandidate?: () => void;
 }) {
   const [search, setSearch] = useState('');
-  const [job, setJob] = useState('');
+  const job = selectedJob ? String(selectedJob.id) : '';
   const [page, setPage] = useState(1);
   const [reload, setReload] = useState(0);
   const [data, setData] = useState<Page<Application> | null>(null);
@@ -71,7 +191,7 @@ function CandidateProfiles({
     const controller = new AbortController();
     setData(null);
     setError('');
-    const query = new URLSearchParams({ search, job_id: job, page: String(page) });
+    const query = new URLSearchParams({ search, job, page: String(page) });
     Promise.all([
       api<Page<Application>>(`applications/?${query}`, undefined, controller.signal),
       api<{ jobs: { job_id: number; job__title: string }[] }>(
@@ -115,11 +235,16 @@ function CandidateProfiles({
             aria-labelledby="profile-job-label"
             value={job}
             onChange={(e) => {
-              setJob(e.target.value);
-              setPage(1);
+              const next = jobs.find((item) => String(item.job_id) === e.target.value);
+              selectJob(next ? { id: next.job_id, title: next.job__title } : null);
             }}
           >
             <NativeSelectOption value="">全部职位</NativeSelectOption>
+            {selectedJob && !jobs.some((item) => item.job_id === selectedJob.id) && (
+              <NativeSelectOption value={String(selectedJob.id)}>
+                {selectedJob.title}
+              </NativeSelectOption>
+            )}
             {jobs.map((item) => (
               <NativeSelectOption key={item.job_id} value={String(item.job_id)}>
                 {item.job__title}
@@ -132,7 +257,7 @@ function CandidateProfiles({
           className="h-[42px] px-3.5"
           onClick={() => {
             setSearch('');
-            setJob('');
+            selectJob(null);
             setPage(1);
           }}
         >
@@ -150,19 +275,37 @@ function CandidateProfiles({
               <Users aria-hidden="true" />
             </EmptyMedia>
             <EmptyTitle>
-              {search || job ? '没有符合条件的应聘记录' : '还没有可分析的候选人'}
+              {search
+                ? '没有找到这个候选人'
+                : selectedJob
+                  ? `“${selectedJob.title}”还没有候选人`
+                  : '还没有可分析的候选人'}
             </EmptyTitle>
             <EmptyDescription>
-              {search || job
-                ? '调整筛选后再试。'
-                : '在候选人库关联职位并补充简历后，可在这里对照岗位要求。'}
+              {search
+                ? '换个名字搜索，或清除筛选查看已有记录。'
+                : '先选择本系统已有候选人，再补充本次应聘的简历。已有记录会直接打开。'}
             </EmptyDescription>
           </EmptyHeader>
+          {search ? (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSearch('');
+                setPage(1);
+              }}
+            >
+              清除搜索
+            </Button>
+          ) : (
+            chooseCandidate && <Button onClick={chooseCandidate}>选择候选人</Button>
+          )}
         </Empty>
       ) : (
         <>
           <p className="px-[26px] py-3 text-sm text-muted-foreground">
-            每次应聘按对应岗位分析；同一候选人应聘不同岗位时，分别保留依据与核实记录。
+            {selectedJob ? `当前职位：${selectedJob.title}。` : ''}
+            选择一位候选人，补齐简历后开始对照。同一个人应聘不同职位，分别查看。
           </p>
           <div className="table-container">
             <Table<Application>
@@ -196,7 +339,7 @@ function CandidateProfiles({
                   dataIndex: 'id',
                   render: (_value, item) => (
                     <Button variant="outline" onClick={() => openApplication(item.id)}>
-                      查看画像与材料
+                      查看简历并对照
                     </Button>
                   ),
                 },
@@ -214,10 +357,12 @@ function JobProfiles({
   revision,
   openJob,
   canCreate,
+  chooseJob,
 }: {
   revision: number;
   openJob: (id: number, edit?: boolean) => void;
   canCreate: boolean;
+  chooseJob: (job: Job) => void;
 }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -307,7 +452,7 @@ function JobProfiles({
               {search || status
                 ? '调整筛选后再试，已保存的画像不会改变。'
                 : canCreate
-                  ? '点击右上角「AI 起草画像」，粘贴招聘需求，核对后保存使用。'
+                  ? '点击右上角「AI 起草招人要求」，写下要招什么人，核对后保存使用。'
                   : '获得职位查看权限后，可在这里查看岗位标准。'}
             </EmptyDescription>
           </EmptyHeader>
@@ -335,22 +480,20 @@ function JobProfiles({
                   ),
                 },
                 {
-                  title: '正在使用',
+                  title: '招人要求',
                   dataIndex: 'active_profile_number',
                   render: (value) => (
                     <Badge variant={value ? 'secondary' : 'outline'}>
-                      {value ? `v${value} · 已生效` : '尚未使用'}
+                      {value ? '已确定，可以对照简历' : '尚未确定'}
                     </Badge>
                   ),
                 },
                 {
-                  title: '最新编辑',
+                  title: '未完成的修改',
                   dataIndex: 'latest_profile',
                   render: (_value, job) => {
                     const p = job.latest_profile;
-                    return p
-                      ? `v${p.number} · ${p.id === job.active_profile ? '使用中' : '待完善 / 使用'}`
-                      : '待起草';
+                    return p && p.id !== job.active_profile ? '有草稿，尚未使用' : '—';
                   },
                 },
                 { title: '经办 HR', dataIndex: 'owner_name' },
@@ -359,14 +502,19 @@ function JobProfiles({
                   dataIndex: 'id',
                   render: (_value, job) => (
                     <div className="flex flex-wrap gap-2">
-                      {job.permissions.edit && job.status !== 'closed' && (
-                        <Button onClick={() => openJob(job.id, true)}>
-                          <Sparkles data-icon="inline-start" />
-                          AI 起草画像
-                        </Button>
+                      {job.active_profile ? (
+                        <Button onClick={() => chooseJob(job)}>查看候选人</Button>
+                      ) : (
+                        job.permissions.edit &&
+                        job.status !== 'closed' && (
+                          <Button onClick={() => openJob(job.id, true)}>
+                            <Sparkles data-icon="inline-start" />
+                            {job.latest_profile ? '继续完善要求' : 'AI 起草招人要求'}
+                          </Button>
+                        )
                       )}
                       <Button variant="outline" onClick={() => openJob(job.id)}>
-                        查看画像
+                        查看要求
                       </Button>
                     </div>
                   ),

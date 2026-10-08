@@ -124,7 +124,7 @@ async function fillRequirements(page: Page) {
   await page.getByLabel('要求来源').fill('用人需求会议（虚构验收资料）');
   await page.getByLabel('具体要求 1').fill('能够独立完成用户访谈与需求分析');
   await page.getByRole('button', { name: '保存要求草稿' }).click();
-  await expect(page.getByText('要求草稿已保存，可继续修改后使用。')).toBeVisible();
+  await expect(page.getByText('要求草稿已保存，暂不用于分析，可以继续修改。')).toBeVisible();
 }
 async function closeDetail(page: Page) {
   await page.getByRole('button', { name: '关闭详情' }).click();
@@ -218,7 +218,7 @@ test('失败后保留表单、恢复保存与窄屏操作', async ({ page }) => 
   await expect(page.getByLabel('具体要求 1')).toHaveValue('了解招聘流程');
   await page.unroute('**/api/v1/jobs/*/profiles/');
   await page.getByRole('button', { name: '保存要求草稿' }).click();
-  await expect(page.getByText('要求草稿已保存，可继续修改后使用。')).toBeVisible();
+  await expect(page.getByText('要求草稿已保存，暂不用于分析，可以继续修改。')).toBeVisible();
   await page.screenshot({ path: '../../.local/验收-窄屏详情.png', fullPage: true });
   expect(
     await page.locator('.sheet-scroll').evaluate((el) => el.scrollWidth <= el.clientWidth + 1),
@@ -280,7 +280,7 @@ test('历史需补充版本由 HR 修改后直接使用，未保存编辑受保�
   await closeAttempt;
   await expect(page.getByLabel('具体要求 1')).toHaveValue('有跨团队设计协作经验，能举出具体项目');
   await page.getByRole('button', { name: '保存并使用', exact: true }).click();
-  await expect(page.getByText('岗位画像已保存并使用，无需另外审批。')).toBeVisible();
+  await expect(page.getByText('招人要求已保存并使用，可以继续查看候选人的简历。')).toBeVisible();
   await closeDetail(page);
   await manager.reload();
   await openJob(manager, '设计师（补充流程验收）');
@@ -321,9 +321,9 @@ test('澄清问题经负责人回答后仍需 HR 整理并明确使用', async (
   await page.getByLabel('对外职位描述', { exact: true }).fill('负责招聘流程协作');
   await page.getByLabel('要求来源').fill('虚构澄清验收记录');
   await page.getByLabel('具体要求 1').fill('能够独立完成招聘需求分析');
-  await page.getByLabel('此项仍需核实，不能直接作为淘汰依据').check();
+  await page.getByLabel('这条招人要求还没确定').check();
   await page.getByRole('button', { name: '保存要求草稿' }).click();
-  await expect(page.getByText('要求草稿已保存，可继续修改后使用。')).toBeVisible();
+  await expect(page.getByText('要求草稿已保存，暂不用于分析，可以继续修改。')).toBeVisible();
   await page.getByRole('tab', { name: '澄清问答', exact: true }).click();
   await page.getByLabel('需要澄清哪条要求（必填）').click();
   await page.getByRole('option', { name: /能够独立完成招聘需求分析/ }).click();
@@ -389,9 +389,9 @@ test('澄清问题经负责人回答后仍需 HR 整理并明确使用', async (
   if (!(await page.getByLabel('具体要求 1').isVisible()))
     await page.getByLabel('展开或收起要求 1', { exact: true }).click();
   await page.getByLabel('具体要求 1').fill('能够独立完成技术岗位的需求访谈和岗位分析');
-  await page.getByLabel('此项仍需核实，不能直接作为淘汰依据').uncheck();
+  await page.getByLabel('这条招人要求还没确定').uncheck();
   await page.getByRole('button', { name: '保存要求草稿' }).click();
-  await expect(page.getByText('要求草稿已保存，可继续修改后使用。')).toBeVisible();
+  await expect(page.getByText('要求草稿已保存，暂不用于分析，可以继续修改。')).toBeVisible();
   await page.getByRole('button', { name: '使用此版本', exact: true }).click();
   await expect(page.getByText('此版本已生效，无需另外审批。')).toBeVisible();
   await page.getByRole('tab', { name: '澄清问答', exact: true }).click();

@@ -367,12 +367,14 @@ export function JobDetail({
   initialEditing = false,
   close,
   changed,
+  onViewCandidates,
 }: {
   id: number;
   initialTab?: string;
   initialEditing?: boolean;
   close: () => void;
   changed: () => void;
+  onViewCandidates?: (job: Job) => void;
 }) {
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState('');
@@ -491,8 +493,8 @@ export function JobDetail({
                 setProfileDirty(false);
                 setNotice(
                   j.latest_profile?.status === 'confirmed'
-                    ? '岗位画像已保存并使用，无需另外审批。'
-                    : '要求草稿已保存，可继续修改后使用。',
+                    ? '招人要求已保存并使用，可以继续查看候选人的简历。'
+                    : '要求草稿已保存，暂不用于分析，可以继续修改。',
                 );
                 changed();
               }}
@@ -529,36 +531,51 @@ export function JobDetail({
                     </h2>
                     <p>经办 HR：{job.owner_name} · 编辑后由有权限的 HR 直接使用</p>
                   </div>
-                  {job.permissions.edit && job.status !== 'closed' && (
-                    <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {job.permissions.edit && job.status !== 'closed' && (
+                      <>
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => {
+                            setEditing(true);
+                            setError('');
+                            setNotice('');
+                          }}
+                        >
+                          {p ? '调整要求' : '填写招人要求'}
+                        </Button>
+                        <Button
+                          disabled={busy}
+                          onClick={() => {
+                            setEditing(true);
+                            setError('');
+                            setNotice('');
+                          }}
+                        >
+                          <Sparkles data-icon="inline-start" />
+                          AI 起草招人要求
+                        </Button>
+                      </>
+                    )}
+                    {onViewCandidates && job.active_profile && (
                       <Button
                         variant="outline"
                         disabled={busy}
                         onClick={() => {
-                          setEditing(true);
-                          setError('');
-                          setNotice('');
+                          const unsaved = profileDirty || clarificationDirty || reason.trim();
+                          if (!unsaved || window.confirm('还有尚未保存的内容，确定离开吗？'))
+                            onViewCandidates(job);
                         }}
                       >
-                        {p ? '调整要求' : '填写招人要求'}
+                        查看候选人
                       </Button>
-                      <Button
-                        disabled={busy}
-                        onClick={() => {
-                          setEditing(true);
-                          setError('');
-                          setNotice('');
-                        }}
-                      >
-                        <Sparkles data-icon="inline-start" />
-                        AI 起草画像
-                      </Button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
                 {job.active_profile && job.active_profile !== p?.id && (
                   <p className="source-note">
-                    当前正式依据仍为 v{job.active_profile_number}。新版本使用前，不会替换原有依据。
+                    目前仍用第 {job.active_profile_number} 版要求分析简历。新版本使用后才会替换。
                   </p>
                 )}
                 {p ? (
@@ -576,7 +593,9 @@ export function JobDetail({
                         <div className="action-panel">
                           <div>
                             <strong>核对完成后，直接使用此版本</strong>
-                            <p>由你定稿，无需另找负责人审批；已有版本和修改记录会保留。</p>
+                            <p>
+                              以后分析简历会使用这份要求，历史记录保留。由你直接使用，无需另找负责人审批。
+                            </p>
                           </div>
                           <Button
                             disabled={busy}
@@ -751,26 +770,33 @@ function ProfileContent({ profile: p }: { profile: Profile }) {
                 {items.map((r) => (
                   <li key={r.id}>
                     <p>
-                      {r.text} {r.needs_verification && <Badge variant="outline">待核实</Badge>}
+                      {r.text} {r.needs_verification && <Badge variant="outline">要求未确定</Badge>}
                     </p>
-                    {r.rationale && <small>岗位关系与依据：{r.rationale}</small>}
-                    {r.source_quote && (
-                      <blockquote className="preserve-text">原始依据：{r.source_quote}</blockquote>
-                    )}
-                    {r.source_kind && (
-                      <small>
-                        来源：
-                        {r.source_kind === 'jd'
-                          ? '职位描述'
-                          : r.source_kind === 'business_goal'
-                            ? '业务目标'
-                            : r.source_kind === 'clarification'
-                              ? '澄清答复'
-                              : r.source_kind === 'ai_suggestion'
-                                ? 'AI 建议'
-                                : '人工记录'}
-                        {r.source_edited && ' · HR 已修改'}
-                      </small>
+                    {(r.rationale || r.source_quote || r.source_kind) && (
+                      <details>
+                        <summary className="cursor-pointer">查看来源和原因</summary>
+                        {r.rationale && <small>为什么需要这项要求：{r.rationale}</small>}
+                        {r.source_quote && (
+                          <blockquote className="preserve-text">
+                            原始依据：{r.source_quote}
+                          </blockquote>
+                        )}
+                        {r.source_kind && (
+                          <small>
+                            来源：
+                            {r.source_kind === 'jd'
+                              ? '职位描述'
+                              : r.source_kind === 'business_goal'
+                                ? '入职目标'
+                                : r.source_kind === 'clarification'
+                                  ? '澄清答复'
+                                  : r.source_kind === 'ai_suggestion'
+                                    ? 'AI 建议'
+                                    : '人工记录'}
+                            {r.source_edited && ' · HR 已修改'}
+                          </small>
+                        )}
+                      </details>
                     )}
                   </li>
                 ))}
@@ -779,8 +805,9 @@ function ProfileContent({ profile: p }: { profile: Profile }) {
           )
         );
       })}
-      <div className="source-note">
-        {p.business_goal && <p>业务目标：{p.business_goal}</p>}
+      <details className="source-note">
+        <summary className="cursor-pointer">查看这版要求的来源与保存记录</summary>
+        {p.business_goal && <p>入职目标：{p.business_goal}</p>}
         来源：{p.source}
         <br />
         {p.created_by_name} · {dateTime(p.created_at)} 保存
@@ -790,7 +817,7 @@ function ProfileContent({ profile: p }: { profile: Profile }) {
             {p.confirmed_by_name} · {dateTime(p.confirmed_at)} 使用此版本
           </>
         )}
-      </div>
+      </details>
       <details>
         <summary>查看此版本的对外职位描述</summary>
         <p className="preserve-text">{p.jd_snapshot}</p>
@@ -871,8 +898,8 @@ function ProfileChanges({
           要求变更：新增 {added} · 删除 {remaining.length} · 修改 {modified}
         </p>
         {jd.trim() !== active.jd_snapshot.trim() && <p>职位描述有调整</p>}
-        {businessGoal.trim() !== (active.business_goal || '').trim() && <p>业务目标有调整</p>}
-        <p>保存草稿不替换生效版；保存并使用后，后续评估使用新版，历史记录保留。</p>
+        {businessGoal.trim() !== (active.business_goal || '').trim() && <p>入职目标有调整</p>}
+        <p>保存草稿时仍用旧要求；保存并使用后，新的分析使用这版要求，已有报告保留。</p>
       </AlertDescription>
     </Alert>
   );
@@ -967,12 +994,16 @@ function ProfileEditor({
                 setMaterialsOpen(true);
               }}
             >
-              <summary className="cursor-pointer">招聘原文与业务目标</summary>
+              <summary className="cursor-pointer">招聘说明与入职目标</summary>
               <FieldGroup className="mt-4">
                 <Field>
                   <FieldLabel htmlFor="profile-jd">对外职位描述</FieldLabel>
+                  <FieldDescription id="profile-jd-help">
+                    粘贴招聘说明，或写清要做什么工作、必须会什么。AI 会据此整理招人要求。
+                  </FieldDescription>
                   <Textarea
                     id="profile-jd"
+                    aria-describedby="profile-jd-help"
                     value={jd}
                     onChange={(e) => setJd(e.target.value)}
                     rows={5}
@@ -981,7 +1012,7 @@ function ProfileEditor({
                   />
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor="profile-goal">业务目标（可选）</FieldLabel>
+                  <FieldLabel htmlFor="profile-goal">希望入职后完成什么（可选）</FieldLabel>
                   <Textarea
                     id="profile-goal"
                     value={businessGoal}
@@ -1001,6 +1032,7 @@ function ProfileEditor({
                     maxLength={500}
                     required
                   />
+                  <FieldDescription>例如：用人部门的招聘说明、需求讨论记录。</FieldDescription>
                 </Field>
               </FieldGroup>
             </details>
@@ -1038,13 +1070,16 @@ function ProfileEditor({
         {error && <ErrorNotice message={error} />}
         {inputChanged && (
           <p role="status">
-            招聘原文或业务目标已修改，已采用的 AI
+            招聘说明或入职目标已修改，已采用的 AI
             草稿需要重新生成并采用后才能保存。你填写的内容已保留。
           </p>
         )}
         {unverified && (
-          <p role="status">必须满足的要求还有待核实项，请先明确，或保存草稿继续完善。</p>
+          <p role="status">还有“必须满足”的招人要求没确定，请先明确，或保存草稿继续完善。</p>
         )}
+        <p className="text-sm text-muted-foreground">
+          保存要求草稿：留着继续改，暂不替换当前要求。保存并使用：以后分析此职位的简历时使用这份要求。
+        </p>
         <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" disabled={busy} onClick={cancel}>
             取消编辑

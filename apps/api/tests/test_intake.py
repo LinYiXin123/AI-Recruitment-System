@@ -198,6 +198,140 @@ def test_dedup_multiple_jobs_reapply_and_idempotent_review(team):
     assert Candidate.objects.count() == 2
 
 
+def test_supplement_attaches_to_selected_application_and_replays_without_changes(team):
+    c = client_for(team[2])
+    job = recruiting(team)
+    url, item, _ = upload(c, job)
+    a = detail(c, confirm(c, url, item).data)
+    url, item, _ = upload(c, job)
+    payload = {
+        "candidate": a["candidate"],
+        "application": a["id"],
+        "identity_note": "已核对本次应聘和补充材料来源为同一人",
+    }
+    result = confirm(c, url, item, **payload)
+    assert result.status_code == 200, result.data
+    assert result.data["application"] == a["id"]
+    assert confirm(c, url, item, **payload).data == result.data
+    saved = Application.objects.get(pk=a["id"])
+    assert saved.version == a["version"] + 1
+    assert saved.resumes.count() == 2
+    assert Application.objects.count() == Candidate.objects.count() == 1
+    assert (
+        ApplicationEntry.objects.count()
+        == StageEvent.objects.count()
+        == Task.objects.filter(application=saved).count()
+        == 1
+    )
+    assert (
+        AuditEvent.objects.filter(application=saved, action="核对简历身份并关联本次应聘").count()
+        == 2
+    )
+    assert confirm(c, url, item, **{**payload, "application": a["id"] + 1}).status_code == 409
+    old_payload = {key: value for key, value in payload.items() if key != "application"}
+    assert confirm(c, url, item, **old_payload).status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("other_job", 404),
+        ("other_candidate", 404),
+        ("closed", 409),
+        ("no_candidate", 400),
+        ("no_note", 400),
+        ("revoked", 404),
+    ],
+)
+def test_supplement_rejects_invalid_target_without_creating_another_application(
+    team, target, expected
+):
+    c = client_for(team[2])
+    job = recruiting(team)
+    url, item, _ = upload(c, job)
+    a = detail(c, confirm(c, url, item).data)
+    upload_job = recruiting(team) if target == "other_job" else job
+    url, item, _ = upload(c, upload_job)
+    candidate = a["candidate"]
+    if target == "other_candidate":
+        other_url, other_item, _ = upload(c, job)
+        other = confirm(c, other_url, other_item, display_name="另一位虚构候选人")
+        candidate = detail(c, other.data)["candidate"]
+    elif target == "closed":
+        assert review(c, a, "reject").status_code == 200
+    elif target == "no_candidate":
+        candidate = None
+    elif target == "revoked":
+        DepartmentRole.objects.filter(membership=team[2], role="hr").delete()
+    before = (
+        Candidate.objects.count(),
+        Application.objects.count(),
+        ApplicationEntry.objects.count(),
+    )
+    version = Application.objects.get(pk=a["id"]).version
+    result = confirm(
+        c,
+        url,
+        item,
+        candidate=candidate,
+        application=a["id"],
+        identity_note="" if target == "no_note" else "人工核对补充材料来源",
+    )
+    assert result.status_code == expected, result.data
+    assert (
+        Candidate.objects.count(),
+        Application.objects.count(),
+        ApplicationEntry.objects.count(),
+    ) == before
+    assert Application.objects.get(pk=a["id"]).version == version
+    assert Application.objects.get(pk=a["id"]).resumes.count() == 1
+    assert ImportItem.objects.get(pk=item["id"]).application_id is None
+    assert ResumeDocument.objects.get(pk=item["document"]).candidate_id is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_supplement_and_closure_serialize_on_the_original_application(team):
+    c = client_for(team[2])
+    job = recruiting(team)
+    url, item, _ = upload(c, job)
+    a = detail(c, confirm(c, url, item).data)
+    url, item, _ = upload(c, job)
+    barrier = Barrier(2)
+
+    def run(supplement):
+        close_old_connections()
+        client = client_for(team[2])
+        barrier.wait()
+        try:
+            if supplement:
+                response = confirm(
+                    client,
+                    url,
+                    item,
+                    candidate=a["candidate"],
+                    application=a["id"],
+                    identity_note="核对后补充当前应聘材料",
+                )
+            else:
+                response = review(client, a, "reject")
+            return response.status_code
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(run, [True, False]))
+    assert sorted(results) == [200, 409]
+    assert (
+        Application.objects.count()
+        == Candidate.objects.count()
+        == ApplicationEntry.objects.count()
+        == 1
+    )
+    saved = Application.objects.get(pk=a["id"])
+    assert saved.resumes.count() == (2 if results[0] == 200 else 1)
+    assert saved.stage == ("pending_review" if results[0] == 200 else "closed")
+
+
 def test_application_filter_matches_candidate_education_level(team):
     c = client_for(team[2])
     job = recruiting(team)

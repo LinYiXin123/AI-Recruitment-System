@@ -124,8 +124,8 @@ async function prepare(page: Page, detail = application) {
   await page.route('**/api/v1/applications/101/', (route) => route.fulfill({ json: detail }));
   await login(page);
   await page.goto('/#talent-profiles');
-  await page.getByRole('tab', { name: '候选人画像', exact: true }).click();
-  await page.getByRole('button', { name: '查看画像与材料', exact: true }).click();
+  await page.getByRole('tab', { name: '简历对照', exact: true }).click();
+  await page.getByRole('button', { name: '查看简历并对照', exact: true }).click();
   return page.getByRole('region', { name: '候选人画像分析', exact: true });
 }
 
@@ -253,8 +253,8 @@ test('历史报告标出标准和材料过期，缺少简历或标准时不能�
     route.fulfill({ json: { ...application, profile: null, requirements: [] } }),
   );
   await page.reload();
-  await page.getByRole('tab', { name: '候选人画像', exact: true }).click();
-  await page.getByRole('button', { name: '查看画像与材料', exact: true }).click();
+  await page.getByRole('tab', { name: '简历对照', exact: true }).click();
+  await page.getByRole('button', { name: '查看简历并对照', exact: true }).click();
   await expect(panel).toContainText('此职位尚未启用岗位画像');
   await expect(panel.getByRole('button', { name: 'AI 分析候选人画像' })).toHaveCount(0);
 });
@@ -274,9 +274,10 @@ test('候选人画像筛选与空状态可恢复', async ({ page }) => {
     });
   });
   await page.getByLabel('搜索候选人或职位', { exact: true }).fill('不存在');
-  await expect(page.getByText('没有符合条件的应聘记录')).toBeVisible();
-  await page.getByRole('button', { name: '重置', exact: true }).click();
-  await expect(page.getByRole('button', { name: '查看画像与材料' })).toBeVisible();
+  await expect(page.getByText('没有找到这个候选人', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '清除搜索', exact: true }).click();
+  await expect(page.getByLabel('搜索候选人或职位', { exact: true })).toHaveValue('');
+  await expect(page.getByRole('button', { name: '查看简历并对照', exact: true })).toBeVisible();
 });
 
 test('切换简历不会误用旧报告，刷新应聘会更新过期提示', async ({ page }) => {

@@ -2,7 +2,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Field, FieldGroup, FieldLabel, FieldSet } from '@/components/ui/field';
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSet } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,10 +18,10 @@ export function ProfileRequirementSummary({ requirements }: { requirements: Requ
         加分 {requirements.filter((r) => r.kind === 'preferred').length}
       </Badge>
       <Badge variant="outline">
-        排除 {requirements.filter((r) => r.kind === 'exclusion').length}
+        排除信号 {requirements.filter((r) => r.kind === 'exclusion').length}
       </Badge>
       <Badge variant="outline">
-        待核实 {requirements.filter((r) => r.needs_verification).length}
+        要求未确定 {requirements.filter((r) => r.needs_verification).length}
       </Badge>
     </section>
   );
@@ -62,7 +62,7 @@ function RequirementCard({
       >
         <Badge variant={r.kind === 'must' ? 'secondary' : 'outline'}>{kindLabel[r.kind]}</Badge>{' '}
         <span className="break-words">{r.text || `要求 ${index}：填写具体要求`}</span>{' '}
-        {r.needs_verification && <Badge variant="outline">待核实</Badge>}
+        {r.needs_verification && <Badge variant="outline">要求未确定</Badge>}
       </summary>
       <FieldSet className="mt-4" disabled={busy}>
         <FieldGroup>
@@ -110,7 +110,7 @@ function RequirementCard({
           </Field>
           <Field>
             <FieldLabel htmlFor={`why-${r.key}`}>
-              岗位关系与依据{r.kind !== 'exclusion' ? '（可选）' : ''}
+              为什么需要这项要求{r.kind !== 'exclusion' ? '（可选）' : ''}
             </FieldLabel>
             <Input
               id={`why-${r.key}`}
@@ -125,11 +125,17 @@ function RequirementCard({
             <input
               id={`verify-${r.key}`}
               type="checkbox"
+              aria-describedby={r.needs_verification ? `verify-help-${r.key}` : undefined}
               checked={r.needs_verification}
               onChange={(e) => update({ needs_verification: e.target.checked })}
             />
-            <FieldLabel htmlFor={`verify-${r.key}`}>此项仍需核实，不能直接作为淘汰依据</FieldLabel>
+            <FieldLabel htmlFor={`verify-${r.key}`}>这条招人要求还没确定</FieldLabel>
           </Field>
+          {r.needs_verification && (
+            <FieldDescription id={`verify-help-${r.key}`}>
+              请先确认岗位是否需要这项要求。确定后取消勾选；这不是在判断某位候选人是否符合。
+            </FieldDescription>
+          )}
           {r.source_quote && <p className="source-note">原始依据：{r.source_quote}</p>}
         </FieldGroup>
       </FieldSet>

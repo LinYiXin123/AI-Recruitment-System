@@ -49,12 +49,14 @@ function Drawer({
   close,
   busy,
   dirty,
+  leaveMessage = '还有未保存的内容，确定离开吗？',
   children,
 }: {
   title: string;
   close: () => void;
   busy: boolean;
   dirty: boolean;
+  leaveMessage?: string;
   children: ReactNode;
 }) {
   useEffect(() => {
@@ -68,7 +70,7 @@ function Drawer({
     <Sheet
       open
       onOpenChange={(open) => {
-        if (!open && !busy && (!dirty || window.confirm('还有未保存的内容，确定离开吗？'))) close();
+        if (!open && !busy && (!dirty || window.confirm(leaveMessage))) close();
       }}
     >
       <SheetContent className="job-sheet">
@@ -162,6 +164,226 @@ function JobPicker({
         />
       )}
     </FieldGroup>
+  );
+}
+
+export function ProfileCandidatePicker({
+  initialJob,
+  close,
+  openApplication,
+  importResume,
+}: {
+  initialJob: Pick<Job, 'id' | 'title'> | null;
+  close: () => void;
+  openApplication: (id: number) => void;
+  importResume: (job: Job) => void;
+}) {
+  const [job, setJob] = useState(String(initialJob?.id ?? ''));
+  const [jobDetails, setJobDetails] = useState<Job | null>(null);
+  const [jobError, setJobError] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState<Page<Candidate> | null>(null);
+  const [selected, setSelected] = useState<Candidate | null>(null);
+  const [source, setSource] = useState('');
+  const [key, setKey] = useState(() => crypto.randomUUID());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setJobDetails(null);
+    setSelected(null);
+    setJobError('');
+    if (job)
+      api<Job>(`jobs/${job}/`, undefined, controller.signal)
+        .then(setJobDetails)
+        .catch((e) => {
+          if (e.name !== 'AbortError') setJobError(e.message);
+        });
+    return () => controller.abort();
+  }, [job, reload]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setData(null);
+    setSelected(null);
+    setError('');
+    api<Page<Candidate>>(
+      `candidates/?${new URLSearchParams({ search, page: String(page) })}`,
+      undefined,
+      controller.signal,
+    )
+      .then(setData)
+      .catch((e) => {
+        if (e.name !== 'AbortError') setError(e.message);
+      });
+    return () => controller.abort();
+  }, [search, page, reload]);
+  const canJoin =
+    jobDetails?.permissions.edit && jobDetails.status === 'open' && jobDetails.active_profile;
+  const existing = selected?.applications.find(
+    (a) => a.job_id === Number(job) && a.stage !== 'closed',
+  );
+  return (
+    <Drawer title="选择候选人" close={close} busy={busy} dirty={!!source.trim()}>
+      <p>先选职位，再选已有档案。同一职位已有进行中的应聘会直接打开。</p>
+      <p className="text-sm text-muted-foreground">
+        这里处理本系统的候选人。正在飞书推进的应聘，请继续在飞书处理。
+      </p>
+      {initialJob ? (
+        <p>
+          目标职位：<strong>{initialJob.title}</strong>
+        </p>
+      ) : (
+        <JobPicker
+          value={job}
+          onChange={(value) => {
+            setJob(value);
+            setKey(crypto.randomUUID());
+          }}
+          disabled={busy}
+        />
+      )}
+      {(jobError || error) && (
+        <ErrorNotice
+          message={jobError || error}
+          retry={busy ? undefined : () => setReload((value) => value + 1)}
+        />
+      )}
+      {jobDetails && !canJoin && (
+        <Alert>
+          <AlertDescription>
+            此职位需要操作权限、已启用的招人要求和招聘中状态，才能加入候选人。
+          </AlertDescription>
+        </Alert>
+      )}
+      <Field>
+        <FieldLabel htmlFor="profile-person-search">搜索已有候选人</FieldLabel>
+        <Input
+          id="profile-person-search"
+          placeholder="输入姓名、电话或邮箱"
+          value={search}
+          disabled={busy}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+        />
+      </Field>
+      {!data ? (
+        !error && <Loading />
+      ) : !data.count ? (
+        <Empty className="flex-none py-8">
+          <EmptyHeader>
+            <EmptyTitle>没有找到已有候选人</EmptyTitle>
+            <EmptyDescription>
+              可以换个关键词；确实是新候选人时，再导入简历并核对身份。
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <>
+          <ul className="flex flex-col gap-3">
+            {data.results.map((person) => (
+              <li
+                key={person.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+              >
+                <div>
+                  <strong>{person.display_name}</strong>
+                  <p className="text-sm text-muted-foreground">
+                    {person.phone || person.email || person.contact_note}
+                  </p>
+                </div>
+                <Button
+                  variant={selected?.id === person.id ? 'secondary' : 'outline'}
+                  disabled={busy}
+                  onClick={() => {
+                    setSelected(person);
+                    setKey(crypto.randomUUID());
+                    setError('');
+                  }}
+                >
+                  {' '}
+                  {selected?.id === person.id ? '已选择' : '选择此人'}{' '}
+                </Button>
+              </li>
+            ))}
+          </ul>
+          <fieldset disabled={busy}>
+            <Pager page={page} count={data.count} onChange={setPage} />
+          </fieldset>
+        </>
+      )}
+      {selected &&
+        (existing ? (
+          <>
+            <p>
+              此人已应聘“{jobDetails?.title ?? initialJob?.title}”，将打开第 {existing.attempt_no}{' '}
+              次应聘，不新增记录。
+            </p>
+            <Button disabled={busy || !jobDetails} onClick={() => openApplication(existing.id)}>
+              打开已有应聘
+            </Button>
+          </>
+        ) : (
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (busy || !canJoin || !selected) return;
+              setBusy(true);
+              setError('');
+              try {
+                const result = await api<{ application: number }>(
+                  `candidates/${selected.id}/apply/`,
+                  { request_key: key, job: Number(job), source },
+                );
+                openApplication(result.application);
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <p>
+              将为“{selected.display_name}
+              ”加入这个职位。其他职位的记录保持原样；接下来补充本次简历再分析。
+            </p>
+            <Field>
+              <FieldLabel htmlFor="profile-person-source">材料来源</FieldLabel>
+              <Input
+                id="profile-person-source"
+                value={source}
+                maxLength={200}
+                required
+                disabled={busy}
+                placeholder="例如：本人投递、经本人同意转交"
+                onChange={(e) => {
+                  setSource(e.target.value);
+                  setKey(crypto.randomUUID());
+                }}
+              />
+            </Field>
+            <Button type="submit" disabled={busy || !canJoin || !source.trim()}>
+              {busy ? '正在加入…' : '加入职位并继续'}
+            </Button>
+          </form>
+        ))}
+      {canJoin && jobDetails && (
+        <Button
+          variant="outline"
+          disabled={busy}
+          onClick={() => {
+            if (!source.trim() || window.confirm('切换后需重新填写材料来源，确定导入新简历吗？'))
+              importResume(jobDetails);
+          }}
+        >
+          导入新的简历
+        </Button>
+      )}
+    </Drawer>
   );
 }
 
@@ -1096,21 +1318,25 @@ function CreateCandidateDialog({
   );
 }
 
-function ImportDrawer({
+export function ImportDrawer({
   id,
   initialFiles = [],
   close,
   changed,
   openApplication,
+  initialJob,
+  application,
 }: {
   id: number | 'new';
   initialFiles?: File[];
   close: () => void;
   changed: () => void;
   openApplication: (id: number) => void;
+  initialJob?: Pick<Job, 'id' | 'title'>;
+  application?: Application;
 }) {
   const [batch, setBatch] = useState<Batch | null>(null);
-  const [job, setJob] = useState('');
+  const [job, setJob] = useState(String(application?.job ?? initialJob?.id ?? ''));
   const [source, setSource] = useState('');
   const [files, setFiles] = useState<{ file: File; key: string; error: string; done: boolean }[]>(
     () => initialFiles.map((file) => ({ file, key: crypto.randomUUID(), error: '', done: false })),
@@ -1121,6 +1347,9 @@ function ImportDrawer({
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
   const [active, setActive] = useState<ImportItem | null>(null);
+  const hasPendingFiles = !!batch && batch.completed < batch.total;
+  const pendingMessage =
+    '还有简历尚未核对并关联应聘。现在离开，下次需要重新导入这些文件，确定离开吗？';
   useEffect(() => {
     if (id === 'new') return;
     const c = new AbortController();
@@ -1175,10 +1404,17 @@ function ImportDrawer({
   }
   return (
     <Drawer
-      title={batch ? `简历导入 · ${batch.job_title}` : '导入简历'}
+      title={
+        application
+          ? `补充简历 · ${application.name}`
+          : batch
+            ? `简历导入 · ${batch.job_title}`
+            : '导入简历'
+      }
       close={close}
       busy={busy}
-      dirty={dirty}
+      dirty={dirty || hasPendingFiles}
+      leaveMessage={hasPendingFiles ? pendingMessage : undefined}
     >
       {error && (
         <ErrorNotice
@@ -1201,7 +1437,19 @@ function ImportDrawer({
           }}
         >
           <fieldset disabled={busy} className="flex flex-col gap-4">
-            <JobPicker value={job} onChange={setJob} disabled={busy} />
+            {application || initialJob ? (
+              <p>
+                目标职位：{application?.job_title ?? initialJob?.title}
+                {application && ` · ${application.name} · 第 ${application.attempt_no} 次应聘`}
+              </p>
+            ) : (
+              <JobPicker value={job} onChange={setJob} disabled={busy} />
+            )}
+            {application && (
+              <p className="text-sm text-muted-foreground">
+                上传后核对简历属于此人，再补入这次应聘。保留原材料，不新建候选人。
+              </p>
+            )}
             <Field>
               <FieldLabel htmlFor="import-source">材料来源</FieldLabel>
               <Input
@@ -1226,7 +1474,9 @@ function ImportDrawer({
               已接收 {batch.received} / {batch.total} 份，已核对 {batch.completed} 份
             </AlertTitle>
             <AlertDescription>
-              自动提取只读取文字，不判断能力。核对身份后才建立应聘。来源：{batch.source}
+              自动提取只读取文字，不判断能力。
+              {application ? '核对身份后补入这次应聘。' : '核对身份后才关联应聘。'}来源：
+              {batch.source}
             </AlertDescription>
           </Alert>
           {files.some((f) => !f.done) && (
@@ -1274,8 +1524,10 @@ function ImportDrawer({
                   className="mt-3"
                   disabled={busy || dirty || !item.parse}
                   onClick={() => {
-                    if (item.application) openApplication(item.application);
-                    else {
+                    if (item.application) {
+                      if (!hasPendingFiles || window.confirm(pendingMessage))
+                        openApplication(item.application);
+                    } else {
                       setActive(item);
                       setReload((r) => r + 1);
                     }
@@ -1291,6 +1543,7 @@ function ImportDrawer({
               key={`${active.id}-${reload}`}
               batch={batch}
               item={active}
+              application={application}
               busy={busy}
               setBusy={setBusy}
               setDirty={setDirty}
@@ -1351,6 +1604,7 @@ function IdentityEditor({
   setBusy,
   setDirty,
   saved,
+  application,
 }: {
   batch: Batch;
   item: ImportItem;
@@ -1358,12 +1612,13 @@ function IdentityEditor({
   setBusy: (b: boolean) => void;
   setDirty: (b: boolean) => void;
   saved: (item: ImportItem) => Promise<void>;
+  application?: Application;
 }) {
   const [item, setItem] = useState(initialItem);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [contact, setContact] = useState('');
+  const [name, setName] = useState(application?.name ?? '');
+  const [phone, setPhone] = useState(application?.phone ?? '');
+  const [email, setEmail] = useState(application?.email ?? '');
+  const [contact, setContact] = useState(application?.contact_note ?? '');
   const [note, setNote] = useState('');
   const [candidate, setCandidate] = useState('');
   const [matches, setMatches] = useState<Candidate[] | null>(null);
@@ -1377,7 +1632,8 @@ function IdentityEditor({
     phone,
     email,
     contact_note: contact,
-    candidate: candidate ? Number(candidate) : null,
+    candidate: application?.candidate ?? (candidate ? Number(candidate) : null),
+    ...(application ? { application: application.id } : {}),
     identity_note: note,
   };
   async function parse(text?: string) {
@@ -1471,7 +1727,7 @@ function IdentityEditor({
             setBusy(true);
             setError('');
             try {
-              if (matches === null) {
+              if (matches === null && !application) {
                 const r = await api<{ results: Candidate[] }>(`${path}matches/`, payload);
                 setMatches(r.results);
               } else {
@@ -1487,12 +1743,21 @@ function IdentityEditor({
           }}
         >
           <fieldset disabled={busy} className="flex flex-col gap-4">
+            {application && (
+              <Alert>
+                <AlertTitle>为 {application.name} 补充简历</AlertTitle>
+                <AlertDescription>
+                  请对照上方原文确认是同一个人，并填写核对依据。资料不属于此人时请关闭，不要继续保存。
+                </AlertDescription>
+              </Alert>
+            )}
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="candidate-name">姓名（人工核对）</FieldLabel>
                 <Input
                   id="candidate-name"
                   value={name}
+                  readOnly={!!application}
                   onChange={(e) => {
                     setName(e.target.value);
                     setMatches(null);
@@ -1508,6 +1773,7 @@ function IdentityEditor({
                   id="candidate-phone"
                   type="tel"
                   value={phone}
+                  readOnly={!!application}
                   onChange={(e) => {
                     setPhone(e.target.value);
                     setMatches(null);
@@ -1522,6 +1788,7 @@ function IdentityEditor({
                   id="candidate-email"
                   type="email"
                   value={email}
+                  readOnly={!!application}
                   onChange={(e) => {
                     setEmail(e.target.value);
                     setMatches(null);
@@ -1535,6 +1802,7 @@ function IdentityEditor({
                 <Input
                   id="contact-note"
                   value={contact}
+                  readOnly={!!application}
                   onChange={(e) => setContact(e.target.value)}
                   required={!phone && !email && !candidate}
                   maxLength={500}
@@ -1591,9 +1859,28 @@ function IdentityEditor({
                   </Field>
                 </>
               )}
+              {application && (
+                <Field>
+                  <FieldLabel htmlFor="supplement-identity-note">核对依据</FieldLabel>
+                  <Textarea
+                    id="supplement-identity-note"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="例如：简历姓名和联系电话与档案一致"
+                    required
+                    maxLength={1000}
+                  />
+                </Field>
+              )}
             </FieldGroup>
             <Button type="submit" disabled={busy}>
-              {busy ? '正在保存…' : matches === null ? '查找疑似重复' : '确认身份并进入应聘'}
+              {busy
+                ? '正在保存…'
+                : application
+                  ? '确认属于此人，补入本次应聘'
+                  : matches === null
+                    ? '查找疑似重复'
+                    : '确认身份并进入应聘'}
             </Button>
           </fieldset>
         </form>
@@ -1625,6 +1912,7 @@ export function ApplicationDetail({
   const [due, setDue] = useState('');
   const [key, setKey] = useState(() => crypto.randomUUID());
   const [success, setSuccess] = useState('');
+  const [supplementing, setSupplementing] = useState(false);
   useEffect(() => {
     const c = new AbortController();
     setLoading(true);
@@ -1643,6 +1931,24 @@ export function ApplicationDetail({
       });
     return () => c.abort();
   }, [id, reload]);
+  if (supplementing && data)
+    return (
+      <ImportDrawer
+        id="new"
+        application={data}
+        changed={changed}
+        close={() => {
+          setSupplementing(false);
+          setLoading(true);
+          setReload((value) => value + 1);
+        }}
+        openApplication={() => {
+          setSupplementing(false);
+          setLoading(true);
+          setReload((value) => value + 1);
+        }}
+      />
+    );
   return (
     <Drawer
       title={data ? `${data.name} · 第 ${data.attempt_no} 次应聘` : '应聘详情'}
@@ -1681,6 +1987,26 @@ export function ApplicationDetail({
             </p>
             <p>{data.phone || data.email || data.contact_note}</p>
           </div>
+          {data.stage !== 'closed' && data.job_status === 'open' && (
+            <section
+              className="flex flex-col gap-3 rounded-lg border p-4"
+              aria-label="准备本次简历"
+            >
+              <p>
+                {data.resumes.some((r) => r.parse?.status === 'succeeded' && r.parse.text.trim())
+                  ? '简历已准备好，可在下方开始对照。需要更新材料时，先补充简历。'
+                  : '下一步：补充本次应聘的简历。上传并核对身份后，就能开始对照招人要求。'}
+              </p>
+              <Button
+                className="self-start"
+                variant={data.resumes.length ? 'outline' : 'default'}
+                disabled={loading || busy || dirty || analysisBusy || analysisEditing}
+                onClick={() => setSupplementing(true)}
+              >
+                补充简历
+              </Button>
+            </section>
+          )}
           <ApplicationProfile
             application={data}
             disabled={loading || busy || dirty}
