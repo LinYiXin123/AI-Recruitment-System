@@ -57,6 +57,18 @@ def _feishu_error(message, status=400):
     return JsonResponse({"errors": {"detail": message}}, status=status)
 
 
+def safe_avatar_url(value):
+    try:
+        if not isinstance(value, str) or len(value) > 2048:
+            raise ValidationError("无效的头像地址")
+        URLValidator(schemes=["https"])(value)
+        if parse.urlsplit(value).username is not None:
+            raise ValidationError("头像地址不应包含凭据")
+    except ValidationError:
+        return ""
+    return value
+
+
 def _request_feishu_json(url, *, data=None, headers=None):
     payload = json.dumps(data).encode() if data is not None else None
     request_headers = {"Accept": "application/json"}
@@ -183,16 +195,7 @@ def _finish_feishu_login(request):
         return _feishu_error("该飞书账号尚未获得招聘工作台权限，请联系管理员开通。", status=403)
     identity.union_id = str(user_data.get("union_id") or "")[:128]
     identity.display_name = str(user_data.get("name") or "")[:100]
-    avatar_url = user_data.get("avatar_url")
-    try:
-        if not isinstance(avatar_url, str) or len(avatar_url) > 2048:
-            raise ValidationError("无效的头像地址")
-        URLValidator(schemes=["https"])(avatar_url)
-        if parse.urlsplit(avatar_url).username is not None:
-            raise ValidationError("头像地址不应包含凭据")
-    except ValidationError:
-        avatar_url = ""
-    identity.avatar_url = avatar_url
+    identity.avatar_url = safe_avatar_url(user_data.get("avatar_url"))
     identity.email = str(user_data.get("email") or "")[:254]
     identity.last_authenticated_at = timezone.now()
     identity.save(

@@ -2,7 +2,7 @@ from datetime import datetime, time, timedelta
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.db.models.functions import TruncDate
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -47,6 +47,7 @@ from .serializers import (
     TaskSerializer,
     VersionSerializer,
     display_name,
+    member_profiles,
 )
 
 
@@ -241,7 +242,15 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 qs = qs.filter(department_id=department_id)
             if company := self.request.query_params.get("company", "").strip():
                 qs = qs.filter(company_name=company)
-        return qs.prefetch_related("profiles__requirements", "collaborators")
+        return qs.prefetch_related(
+            "profiles__requirements",
+            "collaborators",
+            Prefetch(
+                "owner__user__feishuidentity_set",
+                queryset=member_profiles(),
+                to_attr="recruitment_profiles",
+            ),
+        )
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "member": member(self.request)}

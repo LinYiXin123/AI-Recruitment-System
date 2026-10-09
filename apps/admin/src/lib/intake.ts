@@ -382,6 +382,7 @@ export type Application = {
   version: number;
   source: string;
   owner_name: string;
+  owner_avatar_url: string;
   closed_at: string | null;
   close_reason: string;
   phone: string;

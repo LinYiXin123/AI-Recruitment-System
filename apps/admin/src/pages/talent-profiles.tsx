@@ -3,6 +3,7 @@ import { BriefcaseBusiness, Search, Sparkles, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -33,6 +34,20 @@ export type ProfileContext = {
   tab: 'jobs' | 'candidates';
   job: Pick<Job, 'id' | 'title'> | null;
 };
+
+function HrIdentity({ name, avatarUrl }: { name: string; avatarUrl: string }) {
+  return (
+    <div className="flex items-center gap-2 whitespace-nowrap">
+      <Avatar size="sm">
+        {avatarUrl && (
+          <AvatarImage src={avatarUrl} alt={`${name}的头像`} referrerPolicy="no-referrer" />
+        )}
+        <AvatarFallback>{Array.from(name.trim())[0] || 'H'}</AvatarFallback>
+      </Avatar>
+      <span>{name}</span>
+    </div>
+  );
+}
 
 export function TalentProfiles({
   openApplication,
@@ -343,7 +358,13 @@ function CandidateProfiles({
                   dataIndex: 'stage',
                   render: (value) => <Badge variant="secondary">{stages[value] || value}</Badge>,
                 },
-                { title: '经办 HR', dataIndex: 'owner_name' },
+                {
+                  title: '经办 HR',
+                  dataIndex: 'owner_name',
+                  render: (_value, item) => (
+                    <HrIdentity name={item.owner_name} avatarUrl={item.owner_avatar_url} />
+                  ),
+                },
                 {
                   title: '下一步',
                   dataIndex: 'id',
@@ -506,7 +527,13 @@ function JobProfiles({
                     return p && p.id !== job.active_profile ? '有草稿，尚未使用' : '—';
                   },
                 },
-                { title: '经办 HR', dataIndex: 'owner_name' },
+                {
+                  title: '经办 HR',
+                  dataIndex: 'owner_name',
+                  render: (_value, job) => (
+                    <HrIdentity name={job.owner_name} avatarUrl={job.owner_avatar_url} />
+                  ),
+                },
                 {
                   title: '下一步',
                   dataIndex: 'id',

@@ -47,6 +47,7 @@ export type Job = {
   location: string;
   headcount: number;
   owner_name: string;
+  owner_avatar_url: string;
   approver_name: string;
   status: string;
   jd: string;

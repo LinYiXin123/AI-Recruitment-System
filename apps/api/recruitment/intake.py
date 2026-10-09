@@ -10,7 +10,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import IntegrityError, transaction
-from django.db.models import Max, Q
+from django.db.models import Max, Prefetch, Q
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -40,7 +40,7 @@ from .models import (
     StageEvent,
     Task,
 )
-from .serializers import display_name
+from .serializers import display_name, member_profile, member_profiles
 
 
 def hr_jobs(m):
@@ -1161,6 +1161,7 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
 
 
 def app_data(a, m, detail=False):
+    owner = member_profile(a.owner)
     result = {
         "id": a.id,
         "candidate": a.candidate_id,
@@ -1181,7 +1182,8 @@ def app_data(a, m, detail=False):
         "version": a.version,
         "profile": a.job.active_profile_id,
         "source": a.source,
-        "owner_name": display_name(a.owner),
+        "owner_name": owner["name"],
+        "owner_avatar_url": owner["avatar_url"],
         "closed_at": a.closed_at,
         "close_reason": a.close_reason,
         "ai_status": "not_connected",
@@ -1279,9 +1281,20 @@ class ReviewInput(serializers.Serializer):
 
 class ApplicationViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
     def scoped_queryset(self):
-        return Application.objects.filter(
-            organization=member(self.request).organization, job__in=hr_jobs(member(self.request))
-        ).select_related("candidate", "job__active_profile", "owner__user")
+        return (
+            Application.objects.filter(
+                organization=member(self.request).organization,
+                job__in=hr_jobs(member(self.request)),
+            )
+            .select_related("candidate", "job__active_profile", "owner__user")
+            .prefetch_related(
+                Prefetch(
+                    "owner__user__feishuidentity_set",
+                    queryset=member_profiles(),
+                    to_attr="recruitment_profiles",
+                )
+            )
+        )
 
     def get_queryset(self):
         qs = self.scoped_queryset()

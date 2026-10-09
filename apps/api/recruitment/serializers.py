@@ -1,6 +1,11 @@
+from django.conf import settings
+from django.db.models import F
 from rest_framework import serializers
 
+from identity.models import FeishuIdentity
+
 from .access import can_confirm, can_edit
+from .auth import safe_avatar_url
 from .models import AuditEvent, Job, ProfileClarification, ProfileRequirement, ProfileVersion, Task
 
 RECRUITMENT_SITES = ("BOSS直聘", "猎聘", "智联招聘", "前程无忧", "拉勾招聘", "其他")
@@ -13,6 +18,27 @@ def unique_recruitment_sites(value):
 
 def display_name(membership):
     return membership.user.get_full_name() or membership.user.username
+
+
+def member_profiles():
+    if not settings.FEISHU_APP_ID:
+        return FeishuIdentity.objects.none()
+    return (
+        FeishuIdentity.objects.filter(app_id=settings.FEISHU_APP_ID)
+        .only("user_id", "display_name", "avatar_url")
+        .order_by(F("last_authenticated_at").desc(nulls_last=True), "-updated_at", "-id")
+    )
+
+
+def member_profile(membership):
+    user = membership.user
+    if not hasattr(user, "recruitment_profiles"):
+        user.recruitment_profiles = list(member_profiles().filter(user_id=user.id)[:1])
+    identity = next(iter(user.recruitment_profiles), None)
+    return {
+        "name": (identity.display_name.strip() if identity else "") or display_name(membership),
+        "avatar_url": safe_avatar_url(identity.avatar_url) if identity else "",
+    }
 
 
 class RequirementSerializer(serializers.ModelSerializer):
@@ -86,6 +112,7 @@ class JobSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source="department.name")
     active_profile_number = serializers.IntegerField(source="active_profile.number", default=None)
     owner_name = serializers.SerializerMethodField()
+    owner_avatar_url = serializers.SerializerMethodField()
     approver_name = serializers.SerializerMethodField()
     latest_profile = serializers.SerializerMethodField()
     permissions = serializers.SerializerMethodField()
@@ -94,7 +121,10 @@ class JobSerializer(serializers.ModelSerializer):
         return bool(obj.enterprise_id and obj.enterprise.deleted_at)
 
     def get_owner_name(self, obj):
-        return display_name(obj.owner)
+        return member_profile(obj.owner)["name"]
+
+    def get_owner_avatar_url(self, obj):
+        return member_profile(obj.owner)["avatar_url"]
 
     def get_approver_name(self, obj):
         return display_name(obj.approver)
@@ -130,6 +160,7 @@ class JobSerializer(serializers.ModelSerializer):
             "location",
             "headcount",
             "owner_name",
+            "owner_avatar_url",
             "approver_name",
             "status",
             "jd",

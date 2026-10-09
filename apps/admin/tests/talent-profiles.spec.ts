@@ -194,6 +194,7 @@ test('AI 优先先生成再补职位信息，最终保存才建岗，失败保�
       location: input.location,
       headcount: input.headcount,
       owner_name: me.name,
+      owner_avatar_url: '',
       approver_name: me.departments[0].approvers[0].name,
       status: 'draft',
       jd: input.jd,
