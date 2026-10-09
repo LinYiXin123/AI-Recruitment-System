@@ -5,7 +5,7 @@ import { ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Empty,
@@ -28,6 +28,7 @@ import {
   type Requirement,
 } from '@/lib/api';
 import { type Application, stages } from '@/lib/intake';
+import { cn } from '@/lib/utils';
 import { ImportDrawer, ProfileCandidatePicker } from '@/pages/intake';
 
 export type ProfileContext = {
@@ -35,9 +36,17 @@ export type ProfileContext = {
   job: Pick<Job, 'id' | 'title'> | null;
 };
 
-function HrIdentity({ name, avatarUrl }: { name: string; avatarUrl: string }) {
-  return (
-    <div className="flex items-center gap-2 whitespace-nowrap">
+function HrIdentity({
+  name,
+  avatarUrl,
+  chatUrl,
+}: {
+  name: string;
+  avatarUrl: string;
+  chatUrl: string;
+}) {
+  const content = (
+    <>
       <Avatar size="sm">
         {avatarUrl && (
           <AvatarImage src={avatarUrl} alt={`${name}的头像`} referrerPolicy="no-referrer" />
@@ -45,6 +54,22 @@ function HrIdentity({ name, avatarUrl }: { name: string; avatarUrl: string }) {
         <AvatarFallback>{Array.from(name.trim())[0] || 'H'}</AvatarFallback>
       </Avatar>
       <span>{name}</span>
+    </>
+  );
+  return chatUrl ? (
+    <a
+      href={chatUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`在飞书中与${name}私聊`}
+      title="打开飞书私聊"
+      className={cn(buttonVariants({ variant: 'link' }), 'h-auto justify-start gap-2 p-0')}
+    >
+      {content}
+    </a>
+  ) : (
+    <div className="flex items-center gap-2 whitespace-nowrap" title="尚未绑定飞书，暂不能发起私聊">
+      {content}
     </div>
   );
 }
@@ -362,7 +387,11 @@ function CandidateProfiles({
                   title: '经办 HR',
                   dataIndex: 'owner_name',
                   render: (_value, item) => (
-                    <HrIdentity name={item.owner_name} avatarUrl={item.owner_avatar_url} />
+                    <HrIdentity
+                      name={item.owner_name}
+                      avatarUrl={item.owner_avatar_url}
+                      chatUrl={item.owner_chat_url}
+                    />
                   ),
                 },
                 {
@@ -531,7 +560,11 @@ function JobProfiles({
                   title: '经办 HR',
                   dataIndex: 'owner_name',
                   render: (_value, job) => (
-                    <HrIdentity name={job.owner_name} avatarUrl={job.owner_avatar_url} />
+                    <HrIdentity
+                      name={job.owner_name}
+                      avatarUrl={job.owner_avatar_url}
+                      chatUrl={job.owner_chat_url}
+                    />
                   ),
                 },
                 {

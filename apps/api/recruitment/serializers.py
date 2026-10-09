@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 from django.conf import settings
 from django.db.models import F
 from rest_framework import serializers
@@ -25,7 +27,7 @@ def member_profiles():
         return FeishuIdentity.objects.none()
     return (
         FeishuIdentity.objects.filter(app_id=settings.FEISHU_APP_ID)
-        .only("user_id", "display_name", "avatar_url")
+        .only("user_id", "display_name", "avatar_url", "open_id")
         .order_by(F("last_authenticated_at").desc(nulls_last=True), "-updated_at", "-id")
     )
 
@@ -35,9 +37,13 @@ def member_profile(membership):
     if not hasattr(user, "recruitment_profiles"):
         user.recruitment_profiles = list(member_profiles().filter(user_id=user.id)[:1])
     identity = next(iter(user.recruitment_profiles), None)
+    open_id = identity.open_id.strip() if identity else ""
     return {
         "name": (identity.display_name.strip() if identity else "") or display_name(membership),
         "avatar_url": safe_avatar_url(identity.avatar_url) if identity else "",
+        "chat_url": f"https://applink.feishu.cn/client/chat/open?{urlencode({'openId': open_id})}"
+        if open_id
+        else "",
     }
 
 
@@ -113,6 +119,7 @@ class JobSerializer(serializers.ModelSerializer):
     active_profile_number = serializers.IntegerField(source="active_profile.number", default=None)
     owner_name = serializers.SerializerMethodField()
     owner_avatar_url = serializers.SerializerMethodField()
+    owner_chat_url = serializers.SerializerMethodField()
     approver_name = serializers.SerializerMethodField()
     latest_profile = serializers.SerializerMethodField()
     permissions = serializers.SerializerMethodField()
@@ -125,6 +132,9 @@ class JobSerializer(serializers.ModelSerializer):
 
     def get_owner_avatar_url(self, obj):
         return member_profile(obj.owner)["avatar_url"]
+
+    def get_owner_chat_url(self, obj):
+        return member_profile(obj.owner)["chat_url"]
 
     def get_approver_name(self, obj):
         return display_name(obj.approver)
@@ -161,6 +171,7 @@ class JobSerializer(serializers.ModelSerializer):
             "headcount",
             "owner_name",
             "owner_avatar_url",
+            "owner_chat_url",
             "approver_name",
             "status",
             "jd",

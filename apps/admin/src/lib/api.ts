@@ -48,6 +48,7 @@ export type Job = {
   headcount: number;
   owner_name: string;
   owner_avatar_url: string;
+  owner_chat_url: string;
   approver_name: string;
   status: string;
   jd: string;

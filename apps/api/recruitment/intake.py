@@ -1184,6 +1184,7 @@ def app_data(a, m, detail=False):
         "source": a.source,
         "owner_name": owner["name"],
         "owner_avatar_url": owner["avatar_url"],
+        "owner_chat_url": owner["chat_url"],
         "closed_at": a.closed_at,
         "close_reason": a.close_reason,
         "ai_status": "not_connected",

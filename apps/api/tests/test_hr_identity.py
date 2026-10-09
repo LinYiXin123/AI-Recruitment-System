@@ -1,4 +1,6 @@
+import json
 from datetime import timedelta
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from django.db import connection
@@ -75,9 +77,20 @@ def test_lists_and_details_show_record_owner_not_viewer(team):
             row = response.data["results"][0] if "results" in response.data else response.data
             assert row["owner_name"] == owner_identity.display_name
             assert row["owner_avatar_url"] == owner_identity.avatar_url
+            link = urlsplit(row["owner_chat_url"])
+            assert (link.scheme, link.netloc, link.path) == (
+                "https",
+                "applink.feishu.cn",
+                "/client/chat/open",
+            )
+            assert parse_qs(link.query) == {"openId": [owner_identity.open_id]}
+            assert not link.fragment
+            # 私聊链接只携带必需的目标 openId，其他字段不能暴露飞书身份数据。
+            without_link = {key: value for key, value in row.items() if key != "owner_chat_url"}
+            assert "private-open-" not in json.dumps(without_link, default=str)
             assert b"private@example.test" not in response.content
-            assert b"private-open-" not in response.content
             assert b"private-union-id" not in response.content
+            assert not {"open_id", "union_id", "app_id"} & row.keys()
 
 
 @pytest.mark.parametrize("fallback", ["unbound", "other_app", "blank", "no_app"])
@@ -96,6 +109,7 @@ def test_missing_identity_falls_back_without_borrowing_viewer(team, settings, fa
         row = client.get(f"/api/v1/{resource}/").data["results"][0]
         assert row["owner_name"] == "本地经办人"
         assert row["owner_avatar_url"] == ""
+        assert bool(row["owner_chat_url"]) == (fallback == "blank")
 
 
 @pytest.mark.parametrize(
@@ -124,6 +138,21 @@ def test_multiple_bound_accounts_use_latest_authenticated_identity(team):
     for resource in ["jobs", "applications"]:
         row = client_for(team[4]).get(f"/api/v1/{resource}/").data["results"][0]
         assert row["owner_name"] == "最近登录经办人"
+        assert parse_qs(urlsplit(row["owner_chat_url"]).query) == {"openId": ["latest-private-id"]}
+
+
+@pytest.mark.parametrize("open_id", ["", "   ", "private+id&appId=other#fragment"])
+def test_chat_link_omits_empty_target_and_encodes_query(team, open_id):
+    records(team)
+    identity(team[2], open_id=open_id)
+    for resource in ["jobs", "applications"]:
+        row = client_for(team[4]).get(f"/api/v1/{resource}/").data["results"][0]
+        if not open_id.strip():
+            assert row["owner_chat_url"] == ""
+        else:
+            link = urlsplit(row["owner_chat_url"])
+            assert parse_qs(link.query) == {"openId": [open_id]}
+            assert not link.fragment
 
 
 @pytest.mark.parametrize("resource", ["jobs", "applications"])

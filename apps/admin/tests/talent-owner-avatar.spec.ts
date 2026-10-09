@@ -1,14 +1,25 @@
 import { expect, test } from '@playwright/test';
 
-test('两个画像表格显示各自经办 HR，头像失效或缺失时保留姓名并显示首字', async ({ page }) => {
+test('两个画像表格显示各自经办 HR，头像和姓名打开对应飞书私聊，未绑定时仅显示', async ({
+  page,
+  context,
+}) => {
   const currentUser = {
     name: '虚构当前登录者',
     avatar_url: 'https://avatars.example.test/current-user.svg',
   };
   const owners = [
-    { name: '林虚构经办', avatar: 'https://avatars.example.test/owner.svg' },
-    { name: '周虚构失效', avatar: 'https://avatars.example.test/broken.svg' },
-    { name: '陈虚构无图', avatar: '' },
+    {
+      name: '林虚构经办',
+      avatar: 'https://avatars.example.test/owner.svg',
+      chat: 'https://applink.feishu.cn/client/chat/open?openId=ou_fictional_lin',
+    },
+    {
+      name: '周虚构失效',
+      avatar: 'https://avatars.example.test/broken.svg',
+      chat: 'https://applink.feishu.cn/client/chat/open?openId=ou_fictional_zhou',
+    },
+    { name: '陈虚构无图', avatar: '', chat: '' },
   ];
   const jobs = owners.map((owner, index) => ({
     id: 99401 + index,
@@ -18,6 +29,7 @@ test('两个画像表格显示各自经办 HR，头像失效或缺失时保留�
     status: 'open',
     owner_name: owner.name,
     owner_avatar_url: owner.avatar,
+    owner_chat_url: owner.chat,
     active_profile: 99411 + index,
     active_profile_number: 1,
     latest_profile: { id: 99411 + index },
@@ -38,9 +50,18 @@ test('两个画像表格显示各自经办 HR，头像失效或缺失时保留�
     closed_at: null,
     owner_name: job.owner_name,
     owner_avatar_url: job.owner_avatar_url,
+    owner_chat_url: job.owner_chat_url,
   }));
   const unexpected: string[] = [];
   const avatarRequests = new Set<string>();
+  const chatRequests: string[] = [];
+  const expectedChats: string[] = [];
+  // 新标签页的首个请求由 context 拦截，避免访问飞书、唤起客户端或发送任何消息。
+  await context.route('https://applink.feishu.cn/**', (route) => {
+    chatRequests.push(route.request().url());
+    expect(route.request().method()).toBe('GET');
+    return route.fulfill({ contentType: 'text/html', body: '<title>虚构私聊入口验收</title>' });
+  });
   // 所有身份、业务接口和头像均为虚构响应，不访问真实候选人或外部图片。
   await page.route('https://avatars.example.test/**', (route) => {
     avatarRequests.add(route.request().url());
@@ -84,6 +105,7 @@ test('两个画像表格显示各自经办 HR，头像失效或缺失时保留�
   });
 
   await page.goto('/#talent-profiles');
+  const originalUrl = page.url();
   for (const tab of ['招人要求', '简历对照', '招人要求']) {
     await page.getByRole('tab', { name: tab, exact: true }).click();
     await expect(page.getByRole('columnheader', { name: '经办 HR', exact: true })).toBeVisible();
@@ -109,9 +131,44 @@ test('两个画像表格显示各自经办 HR，头像失效或缺失时保留�
         await expect(fallback).toHaveText(owner.name[0]);
         await expect(avatar).toBeHidden();
       }
+      if (owner.chat) {
+        const chat = ownerCell.getByRole('link', {
+          name: `在飞书中与${owner.name}私聊`,
+          exact: true,
+        });
+        await expect(chat).toHaveAttribute('href', owner.chat);
+        await expect(chat).toHaveAttribute('target', '_blank');
+        await expect(chat).toHaveAttribute('rel', 'noopener noreferrer');
+        for (const target of [
+          chat.locator('[data-slot="avatar"]'),
+          chat.getByText(owner.name, { exact: true }),
+        ]) {
+          expectedChats.push(owner.chat);
+          const popupPromise = page.waitForEvent('popup');
+          await target.click();
+          const popup = await popupPromise;
+          try {
+            await popup.waitForLoadState('domcontentloaded');
+            await expect(popup).toHaveURL(owner.chat);
+            await expect(page).toHaveURL(originalUrl);
+            await expect(page.getByRole('tab', { name: tab, exact: true })).toHaveAttribute(
+              'aria-selected',
+              'true',
+            );
+          } finally {
+            await popup.close();
+          }
+        }
+      } else {
+        await expect(ownerCell.getByRole('link')).toHaveCount(0);
+        await expect(
+          ownerCell.getByTitle('尚未绑定飞书，暂不能发起私聊', { exact: true }),
+        ).toBeVisible();
+      }
     }
   }
   expect(avatarRequests.has(owners[0].avatar)).toBe(true);
   expect(avatarRequests.has(owners[1].avatar)).toBe(true);
+  expect(chatRequests).toEqual(expectedChats);
   expect(unexpected).toEqual([]);
 });
