@@ -3,15 +3,16 @@ import uuid
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from threading import Barrier
+from threading import Barrier, BrokenBarrierError
 from unittest.mock import patch
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.utils import timezone
 from pypdf import PdfWriter
 
+from recruitment.intake import possible_matches
 from recruitment.models import (
     Application,
     ApplicationEntry,
@@ -19,6 +20,7 @@ from recruitment.models import (
     Candidate,
     DepartmentRole,
     ImportItem,
+    JobMember,
     ResumeDocument,
     ResumeParse,
     ReviewDecision,
@@ -196,6 +198,95 @@ def test_dedup_multiple_jobs_reapply_and_idempotent_review(team):
     url3, item3, _ = upload(c, job)
     assert confirm(c, url3, item3, identity_note="同名但不同的人，人工核对经历").status_code == 200
     assert Candidate.objects.count() == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("other_entry", ["import", "candidate"])
+@pytest.mark.parametrize("other_hr", [False, True])
+def test_concurrent_new_candidate_checks_share_a_lock_across_batches_and_entries(
+    team, other_entry, other_hr
+):
+    c = client_for(team[2])
+    job = recruiting(team)
+    second_actor = team[4] if other_hr else team[2]
+    if other_hr:
+        JobMember.objects.create(job_id=job["id"], membership=second_actor)
+    first = upload(c, job)
+    second = upload(client_for(second_actor), job) if other_entry == "import" else None
+    ready = Barrier(2)
+    lookup = Barrier(2)
+
+    def synchronized_matches(m, data):
+        matches = possible_matches(m, data)
+        # 在查重之后留出竞态窗口；有共同锁时只有首个请求会等待到超时。
+        if not list(matches):
+            try:
+                lookup.wait(timeout=1)
+            except BrokenBarrierError:
+                pass
+        return matches
+
+    def save(index):
+        close_old_connections()
+        try:
+            client = client_for(team[2] if index == 0 else second_actor)
+            with connection.cursor() as cursor:
+                cursor.execute("SET statement_timeout = '10s'")
+            ready.wait(timeout=10)
+            if index == 0 or other_entry == "import":
+                url, item, _ = first if index == 0 else second
+                response = confirm(client, url, item, phone="13800000000")
+            else:
+                response = client.post(
+                    "/api/v1/candidates/",
+                    {
+                        "request_key": str(uuid.uuid4()),
+                        "job": job["id"],
+                        "display_name": "虚构小林",
+                        "phone": "13800000000",
+                    },
+                    format="json",
+                )
+            return response.status_code
+        finally:
+            close_old_connections()
+
+    with patch("recruitment.intake.possible_matches", side_effect=synchronized_matches):
+        with ThreadPoolExecutor(2) as pool:
+            results = list(pool.map(save, range(2)))
+
+    assert results.count(409) == 1, results
+    assert sum(code in [200, 201] for code in results) == 1, results
+    assert Candidate.objects.count() == Application.objects.count() == 1
+    assert ApplicationEntry.objects.count() == StageEvent.objects.count() == 1
+    assert Task.objects.filter(kind="app_review").count() == 1
+
+
+def test_identity_matches_include_all_exact_matches_beyond_twenty(team):
+    c = client_for(team[2])
+    job = recruiting(team)
+    people = Candidate.objects.bulk_create(
+        [
+            Candidate(
+                organization=team[0],
+                created_by=team[2],
+                display_name="虚构同名人选",
+                phone="13800000000" if index == 20 else "",
+            )
+            for index in range(21)
+        ]
+    )
+    Candidate.objects.create(organization=team[0], created_by=team[2], display_name="虚构无关人选")
+    url, item, _ = upload(c, job)
+    response = c.post(
+        f"{url}items/{item['id']}/matches/",
+        {"display_name": "虚构同名人选", "phone": "13800000000"},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["count"] == 21
+    assert [person["id"] for person in response.data["results"]] == [p.id for p in people]
+    assert response.data["results"][-1]["phone"] == "13800000000"
 
 
 def test_supplement_attaches_to_selected_application_and_replays_without_changes(team):

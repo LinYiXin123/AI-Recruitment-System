@@ -167,7 +167,7 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
     },
     { name: 'fictional-scan.pdf', mimeType: 'application/pdf', buffer: pdf() },
   ];
-  await page.getByLabel('材料来源', { exact: true }).fill('本人提供的虚构验收材料');
+  await expect(page.getByLabel('材料来源', { exact: true })).toHaveCount(0);
   await page.getByLabel('简历文件', { exact: true }).setInputFiles(files);
   await page.getByRole('button', { name: '开始导入', exact: true }).click();
   await expect(page.getByText('已接收 2 / 2 份，已核对 0 份')).toBeVisible({ timeout: 30000 });

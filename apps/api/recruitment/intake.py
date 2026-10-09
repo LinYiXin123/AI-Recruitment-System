@@ -33,6 +33,7 @@ from .models import (
     ImportItem,
     Job,
     Membership,
+    Organization,
     ResumeDocument,
     ResumeParse,
     ReviewDecision,
@@ -299,6 +300,11 @@ def possible_matches(m, data):
     if data["email"]:
         query |= Q(email__iexact=data["email"])
     return candidates(m).filter(query).order_by("id")
+
+
+def lock_candidate_creation(m):
+    # ponytail: 同组织的新建短事务串行；出现锁争用后再细分身份锁，不阻塞组织外键引用。
+    Organization.objects.select_for_update(no_key=True).get(pk=m.organization_id)
 
 
 def standalone_download_allowed(c, m):
@@ -674,17 +680,20 @@ class ImportViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         return Response(
             {
                 "count": matches.count(),
-                "results": [candidate_data(c, member(request)) for c in matches[:20]],
+                # ponytail: 精确身份匹配须完整可选；匹配集合变大后再加入分页。
+                "results": [candidate_data(c, member(request)) for c in matches],
             }
         )
 
     @action(detail=True, methods=["post"], url_path=r"items/(?P<item_id>\d+)/confirm")
     @transaction.atomic
     def confirm(self, request, pk=None, item_id=None):
-        batch = self.locked()
-        item = get_object_or_404(batch.items, pk=item_id)
         m = member(request)
         data = validated(IdentityInput, request.data)
+        if not data["candidate"]:
+            lock_candidate_creation(m)
+        batch = self.locked()
+        item = get_object_or_404(batch.items, pk=item_id)
         if item.application_id:
             if item.identity_payload != data or item.confirmed_by_id != m.id:
                 raise Conflict("身份已经由其他内容确认，请刷新查看原结果。")
@@ -857,6 +866,7 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
         m = member(request)
         require_hr(m)
         data = validated(CandidateCreateInput, request.data)
+        lock_candidate_creation(m)
         Membership.objects.select_for_update().get(pk=m.pk)
         payload = {
             "fingerprint": hashlib.sha256(

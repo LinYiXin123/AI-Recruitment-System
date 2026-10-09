@@ -1591,11 +1591,10 @@ export function ImportDrawer({
 }) {
   const [batch, setBatch] = useState<Batch | null>(null);
   const [job, setJob] = useState(String(application?.job ?? initialJob?.id ?? ''));
-  const [source, setSource] = useState('');
   const [files, setFiles] = useState<{ file: File; key: string; error: string; done: boolean }[]>(
     () => initialFiles.map((file) => ({ file, key: crypto.randomUUID(), error: '', done: false })),
   );
-  const [key] = useState(() => crypto.randomUUID());
+  const [key, setKey] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState('');
@@ -1628,10 +1627,11 @@ export function ImportDrawer({
         (await api<Batch>('imports/', {
           request_key: key,
           job: Number(job),
-          source,
+          source: 'HR 上传',
           total: files.length,
         }));
       setBatch(b);
+      setDirty(false);
       for (const row of files) {
         if (row.done) continue;
         const data = new FormData();
@@ -1673,10 +1673,22 @@ export function ImportDrawer({
       {error && (
         <ErrorNotice
           message={error}
-          retry={() => {
-            setError('');
-            if (batch) void refresh(batch.id).catch((e) => setError(e.message));
-          }}
+          retry={
+            batch || id !== 'new'
+              ? async () => {
+                  if (busy) return;
+                  setBusy(true);
+                  try {
+                    await refresh(batch?.id ?? (id as number));
+                    setError('');
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }
+              : undefined
+          }
         />
       )}
       {!batch && id !== 'new' ? (
@@ -1697,25 +1709,27 @@ export function ImportDrawer({
                 {application && ` · ${application.name} · 第 ${application.attempt_no} 次应聘`}
               </p>
             ) : (
-              <JobPicker value={job} onChange={setJob} disabled={busy} />
+              <JobPicker
+                value={job}
+                onChange={(value) => {
+                  setJob(value);
+                  setKey(crypto.randomUUID());
+                }}
+                disabled={busy}
+              />
             )}
             {application && (
               <p className="text-sm text-muted-foreground">
                 上传后核对简历属于此人，再补入这次应聘。保留原材料，不新建候选人。
               </p>
             )}
-            <Field>
-              <FieldLabel htmlFor="import-source">材料来源</FieldLabel>
-              <Input
-                id="import-source"
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-                placeholder="例如：本人投递、经本人同意转交"
-                required
-                maxLength={200}
-              />
-            </Field>
-            <FileChoice disabled={busy} select={setFiles} />
+            <FileChoice
+              disabled={busy}
+              select={(selected) => {
+                setFiles(selected);
+                setKey(crypto.randomUUID());
+              }}
+            />
             <Button type="submit" disabled={busy || !files.length || !job}>
               {busy ? '正在接收与提取…' : '开始导入'}
             </Button>
@@ -1727,7 +1741,6 @@ export function ImportDrawer({
             <AlertTitle>
               已接收 {batch.received} / {batch.total} 份，已核对 {batch.completed} 份
             </AlertTitle>
-            <AlertDescription>来源：{batch.source}</AlertDescription>
           </Alert>
           {files.some((f) => !f.done) && (
             <div className="flex flex-col gap-3">
@@ -1798,9 +1811,23 @@ export function ImportDrawer({
               setBusy={setBusy}
               setDirty={setDirty}
               saved={async (item) => {
+                setBatch((current) => {
+                  if (!current) return current;
+                  const items = current.items.map((row) => (row.id === item.id ? item : row));
+                  return {
+                    ...current,
+                    items,
+                    completed: items.filter((row) => row.application).length,
+                  };
+                });
                 setActive(item.application ? null : item);
                 setReload((r) => r + 1);
-                await refresh(batch.id);
+                setDirty(false);
+                try {
+                  await refresh(batch.id);
+                } catch (e) {
+                  setError((e as Error).message);
+                }
               }}
             />
           )}
@@ -1932,9 +1959,17 @@ function IdentityEditor({
               const fresh = await api<Batch>(`imports/${batch.id}/`);
               const updated = fresh.items.find((i) => i.id === item.id);
               if (updated) {
-                setItem(updated);
-                setMatches(null);
-                setCandidate('');
+                if (updated.application) {
+                  await saved(updated);
+                  setDirty(false);
+                } else {
+                  setItem(updated);
+                  if (updated.parse?.id !== item.parse?.id) {
+                    setMatches(null);
+                    setCandidate('');
+                    setNote('');
+                  }
+                }
               }
               setError('');
             } catch (e) {
@@ -2033,6 +2068,7 @@ function IdentityEditor({
                     setName(e.target.value);
                     setMatches(null);
                     setCandidate('');
+                    setNote('');
                   }}
                   required
                   maxLength={100}
@@ -2055,6 +2091,7 @@ function IdentityEditor({
                     setPhone(e.target.value);
                     setMatches(null);
                     setCandidate('');
+                    setNote('');
                   }}
                   maxLength={32}
                 />
@@ -2076,6 +2113,7 @@ function IdentityEditor({
                     setEmail(e.target.value);
                     setMatches(null);
                     setCandidate('');
+                    setNote('');
                   }}
                   maxLength={254}
                 />
@@ -2116,7 +2154,11 @@ function IdentityEditor({
                       id="identity-choice"
                       disabled={busy}
                       value={candidate}
-                      onChange={(e) => setCandidate(e.target.value)}
+                      onChange={(e) => {
+                        setCandidate(e.target.value);
+                        setNote('');
+                        setDirty(true);
+                      }}
                     >
                       <NativeSelectOption value="">不是以上人选，新建候选人</NativeSelectOption>
                       {matches.map((c) => (

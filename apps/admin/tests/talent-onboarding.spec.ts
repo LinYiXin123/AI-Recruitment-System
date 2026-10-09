@@ -279,7 +279,7 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
     id: 93501,
     job: job.id,
     job_title: job.title,
-    source: '本人补充',
+    source: 'HR 上传',
     total: 2,
     received: uploaded,
     completed: confirmed ? 1 : 0,
@@ -298,7 +298,7 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
   await page.route('**/api/v1/imports/', (route) => {
     expect(route.request().postDataJSON()).toMatchObject({
       job: job.id,
-      source: '本人补充',
+      source: 'HR 上传',
       total: 2,
     });
     return route.fulfill({ status: 201, json: batch() });
@@ -336,7 +336,7 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
   await expect(drawer).toContainText(`目标职位：${job.title}`);
   await expect(drawer).toContainText(`${application.name} · 第 1 次应聘`);
   await expect(drawer.getByLabel('目标职位', { exact: true })).toHaveCount(0);
-  await drawer.getByLabel('材料来源', { exact: true }).fill('本人补充');
+  await expect(drawer.getByLabel('材料来源', { exact: true })).toHaveCount(0);
   // 此处只验收上传后的接线；真实 PDF 提取由 z-intake 用例覆盖。
   await drawer.getByLabel('简历文件', { exact: true }).setInputFiles(
     [item, pendingItem].map((file) => ({
@@ -470,7 +470,7 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
     id: 93601,
     job: job.id,
     job_title: job.title,
-    source: '本人投递',
+    source: 'HR 上传',
     total: 2,
     received: uploaded,
     completed: Number(confirmed) + Number(secondConfirmed),
@@ -487,7 +487,14 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   const confirmations: Record<string, unknown>[] = [];
   const secondMatches: Record<string, unknown>[] = [];
   const secondConfirmations: Record<string, unknown>[] = [];
-  await page.route('**/api/v1/imports/', (route) => route.fulfill({ status: 201, json: batch() }));
+  await page.route('**/api/v1/imports/', (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      job: job.id,
+      source: 'HR 上传',
+      total: 2,
+    });
+    return route.fulfill({ status: 201, json: batch() });
+  });
   await page.route('**/api/v1/imports/93601/upload/', (route) => {
     uploaded++;
     return route.fulfill({ status: 201, json: uploaded === 1 ? firstItem : secondItem });
@@ -508,7 +515,13 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
     secondMatches.push(route.request().postDataJSON());
     return route.fulfill({
       json: {
-        results: secondMatches.length === 1 ? [{ ...candidate, display_name: '测试乙' }] : [],
+        results:
+          secondMatches.length < 3
+            ? [
+                { ...candidate, display_name: '测试乙' },
+                { ...candidate, id: 93403, display_name: '测试丙' },
+              ]
+            : [],
       },
     });
   });
@@ -529,7 +542,7 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
     .getByRole('button', { name: '导入新的简历', exact: true })
     .click();
   const drawer = page.getByRole('dialog');
-  await drawer.getByLabel('材料来源', { exact: true }).fill('本人投递');
+  await expect(drawer.getByLabel('材料来源', { exact: true })).toHaveCount(0);
   await drawer.getByLabel('简历文件', { exact: true }).setInputFiles(
     [firstItem, secondItem].map((item) => ({
       name: item.name,
@@ -638,6 +651,13 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   ).toBeVisible();
   await expect(contactNote).toHaveCount(0);
   await identityNote.fill('此前疑似同名记录的判断依据');
+  await identityChoice.click();
+  await page.getByRole('option').filter({ hasText: '测试丙' }).click();
+  await expect(identityNote).toHaveValue('');
+  await drawer.getByRole('button', { name: '关联候选人并加入职位', exact: true }).click();
+  await expect(identityNote).toBeFocused();
+  expect(secondConfirmations).toHaveLength(0);
+  await identityNote.fill('第二位候选人的独立判断依据');
   await name.fill('测试乙已区分');
   await expect(identityChoice).toHaveCount(0);
   await expect(identityNote).toHaveCount(0);
@@ -647,12 +667,23 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   ).toHaveCount(0);
   await expect(contactNote).toBeVisible();
   await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
+  await expect(identityChoice).toBeVisible();
+  await expect(identityNote).toHaveValue('');
+  await createCandidate.click();
+  await expect(identityNote).toBeFocused();
+  expect(secondConfirmations).toHaveLength(0);
+  await identityNote.fill('重新查重后的判断依据');
+  await phone.fill('13800000002');
+  await expect(identityNote).toHaveCount(0);
+  await expect(createCandidate).toHaveCount(0);
+  await phone.fill('');
+  await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
   await expect(drawer.getByRole('status')).toHaveText('在可查看的候选人中未发现重复。');
   await expect(identityChoice).toHaveCount(0);
   await expect(identityNote).toHaveCount(0);
   await createCandidate.click();
   await expect(drawer.getByRole('button', { name: '打开本次应聘', exact: true })).toHaveCount(2);
-  expect(secondMatches).toHaveLength(2);
+  expect(secondMatches).toHaveLength(3);
   expect(secondConfirmations).toEqual([
     expect.objectContaining({
       parse: secondItem.parse?.id,
@@ -664,4 +695,192 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
       identity_note: '',
     }),
   ]);
+});
+
+test('导入丢失响应后可换文件重新开始，上传及确认后的刷新失败可恢复且不重复写入', async ({
+  page,
+}) => {
+  await prepare(page, []);
+  const firstItem: ImportItem = {
+    id: 93702,
+    name: 'fictional-recovery-a.pdf',
+    document: 93703,
+    application: null,
+    parse: {
+      id: 93704,
+      version: 1,
+      status: 'succeeded',
+      text: '姓名：测试甲\n电话：13800000000',
+      error: '',
+      parser_version: '验收模拟文字提取',
+      actor_name: '测试 HR',
+    },
+  };
+  const secondItem: ImportItem = {
+    ...firstItem,
+    id: 93705,
+    name: 'fictional-recovery-b.pdf',
+    document: 93706,
+    parse: firstItem.parse && {
+      ...firstItem.parse,
+      id: 93707,
+      text: '姓名：测试乙\n电话：13800000001',
+    },
+  };
+  let uploaded = 0;
+  let uploadRequests = 0;
+  let confirmed = false;
+  let secondConfirmed = false;
+  let secondMatchRequests = 0;
+  let refreshFailure = '虚构上传后刷新失败';
+  const creations: Record<string, unknown>[] = [];
+  const confirmations: Record<string, unknown>[] = [];
+  const secondConfirmations: Record<string, unknown>[] = [];
+  let releaseUpload = () => {};
+  const uploadGate = new Promise<void>((resolve) => {
+    releaseUpload = resolve;
+  });
+  const batch = (): Batch => ({
+    id: 93701,
+    job: job.id,
+    job_title: job.title,
+    source: 'HR 上传',
+    total: 2,
+    received: uploaded,
+    completed: Number(confirmed) + Number(secondConfirmed),
+    items: [
+      { ...firstItem, application: confirmed ? application.id : null },
+      { ...secondItem, application: secondConfirmed ? otherApplication.id : null },
+    ].slice(0, uploaded),
+    created_at: '2026-10-09T03:00:00Z',
+  });
+  await page.route('**/api/v1/imports/', (route) => {
+    const payload = route.request().postDataJSON();
+    creations.push(payload);
+    // 模拟首个批次已创建、但客户端没有收到响应；相同请求键不接受变更后的文件数。
+    if (creations.length === 1) return route.abort('failed');
+    if (payload.request_key === creations[0].request_key)
+      return route.fulfill({
+        status: 409,
+        json: { errors: { detail: '导入请求已使用，请勿改变内容重试。' } },
+      });
+    return route.fulfill({ status: 201, json: batch() });
+  });
+  await page.route('**/api/v1/imports/93701/upload/', async (route) => {
+    uploadRequests++;
+    if (uploadRequests === 1) await uploadGate;
+    uploaded++;
+    return route.fulfill({ status: 201, json: uploaded === 1 ? firstItem : secondItem });
+  });
+  await page.route('**/api/v1/imports/93701/', (route) => {
+    if (refreshFailure) {
+      const message = refreshFailure;
+      refreshFailure = '';
+      return route.fulfill({ status: 503, json: { errors: { detail: message } } });
+    }
+    return route.fulfill({ json: batch() });
+  });
+  await page.route('**/api/v1/imports/93701/items/93702/matches/', (route) =>
+    route.fulfill({ json: { results: [] } }),
+  );
+  await page.route('**/api/v1/imports/93701/items/93702/confirm/', (route) => {
+    confirmations.push(route.request().postDataJSON());
+    confirmed = true;
+    refreshFailure = '虚构确认后刷新失败';
+    return route.fulfill({ json: { ...firstItem, application: application.id } });
+  });
+  await page.route('**/api/v1/imports/93701/items/93705/matches/', (route) => {
+    secondMatchRequests++;
+    return route.fulfill({ json: { results: [{ ...candidate, display_name: '测试乙' }] } });
+  });
+  await page.route('**/api/v1/imports/93701/items/93705/confirm/', (route) => {
+    secondConfirmations.push(route.request().postDataJSON());
+    // 服务端已确认并关联应聘，只有这次响应丢失；重新加载应直接恢复已确认状态。
+    secondConfirmed = true;
+    return route.abort('failed');
+  });
+  await page
+    .getByRole('row')
+    .filter({ hasText: job.title })
+    .getByRole('button', { name: '查看候选人', exact: true })
+    .click();
+  await page.getByRole('button', { name: '选择候选人', exact: true }).first().click();
+  await page
+    .getByRole('dialog', { name: '选择候选人', exact: true })
+    .getByRole('button', { name: '导入新的简历', exact: true })
+    .click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer.getByLabel('材料来源', { exact: true })).toHaveCount(0);
+  const files = [firstItem, secondItem].map((item) => ({
+    name: item.name,
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n% Fictional recovery fixture\n%%EOF'),
+  }));
+  await drawer.getByLabel('简历文件', { exact: true }).setInputFiles(files[0]);
+  await drawer.getByRole('button', { name: '开始导入', exact: true }).click();
+  await expect(drawer.getByRole('alert').filter({ hasText: '暂时连接不上服务' })).toBeVisible();
+  await drawer.getByLabel('简历文件', { exact: true }).setInputFiles(files);
+  await drawer.getByRole('button', { name: '开始导入', exact: true }).click();
+  try {
+    await expect.poll(() => uploadRequests).toBe(1);
+    await drawer.getByRole('button', { name: '关闭详情', exact: true }).click();
+    await expect(drawer).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeVisible();
+  } finally {
+    releaseUpload();
+  }
+  await expect(drawer.getByRole('alert').filter({ hasText: '虚构上传后刷新失败' })).toBeVisible();
+  expect(creations).toHaveLength(2);
+  expect(creations[0]).toMatchObject({ job: job.id, source: 'HR 上传', total: 1 });
+  expect(creations[1]).toMatchObject({ job: job.id, source: 'HR 上传', total: 2 });
+  expect(creations[1].request_key).not.toBe(creations[0].request_key);
+  await drawer.getByRole('button', { name: '重新加载', exact: true }).click();
+  await expect(drawer.getByText('已接收 2 / 2 份，已核对 0 份', { exact: true })).toBeVisible();
+  await expect(drawer.getByRole('button', { name: '核对与继续', exact: true })).toHaveCount(2);
+  await expect(
+    drawer.getByRole('button', { name: '核对与继续', exact: true }).first(),
+  ).toBeEnabled();
+  expect(uploadRequests).toBe(2);
+  await drawer.getByRole('button', { name: '核对与继续', exact: true }).first().click();
+  await expect(drawer.getByLabel('姓名', { exact: true })).toHaveValue('测试甲');
+  // 人工修改使 dirty 生效，确认成功后刷新失败也不能把后续操作锁死。
+  await drawer.getByLabel('姓名', { exact: true }).fill('测试甲人工核对');
+  await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
+  await drawer.getByRole('button', { name: '新建候选人并加入职位', exact: true }).click();
+  await expect(drawer.getByRole('alert').filter({ hasText: '虚构确认后刷新失败' })).toBeVisible();
+  expect(confirmations).toHaveLength(1);
+  await drawer.getByRole('button', { name: '重新加载', exact: true }).click();
+  await expect(drawer.getByText('已接收 2 / 2 份，已核对 1 份', { exact: true })).toBeVisible();
+  await expect(drawer.getByRole('button', { name: '打开本次应聘', exact: true })).toBeEnabled();
+  await expect(drawer.getByRole('button', { name: '核对与继续', exact: true })).toBeEnabled();
+  await drawer.getByRole('button', { name: '核对与继续', exact: true }).click();
+  await expect(drawer.getByLabel('姓名', { exact: true })).toHaveValue('测试乙');
+  await drawer.getByRole('button', { name: '查找疑似重复', exact: true }).click();
+  await drawer.getByLabel('判断依据', { exact: true }).fill('同名但联系方式不同，确认为另一人');
+  await drawer.getByRole('button', { name: '新建候选人并加入职位', exact: true }).click();
+  await expect(drawer.getByRole('alert').filter({ hasText: '暂时连接不上服务' })).toBeVisible();
+  await expect(drawer.getByLabel('判断依据', { exact: true })).toHaveValue(
+    '同名但联系方式不同，确认为另一人',
+  );
+  expect(secondConfirmations).toHaveLength(1);
+  await drawer.getByRole('button', { name: '重新加载', exact: true }).click();
+  await expect(drawer.getByText('已接收 2 / 2 份，已核对 2 份', { exact: true })).toBeVisible();
+  const openApplications = drawer.getByRole('button', { name: '打开本次应聘', exact: true });
+  await expect(openApplications).toHaveCount(2);
+  await expect(openApplications.nth(1)).toBeEnabled();
+  await expect(drawer.getByRole('button', { name: '核对与继续', exact: true })).toHaveCount(0);
+  await expect(drawer.getByRole('button', { name: '查找疑似重复', exact: true })).toHaveCount(0);
+  await expect(drawer.getByLabel('判断依据', { exact: true })).toHaveCount(0);
+  expect(secondMatchRequests).toBe(1);
+  expect(secondConfirmations).toEqual([
+    expect.objectContaining({
+      parse: secondItem.parse?.id,
+      display_name: '测试乙',
+      candidate: null,
+      identity_note: '同名但联系方式不同，确认为另一人',
+    }),
+  ]);
+  expect(confirmations).toHaveLength(1);
+  expect(uploadRequests).toBe(2);
 });
