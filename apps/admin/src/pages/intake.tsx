@@ -409,6 +409,8 @@ type CandidateRecord = Candidate & {
   remarks: string;
   resume_text: string;
   resume_documents: Application['resumes'];
+  updated_at: string;
+  can_edit_profile: boolean;
 };
 
 export type CandidateLibraryActions = {
@@ -441,6 +443,82 @@ const resumeSources = [
   '其他',
 ] as const;
 const educationLevels = ['高中及以下', '大专', '本科', '硕士', '博士', '其他'] as const;
+const profileFields = {
+  current_city: '现居城市',
+  education_level: '最高学历',
+  school: '毕业院校',
+  work_years: '工作年限',
+  intended_role: '意向岗位',
+  current_salary: '当前薪资',
+  expected_salary: '期望薪资',
+  source: '简历来源',
+} as const;
+type ProfileFields = Partial<Record<keyof typeof profileFields, string>>;
+
+function ResumeProfileFields({
+  values,
+  change,
+  disabled,
+  prefix,
+}: {
+  values: ProfileFields;
+  change: (key: keyof typeof profileFields, value: string) => void;
+  disabled: boolean;
+  prefix: string;
+}) {
+  return (
+    <FieldGroup className="candidate-create-grid">
+      {Object.entries(profileFields).map(([field, label]) => {
+        const key = field as keyof typeof profileFields;
+        const choices =
+          key === 'source' ? resumeSources : key === 'education_level' ? educationLevels : null;
+        return (
+          <Field key={key}>
+            <FieldLabel htmlFor={`${prefix}-${key}`}>{label}</FieldLabel>
+            {choices ? (
+              <Select
+                id={`${prefix}-${key}`}
+                aria-label={label}
+                className="candidate-select"
+                dropdownClassName="candidate-select-dropdown"
+                value={values[key] || ''}
+                onChange={(value) => change(key, typeof value === 'string' ? value : '')}
+                disabled={disabled}
+                placeholder="未标注，可手动选择"
+                clickToHide
+              >
+                <Select.Option value="">未标注</Select.Option>
+                {choices.map((item) => (
+                  <Select.Option key={item} value={item}>
+                    {item}
+                  </Select.Option>
+                ))}
+                {values[key] && !(choices as readonly string[]).includes(values[key]) && (
+                  <Select.Option value={values[key]}>{values[key]}</Select.Option>
+                )}
+              </Select>
+            ) : (
+              <Input
+                id={`${prefix}-${key}`}
+                value={values[key] || ''}
+                onChange={(event) => change(key, event.target.value)}
+                disabled={disabled}
+                maxLength={
+                  key === 'current_city'
+                    ? 120
+                    : key === 'work_years' || key.endsWith('salary')
+                      ? 100
+                      : 200
+                }
+                placeholder="未识别到，可手动补充"
+              />
+            )}
+          </Field>
+        );
+      })}
+    </FieldGroup>
+  );
+}
 
 export const Candidates = forwardRef<
   CandidateLibraryActions,
@@ -772,6 +850,7 @@ export const Candidates = forwardRef<
       {detail !== null && (
         <CandidateDetails
           id={detail}
+          changed={changed}
           close={() => setDetail(null)}
           openApplication={(id) => {
             setDetail(null);
@@ -787,14 +866,19 @@ function CandidateDetails({
   id,
   close,
   openApplication,
+  changed,
 }: {
   id: number;
   close: () => void;
   openApplication: (id: number) => void;
+  changed: () => void;
 }) {
   const [person, setPerson] = useState<CandidateRecord | null>(null);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     setError('');
@@ -811,19 +895,47 @@ function CandidateDetails({
       title={person ? `${person.display_name} · 候选人详情` : '候选人详情'}
       width={940}
       className="candidate-create-modal"
-      onCancel={close}
+      closable={!busy}
+      maskClosable={!editing && !busy}
+      closeOnEsc={!editing && !busy}
+      onCancel={() => {
+        if (!busy && (!editing || window.confirm('资料还未保存，确定关闭吗？'))) close();
+      }}
       footer={
-        <Button variant="outline" onClick={close}>
-          关闭
-        </Button>
+        !editing && (
+          <Button variant="outline" onClick={close}>
+            关闭
+          </Button>
+        )
       }
     >
       {error ? (
         <ErrorNotice message={error} retry={() => setReload((value) => value + 1)} />
       ) : !person ? (
         <Loading />
+      ) : editing ? (
+        <CandidateProfileEditor
+          person={person}
+          busy={busy}
+          setBusy={setBusy}
+          cancel={() => setEditing(false)}
+          saved={(result) => {
+            setPerson(result);
+            setEditing(false);
+            setNotice('资料已保存。');
+            changed();
+          }}
+        />
       ) : (
         <div className="flex flex-col gap-5">
+          {notice && <p role="status">{notice}</p>}
+          {person.can_edit_profile && (
+            <div>
+              <Button variant="outline" onClick={() => setEditing(true)}>
+                识别并补全资料
+              </Button>
+            </div>
+          )}
           <dl className="candidate-create-grid">
             {[
               ['姓名', person.display_name],
@@ -888,6 +1000,136 @@ function CandidateDetails({
         </div>
       )}
     </Modal>
+  );
+}
+
+function CandidateProfileEditor({
+  person,
+  busy,
+  setBusy,
+  cancel,
+  saved,
+}: {
+  person: CandidateRecord;
+  busy: boolean;
+  setBusy: (value: boolean) => void;
+  cancel: () => void;
+  saved: (value: CandidateRecord) => void;
+}) {
+  const documents = person.resume_documents.filter(
+    (document) => document.parse?.status === 'succeeded',
+  );
+  const [documentId, setDocumentId] = useState<number | null>(documents[0]?.document ?? null);
+  const document = documents.find((item) => item.document === documentId);
+  const initial = Object.fromEntries(
+    Object.keys(profileFields).map((key) => [key, person[key as keyof typeof profileFields]]),
+  ) as ProfileFields;
+  const recognized = document ? resumeFormFields(document.parse?.text ?? '', document.name) : {};
+  const [values, setValues] = useState<ProfileFields>(() =>
+    Object.fromEntries(
+      Object.keys(profileFields).map((key) => [
+        key,
+        initial[key as keyof typeof profileFields] ||
+          recognized[key as keyof typeof profileFields] ||
+          '',
+      ]),
+    ),
+  );
+  const autofilled = useRef<ProfileFields>(recognized);
+  const [error, setError] = useState('');
+  return (
+    <form
+      id="candidate-profile-form"
+      className="flex flex-col gap-4"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError('');
+        try {
+          saved(
+            await api<CandidateRecord>(`candidates/${person.id}/supplement-profile/`, {
+              updated_at: person.updated_at,
+              parse: document?.parse?.id ?? null,
+              fields: Object.fromEntries(
+                Object.entries(values).filter(
+                  ([key, value]) => value !== initial[key as keyof typeof profileFields],
+                ),
+              ),
+            }),
+          );
+        } catch (e) {
+          setError((e as Error).message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <p>
+        已根据简历补入可识别的空项，请核对后保存。未写明的现居城市、薪资和招聘来源留空，不根据籍贯或经历推测。
+      </p>
+      {error && <ErrorNotice message={error} />}
+      {documents.length > 0 && (
+        <Field>
+          <FieldLabel htmlFor="profile-resume-document">用于识别的简历</FieldLabel>
+          <Select
+            id="profile-resume-document"
+            aria-label="用于识别的简历"
+            className="candidate-select"
+            dropdownClassName="candidate-select-dropdown"
+            disabled={busy}
+            value={documentId}
+            onChange={(value) => {
+              const next = documents.find((item) => item.document === value);
+              const fields = next ? resumeFormFields(next.parse?.text ?? '', next.name) : {};
+              const previous = autofilled.current;
+              setValues((current) =>
+                Object.fromEntries(
+                  Object.keys(profileFields).map((field) => {
+                    const key = field as keyof typeof profileFields;
+                    return [
+                      key,
+                      !initial[key] &&
+                      (current[key] === previous[key] ||
+                        (!current[key] && previous[key] === undefined))
+                        ? fields[key] || ''
+                        : current[key],
+                    ];
+                  }),
+                ),
+              );
+              autofilled.current = fields;
+              setDocumentId(typeof value === 'number' ? value : null);
+            }}
+          >
+            {documents.map((item) => (
+              <Select.Option key={item.document} value={item.document}>
+                {item.name}
+              </Select.Option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      <ResumeProfileFields
+        values={values}
+        change={(key, value) => setValues((old) => ({ ...old, [key]: value }))}
+        disabled={busy}
+        prefix="profile"
+      />
+      {document && (
+        <details>
+          <summary>查看识别依据原文</summary>
+          <pre className="resume-text">{document.parse?.text}</pre>
+        </details>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" disabled={busy} onClick={cancel}>
+          取消
+        </Button>
+        <Button type="submit" disabled={busy}>
+          {busy ? '正在保存…' : '保存资料'}
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -1139,15 +1381,16 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
         work_experience: setWorkExperience,
         education_experience: setEducationExperience,
         resume_text: setResumeText,
+        source: setSource,
       };
       for (const [field, setValue] of Object.entries(setters)) {
         const value = fields[field as keyof typeof fields] ?? '';
         const previous = autofilled.current[field];
-        setValue((current) => (!current || current === previous ? value : current));
+        setValue((current) =>
+          current === previous || (!current && previous === undefined) ? value : current,
+        );
       }
       autofilled.current = fields;
-      if (result.parse?.status !== 'succeeded')
-        setError(result.parse?.error || '未读取到文字，请手动填写后保存。');
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1591,6 +1834,7 @@ export function ImportDrawer({
 }) {
   const [batch, setBatch] = useState<Batch | null>(null);
   const [job, setJob] = useState(String(application?.job ?? initialJob?.id ?? ''));
+  const [source, setSource] = useState('');
   const [files, setFiles] = useState<{ file: File; key: string; error: string; done: boolean }[]>(
     () => initialFiles.map((file) => ({ file, key: crypto.randomUUID(), error: '', done: false })),
   );
@@ -1627,7 +1871,7 @@ export function ImportDrawer({
         (await api<Batch>('imports/', {
           request_key: key,
           job: Number(job),
-          source: 'HR 上传',
+          source,
           total: files.length,
         }));
       setBatch(b);
@@ -1703,6 +1947,30 @@ export function ImportDrawer({
           }}
         >
           <fieldset disabled={busy} className="flex flex-col gap-4">
+            <Field>
+              <FieldLabel htmlFor="import-source">简历来源</FieldLabel>
+              <Select
+                id="import-source"
+                aria-label="简历来源"
+                className="candidate-select"
+                dropdownClassName="candidate-select-dropdown"
+                value={source}
+                disabled={busy}
+                placeholder="请选择来源，可在识别后核对"
+                clickToHide
+                onChange={(value) => {
+                  setSource(typeof value === 'string' ? value : '');
+                  setKey(crypto.randomUUID());
+                }}
+              >
+                <Select.Option value="">未标注</Select.Option>
+                {resumeSources.map((item) => (
+                  <Select.Option key={item} value={item}>
+                    {item}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Field>
             {application || initialJob ? (
               <p>
                 目标职位：{application?.job_title ?? initialJob?.title}
@@ -1896,6 +2164,23 @@ function IdentityEditor({
     item.parse?.status === 'succeeded' ? item.parse.text : '',
     item.name,
   );
+  const recognized = resumeFormFields(
+    item.parse?.status === 'succeeded' ? item.parse.text : '',
+    item.name,
+  );
+  const [enteredProfile, setEnteredProfile] = useState<ProfileFields>({});
+  const profile = Object.fromEntries(
+    Object.keys(profileFields).map((field) => {
+      const key = field as keyof typeof profileFields;
+      return [
+        key,
+        enteredProfile[key] ??
+          ((key === 'source' && batch.source !== 'HR 上传' ? batch.source : '') ||
+            recognized[key] ||
+            ''),
+      ];
+    }),
+  ) as ProfileFields;
   const [enteredName, setName] = useState<string>();
   const [enteredPhone, setPhone] = useState<string>();
   const [enteredEmail, setEmail] = useState<string>();
@@ -1929,6 +2214,7 @@ function IdentityEditor({
     candidate: application?.candidate ?? (candidate ? Number(candidate) : null),
     ...(application ? { application: application.id } : {}),
     identity_note: application || candidate || matches?.length ? note : '',
+    ...(!application && !candidate ? profile : {}),
   };
   async function parse(text?: string) {
     setBusy(true);
@@ -2137,6 +2423,20 @@ function IdentityEditor({
                 </Field>
               )}
               {matches?.length === 0 && <p role="status">在可查看的候选人中未发现重复。</p>}
+              {!application && !candidate && (
+                <details>
+                  <summary>简历资料（核对学历、城市、薪资和来源）</summary>
+                  <ResumeProfileFields
+                    values={profile}
+                    prefix="import-profile"
+                    disabled={busy}
+                    change={(key, value) => {
+                      setEnteredProfile((old) => ({ ...old, [key]: value }));
+                      setDirty(true);
+                    }}
+                  />
+                </details>
+              )}
               {!!matches?.length && (
                 <>
                   <Alert>

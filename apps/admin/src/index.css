@@ -1037,6 +1037,12 @@ body {
 .table-container .semi-table-wrapper {
   min-width: 1000px;
 }
+.candidate-library-panel .table-container .semi-table-wrapper {
+  min-width: 0;
+}
+.candidate-library-panel .semi-table {
+  min-width: 1000px;
+}
 .jobs-panel .table-container .semi-table-wrapper {
   min-width: 870px;
 }

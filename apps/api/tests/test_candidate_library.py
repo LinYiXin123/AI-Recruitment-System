@@ -18,7 +18,7 @@ from recruitment.models import (
     Task,
 )
 from tests import test_jobs
-from tests.test_intake import recruiting
+from tests.test_intake import confirm, recruiting, upload
 from tests.test_jobs import actor, client_for
 
 pytestmark = pytest.mark.django_db
@@ -349,3 +349,320 @@ def test_other_job_visibility_does_not_grant_access_to_unassigned_source_text(te
     assert detail.status_code == 200
     assert detail.data["resume_documents"] == []
     assert not detail.data["resume_text"]
+
+
+def test_legacy_import_preserves_confirmed_profile_fields_and_existing_candidate(team):
+    client = client_for(team[2])
+    job = recruiting(team)
+    batch = client.post(
+        "/api/v1/imports/",
+        {"request_key": str(uuid.uuid4()), "job": job["id"], "total": 1, "source": ""},
+        format="json",
+    )
+    assert batch.status_code == 201 and batch.data["source"] == ""
+    url, item, _ = upload(client, job)
+    profile = {
+        "current_city": "厦门",
+        "education_level": "本科",
+        "school": "虚构大学",
+        "work_years": "5年",
+        "current_salary": "12K",
+        "expected_salary": "15K",
+        "intended_role": "测试工程师",
+        "source": "猎聘",
+    }
+    first = confirm(client, url, item, **profile)
+    assert first.status_code == 200, first.data
+    application = Application.objects.get(pk=first.data["application"])
+    person = application.candidate
+    assert application.source == "猎聘"
+    for field, value in profile.items():
+        assert getattr(person, field) == value
+    assert confirm(client, url, item, **profile).data == first.data
+
+    other_url, other_item, _ = upload(client, job)
+    reused = confirm(
+        client,
+        other_url,
+        other_item,
+        candidate=person.id,
+        identity_note="人工确认同一人",
+        current_city="泉州",
+        education_level="硕士",
+        source="BOSS直聘",
+    )
+    assert reused.status_code == 200, reused.data
+    person.refresh_from_db()
+    assert person.current_city == "厦门" and person.education_level == "本科"
+    assert person.source == "猎聘" and Candidate.objects.count() == 1
+
+
+@pytest.mark.parametrize("source_fields,expected", [({}, "虚构验收资料"), ({"source": ""}, "")])
+def test_legacy_import_respects_explicitly_blank_source(team, source_fields, expected):
+    client = client_for(team[2])
+    job = recruiting(team)
+    url, item, _ = upload(client, job)
+    response = confirm(client, url, item, **source_fields)
+    assert response.status_code == 200, response.data
+    assert Application.objects.get(pk=response.data["application"]).source == expected
+
+
+def test_legacy_profile_uses_original_authorized_document(team):
+    client = client_for(team[2])
+    job = recruiting(team)
+    import_url, item, _ = upload(client, job)
+    saved = confirm(client, import_url, item)
+    person = Application.objects.get(pk=saved.data["application"]).candidate
+    Candidate.objects.filter(pk=person.pk).update(creation_payload={})
+    url = f"/api/v1/candidates/{person.id}/"
+    detail = client.get(url).data
+    assert detail["can_edit_profile"]
+    response = client.post(
+        url + "supplement-profile/",
+        {
+            "updated_at": detail["updated_at"],
+            "parse": item["parse"]["id"],
+            "fields": {"education_level": "本科"},
+        },
+        format="json",
+    )
+    assert response.status_code == 200 and response.data["education_level"] == "本科"
+    ResumeDocument.objects.filter(pk=item["document"]).update(access_state="quarantine")
+    assert not client.get(url).data["can_edit_profile"]
+
+
+def test_supplement_profile_keeps_identity_history_and_checks_updated_at(team):
+    client = client_for(team[2])
+    uploaded = preview(client).data
+    original_body = candidate_payload(uploaded)
+    saved = client.post("/api/v1/candidates/", original_body, format="json")
+    url = f"/api/v1/candidates/{saved.data['candidate']}/"
+    detail = client.get(url).data
+    assert detail["can_edit_profile"]
+    fields = {"education_level": "硕士", "school": "虚构大学", "source": "智联招聘"}
+    payload = {
+        "updated_at": detail["updated_at"],
+        "parse": uploaded["parse"]["id"],
+        "fields": fields,
+    }
+    invalid_source = client.post(
+        url + "supplement-profile/", {**payload, "parse": 99999999}, format="json"
+    )
+    assert invalid_source.status_code == 400, invalid_source.data
+    response = client.post(url + "supplement-profile/", payload, format="json")
+    assert response.status_code == 200, response.data
+    for field, value in fields.items():
+        assert response.data[field] == value
+    assert response.data["current_city"] == "泉州"
+    assert response.data["display_name"] == original_body["display_name"]
+    assert response.data["phone"] == original_body["phone"]
+    assert response.data["updated_at"] != detail["updated_at"]
+    assert not Application.objects.exists() and not Task.objects.exists()
+    assert client.post(url + "supplement-profile/", payload, format="json").status_code == 409
+    repeated_creation = client.post("/api/v1/candidates/", original_body, format="json")
+    assert repeated_creation.status_code == 200 and repeated_creation.data == saved.data
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"display_name": "不能改身份"},
+        {"phone": "13800000001"},
+        {"identity_number": "123456789012345678"},
+        {"resume_text": "不能改原文"},
+        {"remarks": "不能改备注"},
+        {"education_level": "未经支持的学历"},
+        {"source": "HR 上传"},
+        {"current_city": "城" * 121},
+    ],
+)
+def test_supplement_profile_rejects_non_whitelisted_or_invalid_fields(team, fields):
+    client = client_for(team[2])
+    person = Candidate.objects.create(
+        organization=team[0], created_by=team[2], display_name="虚构白名单测试", current_city="厦门"
+    )
+    url = f"/api/v1/candidates/{person.id}/"
+    detail = client.get(url).data
+    response = client.post(
+        url + "supplement-profile/",
+        {
+            "updated_at": detail["updated_at"],
+            "fields": fields,
+        },
+        format="json",
+    )
+    assert response.status_code == 400, response.data
+    person.refresh_from_db()
+    assert person.current_city == "厦门" and person.display_name == "虚构白名单测试"
+
+
+def test_supplement_profile_validates_source_access_and_allows_explicit_manual_fields(team):
+    client = client_for(team[2])
+    uploaded = preview(client).data
+    saved = client.post("/api/v1/candidates/", candidate_payload(uploaded), format="json")
+    url = f"/api/v1/candidates/{saved.data['candidate']}/"
+    detail = client.get(url).data
+    body = {
+        "updated_at": detail["updated_at"],
+        "parse": uploaded["parse"]["id"],
+        "fields": {"school": "虚构学校"},
+    }
+    for membership in [team[3], team[4]]:
+        assert client_for(membership).post(
+            url + "supplement-profile/", body, format="json"
+        ).status_code in [403, 404]
+    ResumeDocument.objects.filter(pk=uploaded["document"]).update(access_state="quarantine")
+    assert not client.get(url).data["can_edit_profile"]
+    assert client.post(url + "supplement-profile/", body, format="json").status_code == 403
+    body.pop("parse")
+    assert client.post(url + "supplement-profile/", body, format="json").status_code == 403
+    person = Candidate.objects.create(
+        organization=team[0], created_by=team[2], display_name="虚构人工填写"
+    )
+    manual_url = f"/api/v1/candidates/{person.id}/"
+    body["updated_at"] = client.get(manual_url).data["updated_at"]
+    response = client.post(manual_url + "supplement-profile/", body, format="json")
+    assert response.status_code == 200 and response.data["school"] == "虚构学校"
+    assert response.data["resume_documents"] == []
+
+
+def test_visible_candidate_does_not_allow_supplement_from_another_jobs_hidden_parse(team):
+    client = client_for(team[2])
+    uploaded = preview(client).data
+    saved = client.post(
+        "/api/v1/candidates/", candidate_payload(uploaded, current_salary="18K"), format="json"
+    )
+    job = recruiting((team[0], team[1], team[4], team[3], team[2]))
+    Application.objects.create(
+        organization=team[0],
+        candidate_id=saved.data["candidate"],
+        job_id=job["id"],
+        owner=team[4],
+        attempt_no=1,
+        source="HR 上传",
+    )
+    url = f"/api/v1/candidates/{saved.data['candidate']}/"
+    other = client_for(team[4])
+    detail = other.get(url).data
+    assert detail["source"] == "" and detail["resume_documents"] == []
+    assert detail["current_salary"] == ""
+    assert not detail["can_edit_profile"]
+    response = other.post(
+        url + "supplement-profile/",
+        {
+            "updated_at": detail["updated_at"],
+            "parse": uploaded["parse"]["id"],
+            "fields": {"education_level": "硕士"},
+        },
+        format="json",
+    )
+    assert response.status_code == 403, response.data
+    manual = other.post(
+        url + "supplement-profile/",
+        {"updated_at": detail["updated_at"], "fields": {"current_salary": ""}},
+        format="json",
+    )
+    assert manual.status_code == 403, manual.data
+    assert Candidate.objects.get(pk=saved.data["candidate"]).education_level == "本科"
+    assert Candidate.objects.get(pk=saved.data["candidate"]).current_salary == "18K"
+    assert Application.objects.get(candidate_id=saved.data["candidate"]).source == "HR 上传"
+
+
+def test_supplement_source_clear_stays_blank_without_rewriting_application_history(team):
+    client = client_for(team[2])
+    job = recruiting(team)
+    import_url, item, _ = upload(client, job)
+    saved = confirm(client, import_url, item, source="BOSS直聘")
+    application = Application.objects.get(pk=saved.data["application"])
+    url = f"/api/v1/candidates/{application.candidate_id}/"
+    detail = client.get(url).data
+    response = client.post(
+        url + "supplement-profile/",
+        {"updated_at": detail["updated_at"], "fields": {"source": ""}},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["source"] == "" and client.get(url).data["source"] == ""
+    assert client.get("/api/v1/candidates/").data["results"][0]["source"] == ""
+    application.refresh_from_db()
+    assert application.source == "BOSS直聘" and application.candidate.source == "未标注"
+
+
+def test_later_authorized_attachment_does_not_grant_legacy_profile_edit_access(team):
+    person = Candidate.objects.create(
+        organization=team[0],
+        created_by=team[2],
+        display_name="虚构历史手工主档",
+        current_salary="18K",
+    )
+    job = recruiting((team[0], team[1], team[4], team[3], team[2]))
+    application = Application.objects.create(
+        organization=team[0], candidate=person, job_id=job["id"], owner=team[4], attempt_no=1
+    )
+    document = ResumeDocument.objects.create(
+        organization=team[0], candidate=person, uploaded_by=team[4], size=10, file_type="txt"
+    )
+    parse = ResumeParse.objects.create(
+        document=document,
+        version=1,
+        status="succeeded",
+        text="后续应聘的可访问材料",
+        actor=team[4],
+        request_key=uuid.uuid4(),
+    )
+    ApplicationResume.objects.create(application=application, parse=parse, assigned_by=team[4])
+    client = client_for(team[4])
+    url = f"/api/v1/candidates/{person.id}/"
+    detail = client.get(url).data
+    assert detail["resume_documents"][0]["parse"]["id"] == parse.id
+    assert not detail["can_edit_profile"] and detail["current_salary"] == ""
+    response = client.post(
+        url + "supplement-profile/",
+        {
+            "updated_at": detail["updated_at"],
+            "parse": parse.id,
+            "fields": {"current_salary": ""},
+        },
+        format="json",
+    )
+    assert response.status_code == 403, response.data
+    person.refresh_from_db()
+    assert person.current_salary == "18K"
+
+
+def test_supplement_rechecks_parse_after_locking_source_document(team, monkeypatch):
+    from recruitment import intake
+
+    client = client_for(team[2])
+    uploaded = preview(client).data
+    saved = client.post("/api/v1/candidates/", candidate_payload(uploaded), format="json")
+    url = f"/api/v1/candidates/{saved.data['candidate']}/"
+    detail = client.get(url).data
+    original_data = intake.candidate_data
+    calls = 0
+
+    def changed_source(*args, **kwargs):
+        nonlocal calls
+        result = original_data(*args, **kwargs)
+        calls += 1
+        if calls == 1:
+            intake.create_parse(
+                ResumeDocument.objects.get(pk=uploaded["document"]),
+                team[2],
+                uuid.uuid4(),
+                manual="新版本文字，等待重新核对",
+            )
+        return result
+
+    monkeypatch.setattr(intake, "candidate_data", changed_source)
+    response = client.post(
+        url + "supplement-profile/",
+        {
+            "updated_at": detail["updated_at"],
+            "parse": uploaded["parse"]["id"],
+            "fields": {"education_level": "硕士"},
+        },
+        format="json",
+    )
+    assert response.status_code == 409, response.data
+    assert Candidate.objects.get(pk=saved.data["candidate"]).education_level == "本科"

@@ -133,7 +133,7 @@ def validated(cls, data):
 class BatchInput(serializers.Serializer):
     request_key = serializers.UUIDField()
     job = serializers.IntegerField(min_value=1)
-    source = serializers.CharField(max_length=200)
+    source = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
     total = serializers.IntegerField(min_value=1, max_value=20)
 
 
@@ -142,7 +142,47 @@ class ParseInput(serializers.Serializer):
     text = serializers.CharField(max_length=100000, required=False)
 
 
-class IdentityInput(serializers.Serializer):
+class CandidateProfileInput(serializers.Serializer):
+    current_city = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    education_level = serializers.ChoiceField(
+        choices=["高中及以下", "大专", "本科", "硕士", "博士", "其他"],
+        required=False,
+        allow_blank=True,
+    )
+    school = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    work_years = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    current_salary = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    expected_salary = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    intended_role = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    source = serializers.ChoiceField(
+        choices=[
+            "BOSS直聘",
+            "智联招聘",
+            "前程无忧",
+            "猎聘",
+            "拉勾",
+            "内推",
+            "猎头推荐",
+            "校园招聘",
+            "官网投递",
+            "其他",
+        ],
+        required=False,
+        allow_blank=True,
+    )
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict):
+            unknown = set(data) - self.fields.keys()
+            if unknown:
+                raise ValidationError({field: "不支持修改此字段。" for field in sorted(unknown)})
+        return super().to_internal_value(data)
+
+
+PROFILE_FIELDS = tuple(CandidateProfileInput().fields)
+
+
+class IdentityInput(CandidateProfileInput):
     parse = serializers.IntegerField(min_value=1, required=False)
     application = serializers.IntegerField(min_value=1, required=False)
     display_name = serializers.CharField(max_length=100)
@@ -187,50 +227,13 @@ class CandidateCreateInput(IdentityInput):
     resume_parse = serializers.IntegerField(
         min_value=1, required=False, allow_null=True, default=None
     )
-    source = serializers.ChoiceField(
-        choices=[
-            "BOSS直聘",
-            "智联招聘",
-            "前程无忧",
-            "猎聘",
-            "拉勾",
-            "内推",
-            "猎头推荐",
-            "校园招聘",
-            "官网投递",
-            "其他",
-        ],
-        required=False,
-        allow_blank=True,
-        default="",
-    )
     gender = serializers.ChoiceField(
         choices=["男", "女"], required=False, allow_blank=True, default=""
-    )
-    current_city = serializers.CharField(
-        max_length=120, required=False, allow_blank=True, default=""
     )
     identity_number = serializers.CharField(
         max_length=18, required=False, allow_blank=True, default=""
     )
     birthday = serializers.CharField(max_length=10, required=False, allow_blank=True, default="")
-    intended_role = serializers.CharField(
-        max_length=200, required=False, allow_blank=True, default=""
-    )
-    education_level = serializers.ChoiceField(
-        choices=["高中及以下", "大专", "本科", "硕士", "博士", "其他"],
-        required=False,
-        allow_blank=True,
-        default="",
-    )
-    school = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
-    work_years = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
-    current_salary = serializers.CharField(
-        max_length=100, required=False, allow_blank=True, default=""
-    )
-    expected_salary = serializers.CharField(
-        max_length=100, required=False, allow_blank=True, default=""
-    )
     stage = serializers.ChoiceField(
         choices=[
             "pending_review",
@@ -277,6 +280,8 @@ class CandidateCreateInput(IdentityInput):
         return value
 
     def validate(self, data):
+        for field in PROFILE_FIELDS:
+            data.setdefault(field, "")
         if not data["phone"] and not data["email"] and not data["contact_note"]:
             raise ValidationError("请至少填写手机号或邮箱。")
         if not data["job"] and data["stage"] != "pending_review":
@@ -323,6 +328,7 @@ def candidate_data(c, m, detail=False):
         .select_related("owner__user", "job")
         .order_by("-id")
     )
+    source = c.source or (applications[0].source if applications else "")
     result = {
         "id": c.id,
         "display_name": c.display_name,
@@ -333,8 +339,9 @@ def candidate_data(c, m, detail=False):
         "education_level": c.education_level,
         "work_years": c.work_years,
         "expected_salary": c.expected_salary,
-        "source": c.source or (applications[0].source if applications else ""),
+        "source": "" if source in ["HR 上传", "未标注"] else source,
         "created_at": c.created_at,
+        "updated_at": c.updated_at,
         "applications": [
             {
                 "id": a.id,
@@ -360,6 +367,15 @@ def candidate_data(c, m, detail=False):
         result.update({field: getattr(c, field) for field in CANDIDATE_FIELDS})
         source_doc = c.creation_payload.get("resume_document")
         source_job = c.creation_payload.get("job")
+        if not c.creation_payload:
+            source_doc = (
+                ResumeDocument.objects.filter(
+                    candidate=c, uploaded_by_id=c.created_by_id, created_at__lte=c.created_at
+                )
+                .order_by("id")
+                .values_list("id", flat=True)
+                .first()
+            )
         source_visible = (
             docs.filter(pk=source_doc, access_state="active").exists()
             if source_doc
@@ -369,6 +385,7 @@ def candidate_data(c, m, detail=False):
                 else c.created_by_id == m.id
             )
         )
+        result["can_edit_profile"] = source_visible and department_ids(m, ["hr"]).exists()
         if not source_visible:
             # 附件失去授权后，不通过保存在主档的文字副本继续提供原材料。
             for field in [
@@ -714,7 +731,9 @@ class ImportViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             person = Candidate.objects.create(
                 organization=m.organization,
                 created_by=m,
+                creation_payload={"resume_document": item.document_id, "job": job.id},
                 **{key: data[key] for key in ["display_name", "phone", "email", "contact_note"]},
+                **{key: data[key] for key in PROFILE_FIELDS if key in data},
             )
         if "application" in data:
             Candidate.objects.select_for_update().get(pk=person.pk)
@@ -730,7 +749,9 @@ class ImportViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             if a.closed_at is not None:
                 raise Conflict("本次应聘已结束，不能继续补充材料。请返回查看当前应聘状态。")
         else:
-            a = enter_application(m, person, job, batch.source, item.request_key)
+            a = enter_application(
+                m, person, job, data.get("source", batch.source), item.request_key
+            )
         item.document.candidate = person
         item.document.save(update_fields=["candidate"])
         ApplicationResume.objects.get_or_create(
@@ -800,6 +821,79 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
 
     def retrieve(self, request, pk=None):
         return Response(candidate_data(self.get_object(), member(request), detail=True))
+
+    @action(detail=True, methods=["post"], url_path="supplement-profile")
+    @transaction.atomic
+    def supplement_profile(self, request, pk=None):
+        class SupplementInput(serializers.Serializer):
+            updated_at = serializers.DateTimeField()
+            parse = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+            fields = CandidateProfileInput()
+
+        m = member(request)
+        require_hr(m)
+        original = self.get_object()
+        person = Candidate.objects.select_for_update().get(pk=original.pk)
+        get_object_or_404(candidates(m), pk=person.pk)
+        detail = candidate_data(person, m, detail=True)
+        if not detail["can_edit_profile"]:
+            raise PermissionDenied("当前没有候选人原始资料的编辑授权。")
+        data = validated(SupplementInput, request.data)
+        if data["updated_at"] != person.updated_at:
+            raise Conflict("候选人资料已更新，请刷新后核对再保存。")
+        if data.get("parse"):
+            visible = detail["resume_documents"]
+            source = next(
+                (
+                    doc
+                    for doc in visible
+                    if doc["parse"]
+                    and doc["parse"]["id"] == data["parse"]
+                    and doc["parse"]["status"] == "succeeded"
+                ),
+                None,
+            )
+            if not source:
+                raise ValidationError({"parse": "请选择当前可查看的简历文字版本。"})
+            get_object_or_404(
+                ResumeDocument.objects.select_for_update(),
+                pk=source["document"],
+                candidate=person,
+                access_state="active",
+            )
+            locked_detail = candidate_data(person, m, detail=True)
+            if not locked_detail["can_edit_profile"]:
+                raise PermissionDenied("当前没有候选人原始资料的编辑授权。")
+            if not any(
+                doc["document"] == source["document"]
+                and doc["parse"]
+                and doc["parse"]["id"] == data["parse"]
+                and doc["parse"]["status"] == "succeeded"
+                for doc in locked_detail["resume_documents"]
+            ):
+                raise Conflict("简历文字版本已更新，请刷新后核对再保存。")
+        if data["fields"].get("source") == "":
+            # 区分主动清空和旧档案未录入，不改写应聘渠道历史。
+            data["fields"]["source"] = "未标注"
+        changed = [
+            field for field, value in data["fields"].items() if getattr(person, field) != value
+        ]
+        if changed:
+            for field in changed:
+                setattr(person, field, data["fields"][field])
+            person.save(update_fields=[*changed, "updated_at"])
+            application = (
+                person.applications.filter(job__in=hr_jobs(m)).select_related("job").first()
+            )
+            if application:
+                audit(
+                    m,
+                    application.job,
+                    "核对并补全候选人资料",
+                    application,
+                    note=f"字段：{', '.join(changed)}；材料版本：{data.get('parse') or '人工填写'}",
+                )
+        return Response(candidate_data(person, m, detail=True))
 
     @action(detail=False, methods=["post"], url_path="preview-resume")
     def preview_resume(self, request):
