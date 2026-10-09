@@ -66,15 +66,16 @@ def requirement_data(item):
     }
 
 
-def candidates(m):
+def candidates(m, *, include_deleted=False):
     own_unassigned = Q(created_by=m, applications__isnull=True)
     if not department_ids(m, ["hr"]).exists():
         own_unassigned = Q(pk__in=[])
-    return (
+    queryset = (
         Candidate.objects.filter(organization=m.organization)
         .filter(Q(applications__job__in=hr_jobs(m)) | own_unassigned)
         .distinct()
     )
+    return queryset if include_deleted else queryset.filter(deleted_at__isnull=True)
 
 
 def require_hr(m):
@@ -314,7 +315,8 @@ def lock_candidate_creation(m):
 
 def standalone_download_allowed(c, m):
     return (
-        c.created_by_id == m.id
+        c.deleted_at is None
+        and c.created_by_id == m.id
         and not c.applications.exists()
         and department_ids(m, ["hr"])
         .filter(department_id__in=department_ids(m, ["resume_download"]))
@@ -355,37 +357,41 @@ def candidate_data(c, m, detail=False):
             for a in applications
         ],
     }
+    docs = (
+        ResumeDocument.objects.filter(candidate=c)
+        .filter(
+            Q(parses__applicationresume__application__in=applications)
+            | Q(uploaded_by=m, candidate__applications__isnull=True)
+        )
+        .distinct()
+    )
+    source_doc = c.creation_payload.get("resume_document")
+    source_job = c.creation_payload.get("job")
+    if not c.creation_payload:
+        source_doc = (
+            ResumeDocument.objects.filter(
+                candidate=c, uploaded_by_id=c.created_by_id, created_at__lte=c.created_at
+            )
+            .order_by("id")
+            .values_list("id", flat=True)
+            .first()
+        )
+    source_visible = (
+        docs.filter(pk=source_doc, access_state="active").exists()
+        if source_doc
+        else (
+            any(a.job_id == source_job for a in applications)
+            if source_job
+            else c.created_by_id == m.id
+        )
+    )
+    can_edit_profile = source_visible and department_ids(m, ["hr"]).exists()
+    result["can_delete"] = (
+        can_edit_profile and not c.applications.exclude(job__in=hr_jobs(m)).exists()
+    )
     if detail:
-        docs = (
-            ResumeDocument.objects.filter(candidate=c)
-            .filter(
-                Q(parses__applicationresume__application__in=applications)
-                | Q(uploaded_by=m, candidate__applications__isnull=True)
-            )
-            .distinct()
-        )
         result.update({field: getattr(c, field) for field in CANDIDATE_FIELDS})
-        source_doc = c.creation_payload.get("resume_document")
-        source_job = c.creation_payload.get("job")
-        if not c.creation_payload:
-            source_doc = (
-                ResumeDocument.objects.filter(
-                    candidate=c, uploaded_by_id=c.created_by_id, created_at__lte=c.created_at
-                )
-                .order_by("id")
-                .values_list("id", flat=True)
-                .first()
-            )
-        source_visible = (
-            docs.filter(pk=source_doc, access_state="active").exists()
-            if source_doc
-            else (
-                any(a.job_id == source_job for a in applications)
-                if source_job
-                else c.created_by_id == m.id
-            )
-        )
-        result["can_edit_profile"] = source_visible and department_ids(m, ["hr"]).exists()
+        result["can_edit_profile"] = can_edit_profile
         if not source_visible:
             # 附件失去授权后，不通过保存在主档的文字副本继续提供原材料。
             for field in [
@@ -526,7 +532,7 @@ def enter_application(
     expected_start_date=None,
 ):
     # 人→职位→应聘的固定加锁次序；数据库条件唯一保证同岗仅一条进行中记录。
-    Candidate.objects.select_for_update().get(pk=candidate.pk)
+    candidate = Candidate.objects.select_for_update().get(pk=candidate.pk)
     existing = ApplicationEntry.objects.filter(organization=m.organization, request_key=key).first()
     if existing:
         a = existing.application
@@ -538,6 +544,8 @@ def enter_application(
         ):
             raise Conflict("请求已经用于另一项应聘，不能改变内容重试。")
         return a
+    if candidate.deleted_at:
+        raise Conflict("该候选人已从候选人库删除，不能再加入新应聘。")
     job = Job.objects.select_for_update().get(pk=job.pk)
     open_job(m, job.id)
     a = Application.objects.filter(candidate=candidate, job=job, closed_at__isnull=True).first()
@@ -722,7 +730,9 @@ class ImportViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         if data.get("parse") != parse.id:
             raise Conflict("文字版本已更新，请重新查看最新材料后核对身份。当前输入不会被覆盖。")
         if data["candidate"]:
-            person = get_object_or_404(candidates(m), pk=data["candidate"])
+            person = get_object_or_404(
+                candidates(m, include_deleted="application" in data), pk=data["candidate"]
+            )
             if not data["identity_note"]:
                 raise ValidationError("选用已有主档时，请记录核对依据。")
         else:
@@ -821,6 +831,32 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
 
     def retrieve(self, request, pk=None):
         return Response(candidate_data(self.get_object(), member(request), detail=True))
+
+    @transaction.atomic
+    def destroy(self, request, pk=None):
+        class DeleteInput(serializers.Serializer):
+            updated_at = serializers.DateTimeField()
+
+        m = member(request)
+        require_hr(m)
+        original = get_object_or_404(candidates(m, include_deleted=True), pk=pk)
+        person = Candidate.objects.select_for_update().get(pk=original.pk)
+        m = member(request)
+        require_hr(m)
+        get_object_or_404(candidates(m, include_deleted=True), pk=person.pk)
+        if not candidate_data(person, m)["can_delete"]:
+            raise PermissionDenied("当前没有该候选人及全部关联职位的删除权限。")
+        data = validated(DeleteInput, request.data)
+        if person.deleted_at:
+            return Response({"deleted": True})
+        if person.updated_at != data["updated_at"]:
+            raise Conflict("候选人资料已更新，请刷新后确认再删除。")
+        person.deleted_at = timezone.now()
+        person.deleted_by = m
+        person.save(update_fields=["deleted_at", "deleted_by", "updated_at"])
+        for application in person.applications.select_related("job"):
+            audit(m, application.job, "从候选人库删除", application, note="保留已有应聘及面试流程")
+        return Response({"deleted": True})
 
     @action(detail=True, methods=["post"], url_path="supplement-profile")
     @transaction.atomic

@@ -98,7 +98,7 @@ def dashboard(request):
     jobs = visible_jobs(m)
     applications = Application.objects.filter(organization=m.organization, job__in=jobs)
     candidates = Candidate.objects.filter(
-        organization=m.organization, applications__in=applications
+        organization=m.organization, applications__in=applications, deleted_at__isnull=True
     ).distinct()
     resumes = ApplicationResume.objects.filter(application__in=applications)
 

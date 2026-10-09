@@ -382,6 +382,14 @@ class Candidate(Timestamped):
     request_key = models.UUIDField(null=True, blank=True)
     creation_payload = models.JSONField(default=dict, blank=True)
     created_by = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        Membership,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="deleted_candidates",
+    )
 
     class Meta:
         indexes = [models.Index(fields=["organization", "display_name"], name="candidate_org_name")]

@@ -411,6 +411,7 @@ type CandidateRecord = Candidate & {
   resume_documents: Application['resumes'];
   updated_at: string;
   can_edit_profile: boolean;
+  can_delete: boolean;
 };
 
 export type CandidateLibraryActions = {
@@ -541,6 +542,7 @@ export const Candidates = forwardRef<
   const [reload, setReload] = useState(0);
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<CandidateRecord | null>(null);
   const [exporting, setExporting] = useState(false);
 
   const query = new URLSearchParams({ page: String(page) });
@@ -822,11 +824,18 @@ export const Candidates = forwardRef<
                   },
                   {
                     title: '操作',
-                    width: 80,
+                    width: 140,
                     render: (_, c) => (
-                      <Button variant="link" onClick={() => setDetail(c.id)}>
-                        详情
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button variant="link" onClick={() => setDetail(c.id)}>
+                          详情
+                        </Button>
+                        {c.can_delete && (
+                          <Button variant="destructive-link" onClick={() => setDeleting(c)}>
+                            删除
+                          </Button>
+                        )}
+                      </div>
                     ),
                   },
                 ]}
@@ -836,6 +845,21 @@ export const Candidates = forwardRef<
           </>
         )}
       </section>
+      {deleting && (
+        <DeleteCandidateDialog
+          candidate={deleting}
+          close={() => {
+            setDeleting(null);
+            setReload((value) => value + 1);
+          }}
+          deleted={() => {
+            setDeleting(null);
+            if (data?.results.length === 1 && page > 1) setPage(page - 1);
+            setNotice('候选人已删除。');
+            changed();
+          }}
+        />
+      )}
       {creating && (
         <CreateCandidateDialog
           close={() => setCreating(false)}
@@ -861,6 +885,74 @@ export const Candidates = forwardRef<
     </>
   );
 });
+
+function DeleteCandidateDialog({
+  candidate,
+  close,
+  deleted,
+}: {
+  candidate: CandidateRecord;
+  close: () => void;
+  deleted: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const submitting = useRef(false);
+
+  async function remove() {
+    if (submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      await api(
+        `candidates/${candidate.id}/`,
+        { updated_at: candidate.updated_at },
+        undefined,
+        'DELETE',
+      );
+      deleted();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      visible
+      centered
+      title="删除候选人"
+      width={440}
+      closable={!busy}
+      maskClosable={!busy}
+      closeOnEsc={!busy}
+      onCancel={() => {
+        if (!submitting.current) close();
+      }}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" disabled={busy} onClick={close}>
+            取消
+          </Button>
+          <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
+            {busy ? '正在删除…' : '确认删除'}
+          </Button>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <p>确定删除「{candidate.display_name}」吗？</p>
+        <p className="text-sm text-muted-foreground">
+          删除后将移出候选人库；已有应聘、面试记录保留，进行中的流程不会自动终止。
+        </p>
+        {error && <ErrorNotice message={error} />}
+      </div>
+    </Modal>
+  );
+}
 
 function CandidateDetails({
   id,
