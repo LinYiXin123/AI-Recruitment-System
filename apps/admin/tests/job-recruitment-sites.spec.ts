@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { expect, type Page, test } from '@playwright/test';
+import type { Job } from '../src/lib/api';
 import { login } from './helpers';
 
 const websites = ['BOSS直聘', '猎聘', '智联招聘', '前程无忧', '拉勾招聘', '其他'];
@@ -7,6 +8,29 @@ const websites = ['BOSS直聘', '猎聘', '智联招聘', '前程无忧', '拉�
 async function openJobs(page: Page, title: string) {
   await page.getByRole('link', { name: '职位', exact: true }).click();
   await page.getByLabel('搜索职位或地点', { exact: true }).fill(title);
+}
+
+async function postJob(page: Page, path: string, data: unknown): Promise<Job> {
+  const csrf = await (await page.request.get('/api/v1/auth/csrf/')).json();
+  const response = await page.request.post(`/api/v1/${path}`, {
+    data,
+    headers: { 'X-CSRFToken': csrf.csrfToken },
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return response.json();
+}
+
+async function createJob(page: Page, title: string, recruitmentSites: string[]) {
+  const me = await (await page.request.get('/api/v1/me/')).json();
+  return postJob(page, 'jobs/', {
+    request_id: crypto.randomUUID(),
+    title,
+    location: '深圳',
+    headcount: 1,
+    department: me.departments[0].id,
+    approver: me.departments[0].approvers[0].id,
+    recruitment_sites: recruitmentSites,
+  });
 }
 
 test('职位可多选招聘网站，列表紧跟薪资显示对应颜色并导出保存内容', async ({ page }, testInfo) => {
@@ -84,96 +108,245 @@ test('职位可多选招聘网站，列表紧跟薪资显示对应颜色并导�
   for (const website of selected) expect(exportedJob).toContain(website);
 });
 
-test('招聘网站修改失败保留选择，重试及清空后刷新仍与保存结果一致', async ({ page }) => {
-  const title = '虚构招聘网站修改验收岗';
+test('列表自动保存可连续修改清空及重试，详情保留状态原因，关闭职位隐藏入口', async ({
+  page,
+}, testInfo) => {
+  const title = '虚构招聘网站自动保存验收岗';
   await login(page);
-  const me = await (await page.request.get('/api/v1/me/')).json();
-  const csrf = await (await page.request.get('/api/v1/auth/csrf/')).json();
-  const created = await page.request.post('/api/v1/jobs/', {
-    data: {
-      request_id: crypto.randomUUID(),
-      title,
-      location: '深圳',
-      headcount: 1,
-      department: me.departments[0].id,
-      approver: me.departments[0].approvers[0].id,
-      recruitment_sites: ['BOSS直聘', '猎聘'],
-    },
-    headers: { 'X-CSRFToken': csrf.csrfToken },
-  });
-  expect(created.ok(), await created.text()).toBeTruthy();
-  const job = await created.json();
+  const job = await createJob(page, title, ['BOSS直聘', '猎聘']);
   const updates: { version: number; recruitment_sites: string[] }[] = [];
-  await page.route(`**/api/v1/jobs/${job.id}/recruitment-sites/`, (route) => {
+  let releaseFailure = () => {};
+  const failureGate = new Promise<void>((resolve) => {
+    releaseFailure = resolve;
+  });
+  await page.route(`**/api/v1/jobs/${job.id}/recruitment-sites/`, async (route) => {
     updates.push(route.request().postDataJSON());
-    return updates.length === 1
-      ? route.fulfill({ status: 500, json: { errors: { detail: '虚构网站保存失败，请重试。' } } })
-      : route.continue();
+    if (updates.length === 1) {
+      await failureGate;
+      return route.fulfill({
+        status: 500,
+        json: { errors: { detail: '虚构网站保存失败，请重试。' } },
+      });
+    }
+    return route.continue();
   });
   await openJobs(page, title);
-  await page.getByRole('button', { name: title, exact: true }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByRole('tab', { name: '职位信息', exact: true }).click();
-  await dialog.getByRole('button', { name: '修改招聘网站', exact: true }).click();
-  const choices = dialog.getByRole('group', { name: '招聘网站（可多选）', exact: true });
-  await expect(choices.getByRole('checkbox', { name: 'BOSS直聘', exact: true })).toBeChecked();
-  await expect(choices.getByRole('checkbox', { name: '猎聘', exact: true })).toBeChecked();
-  await choices.getByRole('checkbox', { name: '智联招聘', exact: true }).check();
-  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  const row = page.getByRole('grid').getByRole('row').filter({ hasText: title });
+  const entry = row.getByRole('button', { name: `设置${title}的招聘网站`, exact: true });
+  await entry.click();
+  const choices = page.getByRole('group', { name: '招聘网站（可多选）', exact: true });
+  await expect(choices).toBeVisible();
+  await expect(page.getByRole('button', { name: '保存招聘网站', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '取消', exact: true })).toHaveCount(0);
+  const listReads: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/v1/jobs/')
+      listReads.push(request.url());
+  });
+  // 勾选状态以保存后的职位为准；先点击，再等待请求结果与页面回写。
+  await choices.getByRole('checkbox', { name: '猎聘', exact: true }).click();
+  try {
+    await expect.poll(() => updates.length).toBe(1);
+    for (const website of websites)
+      await expect(choices.getByRole('checkbox', { name: website, exact: true })).toBeDisabled();
+  } finally {
+    releaseFailure();
+  }
+  await expect(
+    page.getByRole('alert').filter({ hasText: '虚构网站保存失败，请重试。' }),
+  ).toBeVisible();
+  await expect(row.locator('.semi-tag')).toHaveText(['BOSS直聘', '猎聘']);
+  await page.getByRole('button', { name: '重试', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '已自动保存' })).toBeVisible();
+  await expect(row.locator('.semi-tag')).toHaveText(['BOSS直聘']);
+  await expect(choices).toBeVisible();
+  await choices.getByRole('checkbox', { name: '智联招聘', exact: true }).click();
+  await expect(row.locator('.semi-tag')).toHaveText(['BOSS直聘', '智联招聘']);
+  await choices.getByRole('checkbox', { name: 'BOSS直聘', exact: true }).click();
+  await expect(row.locator('.semi-tag')).toHaveText(['智联招聘']);
+  await choices.getByRole('checkbox', { name: '智联招聘', exact: true }).click();
+  await expect(row.locator('.semi-tag')).toHaveCount(0);
+  await expect(choices.getByRole('checkbox', { checked: true })).toHaveCount(0);
+  expect(updates).toEqual([
+    { version: job.version, recruitment_sites: ['BOSS直聘'] },
+    { version: job.version, recruitment_sites: ['BOSS直聘'] },
+    { version: job.version + 1, recruitment_sites: ['BOSS直聘', '智联招聘'] },
+    { version: job.version + 2, recruitment_sites: ['智联招聘'] },
+    { version: job.version + 3, recruitment_sites: [] },
+  ]);
+  expect(listReads).toHaveLength(0);
+  await page.keyboard.press('Escape');
   await expect(choices).toHaveCount(0);
-  expect(updates).toHaveLength(0);
-  await dialog.getByRole('button', { name: '修改招聘网站', exact: true }).click();
-  await expect(choices.getByRole('checkbox', { name: '智联招聘', exact: true })).not.toBeChecked();
-  await choices.getByRole('checkbox', { name: '猎聘', exact: true }).uncheck();
-  await choices.getByRole('checkbox', { name: '智联招聘', exact: true }).check();
-  const nextStatus = dialog.getByLabel('调整职位状态', { exact: true });
-  const statusReason = dialog.getByLabel('调整原因', { exact: true });
+  await expect(entry).toBeVisible();
+  await page.reload();
+  await page.getByLabel('搜索职位或地点', { exact: true }).fill(title);
+  await expect(entry).toBeVisible();
+  await expect(row.locator('.semi-tag')).toHaveCount(0);
+  const cleared = await (await page.request.get(`/api/v1/jobs/${job.id}/`)).json();
+  expect(cleared.recruitment_sites).toEqual([]);
+  expect(cleared.version).toBe(job.version + 4);
+
+  await row.getByRole('button', { name: title, exact: true }).click();
+  const detail = page.getByRole('dialog', { name: title, exact: true });
+  await detail.getByRole('tab', { name: '职位信息', exact: true }).click();
+  const nextStatus = detail.getByLabel('调整职位状态', { exact: true });
+  const statusReason = detail.getByLabel('调整原因', { exact: true });
   await nextStatus.click();
   await page.getByRole('option', { name: /关闭职位/ }).click();
   await statusReason.fill('稍后处理的状态原因');
-  await dialog.getByRole('button', { name: '保存招聘网站', exact: true }).click();
-  await expect(
-    dialog.getByRole('alert').filter({ hasText: '虚构网站保存失败，请重试。' }),
-  ).toBeVisible();
-  await expect(choices.getByRole('checkbox', { name: 'BOSS直聘', exact: true })).toBeChecked();
-  await expect(choices.getByRole('checkbox', { name: '猎聘', exact: true })).not.toBeChecked();
-  await expect(choices.getByRole('checkbox', { name: '智联招聘', exact: true })).toBeChecked();
-  await dialog.getByRole('button', { name: '保存招聘网站', exact: true }).click();
+  await detail.getByRole('button', { name: `设置${title}的招聘网站`, exact: true }).click();
+  await choices.getByRole('checkbox', { name: '其他', exact: true }).click();
+  await expect(detail.locator('.semi-tag').filter({ hasText: '其他' })).toHaveText('其他');
+  await expect(page.getByRole('status').filter({ hasText: '已自动保存' })).toBeVisible();
+  await expect(choices).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('招聘网站自动保存.png') });
+  await page.keyboard.press('Escape');
   await expect(choices).toHaveCount(0);
+  await expect(detail).toBeVisible();
   await expect(nextStatus).toContainText('关闭职位');
   await expect(statusReason).toHaveValue('稍后处理的状态原因');
-  await statusReason.fill('');
-  await nextStatus.click();
-  await page.getByRole('option', { name: /选择下一步/ }).click();
-  expect(updates).toHaveLength(2);
-  expect(updates[0]).toEqual({ version: job.version, recruitment_sites: ['BOSS直聘', '智联招聘'] });
-  expect(updates[1]).toEqual(updates[0]);
-  const updatedResponse = await page.request.get(`/api/v1/jobs/${job.id}/`);
-  expect(updatedResponse.ok()).toBeTruthy();
-  const updated = await updatedResponse.json();
-  expect(updated.recruitment_sites).toEqual(['BOSS直聘', '智联招聘']);
+  expect(updates[5]).toEqual({ version: job.version + 4, recruitment_sites: ['其他'] });
+  const updated = await (await page.request.get(`/api/v1/jobs/${job.id}/`)).json();
   expect(updated.status).toBe('draft');
-  expect(updated.version).toBe(job.version + 1);
+  expect(updated.version).toBe(job.version + 5);
+  await statusReason.fill('虚构验收结束，关闭测试职位');
+  await detail.getByRole('button', { name: '确认调整', exact: true }).click();
+  await expect(
+    detail.getByRole('button', { name: `设置${title}的招聘网站`, exact: true }),
+  ).toHaveCount(0);
+  await expect(detail.locator('.semi-tag').filter({ hasText: '其他' })).toHaveText('其他');
+  await detail.getByRole('button', { name: '关闭详情', exact: true }).click();
+  await expect(entry).toHaveCount(0);
+  await expect(row.locator('.semi-tag')).toHaveText(['其他']);
+});
 
-  await dialog.getByRole('button', { name: '修改招聘网站', exact: true }).click();
-  for (const website of websites) {
-    await choices.getByRole('checkbox', { name: website, exact: true }).uncheck();
-  }
-  await dialog.getByRole('button', { name: '保存招聘网站', exact: true }).click();
+test('网站冲突不覆盖，损坏或丢失响应可恢复且不重复写入，只读账号没有编辑入口', async ({ page }) => {
+  const title = '虚构招聘网站冲突验收岗';
+  await login(page);
+  const job = await createJob(page, title, ['BOSS直聘']);
+  const updates: { version: number; recruitment_sites: string[] }[] = [];
+  let detailReads = 0;
+  let failNextRead = false;
+  await page.route(`**/api/v1/jobs/${job.id}/`, (route) => {
+    detailReads++;
+    if (failNextRead) {
+      failNextRead = false;
+      return route.fulfill({ status: 503, json: { errors: { detail: '虚构回读暂不可用。' } } });
+    }
+    return route.continue();
+  });
+  await page.route(`**/api/v1/jobs/${job.id}/recruitment-sites/`, async (route) => {
+    updates.push(route.request().postDataJSON());
+    if ([2, 3, 4].includes(updates.length)) {
+      const response = await route.fetch();
+      expect(response.ok(), await response.text()).toBeTruthy();
+      if (updates.length === 3)
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '{"job":' });
+      if (updates.length === 4) failNextRead = true;
+      return route.abort('failed');
+    }
+    return route.continue();
+  });
+  await openJobs(page, title);
+  const row = page.getByRole('grid').getByRole('row').filter({ hasText: title });
+  const entry = row.getByRole('button', { name: `设置${title}的招聘网站`, exact: true });
+  await entry.click();
+  const choices = page.getByRole('group', { name: '招聘网站（可多选）', exact: true });
+  await expect(choices.getByRole('checkbox', { name: 'BOSS直聘', exact: true })).toBeChecked();
+  // 另一窗口先保存，当前弹层仍持有旧版本；真实后端必须拒绝旧版本覆盖。
+  const concurrent = await postJob(page, `jobs/${job.id}/recruitment-sites/`, {
+    version: job.version,
+    recruitment_sites: ['猎聘'],
+  });
+  const readsBeforeConflict = detailReads;
+  await choices.getByRole('checkbox', { name: '智联招聘', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: '重新选择' })).toBeVisible();
+  await expect(row.locator('.semi-tag')).toHaveText(['猎聘']);
+  await expect(choices.getByRole('checkbox', { name: '猎聘', exact: true })).toBeChecked();
+  await expect(choices.getByRole('checkbox', { name: 'BOSS直聘', exact: true })).not.toBeChecked();
+  await expect(choices.getByRole('checkbox', { name: '智联招聘', exact: true })).not.toBeChecked();
+  expect(detailReads).toBeGreaterThan(readsBeforeConflict);
+  expect(updates).toEqual([{ version: job.version, recruitment_sites: ['BOSS直聘', '智联招聘'] }]);
+  const afterConflict = await (await page.request.get(`/api/v1/jobs/${job.id}/`)).json();
+  expect(afterConflict.recruitment_sites).toEqual(['猎聘']);
+  expect(afterConflict.version).toBe(concurrent.version);
+
+  const readsBeforeLostResponse = detailReads;
+  await choices.getByRole('checkbox', { name: 'BOSS直聘', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '已自动保存' })).toBeVisible();
+  await expect(row.locator('.semi-tag')).toHaveText(['猎聘', 'BOSS直聘']);
+  await expect(choices).toBeVisible();
+  expect(detailReads).toBeGreaterThan(readsBeforeLostResponse);
+  expect(updates).toHaveLength(2);
+  expect(updates[1]).toEqual({
+    version: concurrent.version,
+    recruitment_sites: ['猎聘', 'BOSS直聘'],
+  });
+  const saved = await (await page.request.get(`/api/v1/jobs/${job.id}/`)).json();
+  expect(saved.recruitment_sites).toEqual(['猎聘', 'BOSS直聘']);
+  expect(saved.version).toBe(concurrent.version + 1);
+
+  const readsBeforeBrokenJson = detailReads;
+  const afterBrokenJsonSites = ['猎聘', 'BOSS直聘', '拉勾招聘'];
+  await choices.getByRole('checkbox', { name: '拉勾招聘', exact: true }).click();
+  await expect(row.locator('.semi-tag')).toHaveText(afterBrokenJsonSites);
+  await expect(page.getByRole('status').filter({ hasText: '已自动保存' })).toBeVisible();
+  expect(detailReads).toBeGreaterThan(readsBeforeBrokenJson);
+  expect(updates).toHaveLength(3);
+  expect(updates[2]).toEqual({ version: saved.version, recruitment_sites: afterBrokenJsonSites });
+  const afterBrokenJson = await (await page.request.get(`/api/v1/jobs/${job.id}/`)).json();
+  expect(afterBrokenJson.recruitment_sites).toEqual(afterBrokenJsonSites);
+  expect(afterBrokenJson.version).toBe(saved.version + 1);
+
+  // 写入成功但响应和回读都失败时，页面只能说结果未确认；重试旧版本不能再写一次。
+  const finalSites = [...afterBrokenJsonSites, '其他'];
+  const readsBeforeUncertain = detailReads;
+  await choices.getByRole('checkbox', { name: '其他', exact: true }).click();
+  const uncertain = page.getByRole('alert').filter({
+    hasText: '暂时无法确认保存结果，请稍后重试。',
+  });
+  await expect(uncertain).toBeVisible();
+  await expect(uncertain).not.toContainText('未保存');
+  await expect(row.locator('.semi-tag')).toHaveText(afterBrokenJsonSites);
+  await expect(choices.getByRole('checkbox', { name: '其他', exact: true })).not.toBeChecked();
+  expect(detailReads).toBeGreaterThan(readsBeforeUncertain);
+  expect(updates).toHaveLength(4);
+  const committed = await (await page.request.get(`/api/v1/jobs/${job.id}/`)).json();
+  expect(committed.recruitment_sites).toEqual(finalSites);
+  expect(committed.version).toBe(afterBrokenJson.version + 1);
+  const readsBeforeRetry = detailReads;
+  const retryResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/v1/jobs/${job.id}/recruitment-sites/`) &&
+      response.request().method() === 'POST',
+  );
+  await uncertain.getByRole('button', { name: '重试', exact: true }).click();
+  expect((await retryResponse).status()).toBe(409);
+  await expect(row.locator('.semi-tag')).toHaveText(finalSites);
+  await expect(page.getByRole('status').filter({ hasText: '已自动保存' })).toBeVisible();
+  await expect(choices).toBeVisible();
+  expect(detailReads).toBeGreaterThan(readsBeforeRetry);
+  expect(updates).toHaveLength(5);
+  expect(updates[3]).toEqual({ version: afterBrokenJson.version, recruitment_sites: finalSites });
+  expect(updates[4]).toEqual(updates[3]);
+  const recovered = await (await page.request.get(`/api/v1/jobs/${job.id}/`)).json();
+  expect(recovered.recruitment_sites).toEqual(finalSites);
+  expect(recovered.version).toBe(committed.version);
+
+  await page.keyboard.press('Escape');
   await expect(choices).toHaveCount(0);
-  expect(updates[2]).toEqual({ version: updated.version, recruitment_sites: [] });
-  await page.reload();
-  await page.getByLabel('搜索职位或地点', { exact: true }).fill(title);
-  await page.getByRole('button', { name: title, exact: true }).click();
-  await dialog.getByRole('tab', { name: '职位信息', exact: true }).click();
-  await expect(dialog.locator('.semi-tag')).toHaveCount(0);
-  await dialog.getByRole('button', { name: '修改招聘网站', exact: true }).click();
-  for (const website of websites) {
-    await expect(choices.getByRole('checkbox', { name: website, exact: true })).not.toBeChecked();
-  }
-  const clearedResponse = await page.request.get(`/api/v1/jobs/${job.id}/`);
-  expect(clearedResponse.ok()).toBeTruthy();
-  const cleared = await clearedResponse.json();
-  expect(cleared.recruitment_sites).toEqual([]);
-  expect(cleared.version).toBe(job.version + 2);
+  await login(page, 'local_manager');
+  await openJobs(page, title);
+  await expect(row.locator('.semi-tag')).toHaveText(finalSites);
+  await expect(entry).toHaveCount(0);
+  const visibleJob = await (await page.request.get(`/api/v1/jobs/${job.id}/`)).json();
+  expect(visibleJob.permissions.edit).toBe(false);
+  await row.getByRole('button', { name: title, exact: true }).click();
+  const detail = page.getByRole('dialog', { name: title, exact: true });
+  await detail.getByRole('tab', { name: '职位信息', exact: true }).click();
+  await expect(detail.locator('.semi-tag')).toHaveText(finalSites);
+  await expect(
+    detail.getByRole('button', { name: `设置${title}的招聘网站`, exact: true }),
+  ).toHaveCount(0);
+  expect(updates).toHaveLength(5);
 });

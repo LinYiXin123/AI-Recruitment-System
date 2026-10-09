@@ -174,6 +174,7 @@ test('HR 建岗后直接使用要求、招聘开启与版本保留', async ({ pa
   for (const name of ['按部门筛选职位', '按企业筛选职位', '按状态筛选职位']) {
     await expect(page.getByRole('combobox', { name, exact: true })).toBeVisible();
   }
+  await page.getByLabel('搜索职位或地点', { exact: true }).fill('产品经理（流程验收）');
   await page.getByLabel('按状态筛选职位', { exact: true }).click();
   await page.getByRole('option', { name: /关闭/ }).click();
   await expect(page.getByText('没有符合条件的职位')).toBeVisible();

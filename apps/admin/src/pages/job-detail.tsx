@@ -2,7 +2,7 @@ import { Check, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Blank, ErrorNotice, Loading, Pager } from '@/components/feedback';
 import { ProfileRequirementSummary, ProfileRequirements } from '@/components/profile-requirements';
-import { RecruitmentSites, RecruitmentSitesField } from '@/components/recruitment-sites';
+import { RecruitmentSitesEditor, RecruitmentSitesField } from '@/components/recruitment-sites';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -399,17 +399,12 @@ export function JobDetail({
   const [clarificationDirty, setClarificationDirty] = useState(false);
   const [nextStatus, setNextStatus] = useState('');
   const [reason, setReason] = useState('');
-  const [sitesDraft, setSitesDraft] = useState<string[] | null>(null);
-  const sitesDirty =
-    sitesDraft !== null &&
-    JSON.stringify(sitesDraft) !== JSON.stringify(job?.recruitment_sites ?? []);
   const returnFocus = useRef<HTMLElement | null>(document.activeElement as HTMLElement);
   const load = useCallback(async () => {
     setError('');
     try {
       const loaded = await api<Job>(`jobs/${id}/`);
       setJob(loaded);
-      setSitesDraft(null);
       if (!loaded.permissions.edit || loaded.status === 'closed') setEditing(false);
     } catch (e) {
       setError((e as Error).message);
@@ -440,7 +435,7 @@ export function JobDetail({
     }
   }
   function requestClose() {
-    const unsaved = profileDirty || clarificationDirty || sitesDirty || reason.trim();
+    const unsaved = profileDirty || clarificationDirty || reason.trim();
     if (!busy && (!unsaved || window.confirm('还有尚未保存的内容，确定关闭吗？'))) {
       close();
       returnFocus.current?.focus();
@@ -483,7 +478,7 @@ export function JobDetail({
               message={error}
               retry={() => {
                 if (
-                  (!profileDirty && !clarificationDirty && !sitesDirty) ||
+                  (!profileDirty && !clarificationDirty) ||
                   window.confirm('重新加载会放弃未保存的编辑，是否继续？')
                 ) {
                   setEditing(false);
@@ -527,12 +522,10 @@ export function JobDetail({
               onValueChange={(value) => {
                 if (
                   busy ||
-                  ((clarificationDirty || sitesDirty) &&
-                    !window.confirm('还有尚未保存的内容，确定离开吗？'))
+                  (clarificationDirty && !window.confirm('澄清问答尚未保存，确定离开吗？'))
                 )
                   return;
                 setClarificationDirty(false);
-                setSitesDraft(null);
                 setTab(String(value));
               }}
             >
@@ -699,18 +692,16 @@ export function JobDetail({
                   </div>
                   <div>
                     <dt>招聘网站</dt>
-                    <dd className="flex flex-col items-start gap-2">
-                      <RecruitmentSites value={job.recruitment_sites} />
-                      {job.permissions.edit && job.status !== 'closed' && sitesDraft === null && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          onClick={() => setSitesDraft(job.recruitment_sites ?? [])}
-                        >
-                          修改招聘网站
-                        </Button>
-                      )}
+                    <dd>
+                      <RecruitmentSitesEditor
+                        job={job}
+                        disabled={busy}
+                        onSavingChange={setBusy}
+                        onSaved={(updated) => {
+                          setJob(updated);
+                          changed();
+                        }}
+                      />
                     </dd>
                   </div>
                   <div>
@@ -730,41 +721,6 @@ export function JobDetail({
                     <dd>{job.planned_publish_date || '未设置'}</dd>
                   </div>
                 </dl>
-                {sitesDraft !== null && (
-                  <form
-                    className="flex flex-col gap-4 rounded-lg border p-4"
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      if (
-                        await act(
-                          'recruitment-sites',
-                          { recruitment_sites: sitesDraft },
-                          '招聘网站已保存。',
-                        )
-                      )
-                        setSitesDraft(null);
-                    }}
-                  >
-                    <RecruitmentSitesField
-                      value={sitesDraft}
-                      onChange={setSitesDraft}
-                      disabled={busy}
-                    />
-                    <div className="flex gap-2">
-                      <Button type="submit" disabled={busy || !sitesDirty}>
-                        {busy ? '正在保存…' : '保存招聘网站'}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => setSitesDraft(null)}
-                      >
-                        取消
-                      </Button>
-                    </div>
-                  </form>
-                )}
                 <h2>对外职位描述</h2>
                 <p className="preserve-text">{job.jd || '尚未填写，可在招人要求中补充。'}</p>
                 {job.permissions.edit && (

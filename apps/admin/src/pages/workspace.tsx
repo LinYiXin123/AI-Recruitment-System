@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Blank, ErrorNotice, Loading } from '@/components/feedback';
-import { RecruitmentSites } from '@/components/recruitment-sites';
+import { RecruitmentSitesEditor } from '@/components/recruitment-sites';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -470,7 +470,7 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
             <Input
               aria-label="搜索职位或地点"
               className="jobs-search-input"
-              placeholder="搜索..."
+              placeholder="搜索职位或地点"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -492,7 +492,7 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
               setPage(1);
             }}
           >
-            <Select.Option value="">全部</Select.Option>
+            <Select.Option value="">全部部门</Select.Option>
             {[...departmentOptions].map(([id, name]) => (
               <Select.Option key={id} value={String(id)}>
                 {name}
@@ -513,7 +513,7 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
               setPage(1);
             }}
           >
-            <Select.Option value="">全部</Select.Option>
+            <Select.Option value="">全部企业</Select.Option>
             {companyOptions.map((name) => (
               <Select.Option key={name} value={name}>
                 {name}
@@ -534,7 +534,7 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
               setPage(1);
             }}
           >
-            <Select.Option value="">全部</Select.Option>
+            <Select.Option value="">全部状态</Select.Option>
             {Object.entries(jobStatus).map(([value, label]) => (
               <Select.Option key={value} value={value}>
                 {label}
@@ -633,7 +633,25 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
                     title: '招聘网站',
                     dataIndex: 'recruitment_sites',
                     width: 120,
-                    render: (value) => <RecruitmentSites value={value} />,
+                    render: (_value, job) => (
+                      <RecruitmentSitesEditor
+                        job={job}
+                        onSaved={(updated) =>
+                          setData((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  results: current.results.map((item) =>
+                                    item.id === updated.id && updated.version >= item.version
+                                      ? updated
+                                      : item,
+                                  ),
+                                }
+                              : current,
+                          )
+                        }
+                      />
+                    ),
                   },
                   {
                     title: '招聘人数',
