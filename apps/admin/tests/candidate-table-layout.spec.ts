@@ -57,8 +57,11 @@ test('候选人表格窄屏只保留内部横向滚动且末列详情可操作',
     await expect(detail).toBeInViewport();
     await page.screenshot({ path: `../../.local/candidate-table-scroll/候选人表格-${width}.png` });
     await detail.click();
-    await expect(page.getByRole('dialog')).toContainText(`${candidate.display_name} · 候选人详情`);
-    await page.getByRole('button', { name: '关闭', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`#candidate/${candidate.id}$`));
+    await expect(page.getByRole('region', { name: '候选人详情', exact: true })).toContainText(
+      candidate.display_name,
+    );
+    await page.getByRole('button', { name: '返回候选人库', exact: true }).click();
   }
   await page.setViewportSize({ width: 1440, height: 984 });
   await expect

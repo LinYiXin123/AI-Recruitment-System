@@ -404,6 +404,9 @@ class Candidate(Timestamped):
     source = models.CharField(max_length=200, blank=True)
     request_key = models.UUIDField(null=True, blank=True)
     creation_payload = models.JSONField(default=dict, blank=True)
+    profile_resume_parse = models.ForeignKey(
+        "ResumeParse", on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
     created_by = models.ForeignKey(Membership, on_delete=models.PROTECT)
     deleted_at = models.DateTimeField(null=True, blank=True)
     deleted_by = models.ForeignKey(
@@ -419,6 +422,21 @@ class Candidate(Timestamped):
         constraints = [
             models.UniqueConstraint(
                 fields=["organization", "request_key"], name="candidate_creation_request"
+            )
+        ]
+
+
+class CandidateEditRequest(models.Model):
+    candidate = models.ForeignKey(Candidate, on_delete=models.PROTECT)
+    actor = models.ForeignKey(Membership, on_delete=models.PROTECT)
+    request_key = models.UUIDField()
+    input_digest = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["candidate", "actor", "request_key"], name="one_candidate_edit_request"
             )
         ]
 

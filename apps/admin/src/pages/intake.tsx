@@ -1,7 +1,14 @@
 import Modal from '@douyinfe/semi-ui/lib/es/modal';
 import Select from '@douyinfe/semi-ui/lib/es/select';
 import Table from '@douyinfe/semi-ui/lib/es/table';
-import { BriefcaseBusiness, CalendarDays, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
+import {
+  ArrowLeft,
+  BriefcaseBusiness,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+} from 'lucide-react';
 import {
   forwardRef,
   type ReactNode,
@@ -31,6 +38,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError, api, dateTime, type Job, kindLabel, type Page } from '@/lib/api';
 import {
@@ -46,6 +54,7 @@ import {
 } from '@/lib/intake';
 import { ApplicationProfile } from '@/pages/application-profile';
 import { ScheduleInterview } from '@/pages/interviews';
+import './candidate-detail.css';
 
 function Drawer({
   title,
@@ -394,7 +403,16 @@ type CandidateFilterOptions = {
   jobs: { job_id: number; job__title: string }[];
 };
 
-type CandidateRecord = Candidate & {
+type CandidateApplication = Candidate['applications'][number] & {
+  version: number;
+  expected_start_date: string | null;
+  offer_sent_at?: string | null;
+  hired_at?: string | null;
+  can_edit?: boolean;
+};
+
+type CandidateRecord = Omit<Candidate, 'applications'> & {
+  applications: CandidateApplication[];
   current_city: string;
   education_level: string;
   school: string;
@@ -403,18 +421,54 @@ type CandidateRecord = Candidate & {
   source: string;
   gender: string;
   birthday: string;
+  identity_number: string;
   intended_role: string;
   current_salary: string;
   work_experience: string;
   education_experience: string;
   remarks: string;
   resume_text: string;
-  resume_documents: Application['resumes'];
+  resume_documents: (Application['resumes'][number] & { is_current?: boolean })[];
+  created_at: string;
   updated_at: string;
   can_edit_profile: boolean;
   can_delete: boolean;
   active_application_count: number;
+  interview_count?: number;
+  interview_records?: {
+    id: number;
+    application: number;
+    job_title: string;
+    round_no: number;
+    purpose: string;
+    status: string;
+    organizer_name: string;
+    revision: {
+      starts_at: string;
+      ends_at: string;
+      mode: string;
+      location: string;
+      meeting_url: string;
+    } | null;
+  }[];
+  ai_screening_count?: number;
+  ai_screenings?: {
+    id: number;
+    application_id: number;
+    job_title: string;
+    code: string;
+    created_at: string;
+    summary: string;
+    match_score: number | null;
+    conclusion: string;
+    question_count: number;
+  }[];
 };
+
+function primaryCandidateApplication(person: CandidateRecord) {
+  const applications = [...person.applications].sort((a, b) => b.id - a.id);
+  return applications.find((item) => !item.closed_at) ?? applications[0];
+}
 
 export type CandidateLibraryActions = {
   exportModule: () => void;
@@ -440,6 +494,7 @@ const resumeSources = [
   '前程无忧',
   '猎聘',
   '拉勾',
+  '内推',
   '猎头推荐',
   '校园招聘',
   '官网投递',
@@ -529,8 +584,14 @@ export const Candidates = forwardRef<
     revision: number;
     openApplication: (id: number) => void;
     changed: () => void;
+    candidateId?: number | null;
+    openCandidate?: (id: number) => void;
+    backToCandidates?: () => void;
   }
->(function Candidates({ revision, openApplication, changed }, ref) {
+>(function Candidates(
+  { revision, openApplication, changed, candidateId = null, openCandidate, backToCandidates },
+  ref,
+) {
   const [search, setSearch] = useState('');
   const [stage, setStage] = useState('');
   const [job, setJob] = useState('');
@@ -543,7 +604,7 @@ export const Candidates = forwardRef<
   const [notice, setNotice] = useState('');
   const [reload, setReload] = useState(0);
   const [creating, setCreating] = useState(false);
-  const [detail, setDetail] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<CandidateRecord | null>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -657,6 +718,29 @@ export const Candidates = forwardRef<
     showMailboxSyncStatus: () =>
       setNotice('邮箱同步尚未接通。当前可通过“新增候选人”中的简历导入流程录入材料。'),
   }));
+
+  if (candidateId !== null) {
+    return (
+      <CandidateDetails
+        key={candidateId}
+        id={candidateId}
+        revision={revision}
+        changed={changed}
+        close={
+          backToCandidates ??
+          (() => {
+            window.location.hash = 'candidates';
+          })
+        }
+        openApplication={openApplication}
+      />
+    );
+  }
+
+  function showCandidate(id: number) {
+    if (openCandidate) openCandidate(id);
+    else window.location.hash = `candidate/${id}`;
+  }
 
   return (
     <>
@@ -789,7 +873,7 @@ export const Candidates = forwardRef<
                     width: 180,
                     render: (_, candidate) => (
                       <div className="flex flex-col items-start">
-                        <Button variant="link" onClick={() => setDetail(candidate.id)}>
+                        <Button variant="link" onClick={() => showCandidate(candidate.id)}>
                           {candidate.display_name}
                         </Button>
                         <span className="text-xs text-muted-foreground">
@@ -826,12 +910,17 @@ export const Candidates = forwardRef<
                   },
                   {
                     title: '操作',
-                    width: 140,
+                    width: 180,
                     render: (_, c) => (
                       <div className="flex items-center gap-1">
-                        <Button variant="link" onClick={() => setDetail(c.id)}>
+                        <Button variant="link" onClick={() => showCandidate(c.id)}>
                           详情
                         </Button>
+                        {c.can_edit_profile && (
+                          <Button variant="link" onClick={() => setEditingId(c.id)}>
+                            编辑
+                          </Button>
+                        )}
                         {c.can_delete && (
                           <Button variant="destructive-link" onClick={() => setDeleting(c)}>
                             删除
@@ -877,14 +966,14 @@ export const Candidates = forwardRef<
           }}
         />
       )}
-      {detail !== null && (
-        <CandidateDetails
-          id={detail}
-          changed={changed}
-          close={() => setDetail(null)}
-          openApplication={(id) => {
-            setDetail(null);
-            openApplication(id);
+      {editingId !== null && (
+        <EditCandidateLoader
+          id={editingId}
+          close={() => setEditingId(null)}
+          saved={() => {
+            setEditingId(null);
+            setNotice('候选人已保存。');
+            changed();
           }}
         />
       )}
@@ -988,276 +1077,445 @@ function DeleteCandidateDialog({
   );
 }
 
-function CandidateDetails({
+function CandidateAttachment({
+  document,
+  showDescription = false,
+}: {
+  document: CandidateRecord['resume_documents'][number];
+  showDescription?: boolean;
+}) {
+  return (
+    <div className="candidate-attachment">
+      <span className="candidate-attachment-name">
+        <FileText aria-hidden="true" />
+        <span>
+          <strong>{document.name}</strong>
+          {showDescription && <small>已关联本候选人，可在线查看或下载原件</small>}
+        </span>
+      </span>
+      {document.download && (
+        <div className="candidate-attachment-actions">
+          <a
+            href={`/api/v1/documents/${document.document}/download/?inline=1`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            查看
+          </a>
+          <a href={`/api/v1/documents/${document.document}/download/`} download={document.name}>
+            下载
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EditCandidateLoader({
   id,
   close,
-  openApplication,
-  changed,
+  saved,
 }: {
   id: number;
   close: () => void;
-  openApplication: (id: number) => void;
-  changed: () => void;
+  saved: () => void;
 }) {
   const [person, setPerson] = useState<CandidateRecord | null>(null);
   const [error, setError] = useState('');
-  const [reload, setReload] = useState(0);
-  const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
   useEffect(() => {
     const controller = new AbortController();
-    setError('');
     api<CandidateRecord>(`candidates/${id}/`, undefined, controller.signal)
       .then(setPerson)
       .catch((e) => {
         if (e.name !== 'AbortError') setError(e.message);
       });
     return () => controller.abort();
-  }, [id, reload]);
+  }, [id]);
+  if (person?.can_edit_profile)
+    return <CreateCandidateDialog person={person} close={close} saved={saved} />;
   return (
     <Modal
       visible
-      title={person ? `${person.display_name} · 候选人详情` : '候选人详情'}
-      width={940}
-      className="candidate-create-modal"
-      closable={!busy}
-      maskClosable={!editing && !busy}
-      closeOnEsc={!editing && !busy}
-      onCancel={() => {
-        if (!busy && (!editing || window.confirm('资料还未保存，确定关闭吗？'))) close();
-      }}
+      centered
+      title="编辑候选人"
+      width={820}
+      className="candidate-editor-modal"
+      onCancel={close}
       footer={
-        !editing && (
-          <Button variant="outline" onClick={close}>
-            关闭
-          </Button>
-        )
+        <Button variant="outline" onClick={close}>
+          关闭
+        </Button>
       }
     >
       {error ? (
-        <ErrorNotice message={error} retry={() => setReload((value) => value + 1)} />
-      ) : !person ? (
-        <Loading />
-      ) : editing ? (
-        <CandidateProfileEditor
-          person={person}
-          busy={busy}
-          setBusy={setBusy}
-          cancel={() => setEditing(false)}
-          saved={(result) => {
-            setPerson(result);
-            setEditing(false);
-            setNotice('资料已保存。');
-            changed();
-          }}
-        />
+        <ErrorNotice message={error} />
+      ) : person ? (
+        <ErrorNotice message="你暂时没有编辑该候选人的权限。" />
       ) : (
-        <div className="flex flex-col gap-5">
-          {notice && <p role="status">{notice}</p>}
-          {person.can_edit_profile && (
-            <div>
-              <Button variant="outline" onClick={() => setEditing(true)}>
-                识别并补全资料
-              </Button>
-            </div>
-          )}
-          <dl className="candidate-create-grid">
-            {[
-              ['姓名', person.display_name],
-              ['联系方式', person.phone],
-              ['邮箱', person.email],
-              ['现居城市', person.current_city],
-              ['最高学历', person.education_level],
-              ['毕业院校', person.school],
-              ['工作年限', person.work_years],
-              ['意向岗位', person.intended_role],
-              ['当前薪资', person.current_salary],
-              ['期望薪资', person.expected_salary],
-              ['简历来源', person.source],
-              ['联系方式备注', person.contact_note],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-sm text-muted-foreground">{label}</dt>
-                <dd className="whitespace-pre-wrap break-words">{value || '—'}</dd>
-              </div>
-            ))}
-          </dl>
-          {person.applications.length > 0 && (
-            <section className="flex flex-col gap-2" aria-label="应聘记录">
-              <h3>应聘记录</h3>
-              {person.applications.map((application) => (
-                <div key={application.id} className="flex flex-wrap items-center gap-2">
-                  <Button variant="link" onClick={() => openApplication(application.id)}>
-                    {application.job__title} · 第 {application.attempt_no} 次应聘
-                  </Button>
-                  <Badge variant={stageVariants[application.stage] || 'muted'}>
-                    {stages[application.stage] || application.stage}
-                  </Badge>
-                </div>
-              ))}
-            </section>
-          )}
-          {[
-            ['工作经历', person.work_experience],
-            ['教育经历', person.education_experience],
-            ['备注', person.remarks],
-            ['简历原文', person.resume_text],
-          ]
-            .filter(([, value]) => value)
-            .map(([label, value]) => (
-              <section key={label} className="flex flex-col gap-2">
-                <h3>{label}</h3>
-                <pre className="resume-text">{value}</pre>
-              </section>
-            ))}
-          {person.resume_documents?.length > 0 && (
-            <section className="flex flex-col gap-2" aria-label="简历附件">
-              <h3>简历附件</h3>
-              {person.resume_documents.map((document) => (
-                <div key={document.document}>
-                  {document.download ? (
-                    <a href={`/api/v1/documents/${document.document}/download/`}>{document.name}</a>
-                  ) : (
-                    <span>{document.name}</span>
-                  )}
-                </div>
-              ))}
-            </section>
-          )}
-        </div>
+        <Loading />
       )}
     </Modal>
   );
 }
 
-function CandidateProfileEditor({
-  person,
-  busy,
-  setBusy,
-  cancel,
-  saved,
+function candidateDateTime(value: string) {
+  return new Date(value)
+    .toLocaleString('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    .replaceAll('/', '-');
+}
+
+function CandidateDetails({
+  id,
+  close,
+  openApplication,
+  changed,
+  revision,
 }: {
-  person: CandidateRecord;
-  busy: boolean;
-  setBusy: (value: boolean) => void;
-  cancel: () => void;
-  saved: (value: CandidateRecord) => void;
+  id: number;
+  close: () => void;
+  openApplication: (id: number) => void;
+  changed: () => void;
+  revision: number;
 }) {
-  const documents = person.resume_documents.filter(
-    (document) => document.parse?.status === 'succeeded',
-  );
-  const [documentId, setDocumentId] = useState<number | null>(documents[0]?.document ?? null);
-  const document = documents.find((item) => item.document === documentId);
-  const initial = Object.fromEntries(
-    Object.keys(profileFields).map((key) => [key, person[key as keyof typeof profileFields]]),
-  ) as ProfileFields;
-  const recognized = document ? resumeFormFields(document.parse?.text ?? '', document.name) : {};
-  const [values, setValues] = useState<ProfileFields>(() =>
-    Object.fromEntries(
-      Object.keys(profileFields).map((key) => [
-        key,
-        initial[key as keyof typeof profileFields] ||
-          recognized[key as keyof typeof profileFields] ||
-          '',
-      ]),
-    ),
-  );
-  const autofilled = useRef<ProfileFields>(recognized);
+  const [person, setPerson] = useState<CandidateRecord | null>(null);
   const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [applicationId, setApplicationId] = useState<number | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setError('');
+    api<CandidateRecord>(`candidates/${id}/`, undefined, controller.signal)
+      .then((result) => {
+        setPerson(result);
+        setApplicationId((current) =>
+          result.applications.some((item) => item.id === current)
+            ? current
+            : (primaryCandidateApplication(result)?.id ?? null),
+        );
+      })
+      .catch((e) => {
+        if (e.name !== 'AbortError') setError(e.message);
+      });
+    return () => controller.abort();
+  }, [id, reload, revision]);
+  const application = person?.applications.find((item) => item.id === applicationId);
+  const currentStage = application?.stage ?? 'pending_review';
+  const interviews = person?.interview_records ?? [];
+  const screenings = person?.ai_screenings ?? [];
+  async function updateStage(value: string) {
+    if (!person || !application || busy || value === application.stage) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await api(`candidates/${id}/edit/`, {
+        request_key: crypto.randomUUID(),
+        updated_at: person.updated_at,
+        fields: {},
+        application: {
+          id: application.id,
+          version: application.version,
+          stage: value,
+          expected_start_date: application.expected_start_date,
+        },
+      });
+      setNotice('当前应聘状态已更新。');
+      setReload((v) => v + 1);
+      changed();
+    } catch (e) {
+      setNotice((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <form
-      id="candidate-profile-form"
-      className="flex flex-col gap-4"
-      onSubmit={async (event) => {
-        event.preventDefault();
-        setBusy(true);
-        setError('');
-        try {
-          saved(
-            await api<CandidateRecord>(`candidates/${person.id}/supplement-profile/`, {
-              updated_at: person.updated_at,
-              parse: document?.parse?.id ?? null,
-              fields: Object.fromEntries(
-                Object.entries(values).filter(
-                  ([key, value]) => value !== initial[key as keyof typeof profileFields],
-                ),
-              ),
-            }),
-          );
-        } catch (e) {
-          setError((e as Error).message);
-        } finally {
-          setBusy(false);
-        }
-      }}
-    >
-      <p>
-        已根据简历补入可识别的空项，请核对后保存。未写明的现居城市、薪资和招聘来源留空，不根据籍贯或经历推测。
-      </p>
-      {error && <ErrorNotice message={error} />}
-      {documents.length > 0 && (
-        <Field>
-          <FieldLabel htmlFor="profile-resume-document">用于识别的简历</FieldLabel>
-          <Select
-            id="profile-resume-document"
-            aria-label="用于识别的简历"
-            className="candidate-select"
-            dropdownClassName="candidate-select-dropdown"
-            disabled={busy}
-            value={documentId}
-            onChange={(value) => {
-              const next = documents.find((item) => item.document === value);
-              const fields = next ? resumeFormFields(next.parse?.text ?? '', next.name) : {};
-              const previous = autofilled.current;
-              setValues((current) =>
-                Object.fromEntries(
-                  Object.keys(profileFields).map((field) => {
-                    const key = field as keyof typeof profileFields;
-                    return [
-                      key,
-                      !initial[key] &&
-                      (current[key] === previous[key] ||
-                        (!current[key] && previous[key] === undefined))
-                        ? fields[key] || ''
-                        : current[key],
-                    ];
-                  }),
-                ),
-              );
-              autofilled.current = fields;
-              setDocumentId(typeof value === 'number' ? value : null);
-            }}
-          >
-            {documents.map((item) => (
-              <Select.Option key={item.document} value={item.document}>
-                {item.name}
-              </Select.Option>
-            ))}
-          </Select>
-        </Field>
+    <section className="candidate-detail-page" aria-label="候选人详情">
+      <Button className="candidate-back" variant="link" onClick={close}>
+        <ArrowLeft data-icon="inline-start" />
+        返回候选人库
+      </Button>
+      <h1>候选人详情</h1>
+      {error ? (
+        <ErrorNotice message={error} retry={() => setReload((v) => v + 1)} />
+      ) : !person ? (
+        <Loading />
+      ) : (
+        <>
+          {notice && (
+            <Alert>
+              <AlertTitle>候选人提示</AlertTitle>
+              <AlertDescription>{notice}</AlertDescription>
+            </Alert>
+          )}
+          <section className="candidate-detail-summary">
+            <div className="candidate-detail-identity">
+              <div className="candidate-detail-name">
+                <h2>{person.display_name}</h2>
+              </div>
+              <div className="candidate-detail-meta">
+                <Badge variant={stageVariants[currentStage] || 'muted'}>
+                  {stages[currentStage] || currentStage}
+                </Badge>
+                {person.applications.length > 1 ? (
+                  <div className="candidate-detail-application-picker">
+                    <span id="candidate-detail-application-label" className="sr-only">
+                      查看应聘记录
+                    </span>
+                    <Select
+                      aria-labelledby="candidate-detail-application-label"
+                      className="candidate-detail-application candidate-select"
+                      value={applicationId}
+                      onChange={(value) =>
+                        setApplicationId(typeof value === 'number' ? value : null)
+                      }
+                      disabled={busy}
+                      clickToHide
+                      dropdownClassName="candidate-select-dropdown"
+                    >
+                      {person.applications.map((item) => (
+                        <Select.Option value={item.id} key={item.id}>
+                          {item.job__title} · 第 {item.attempt_no} 次应聘
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  </div>
+                ) : (
+                  <p>{application?.job__title || '—'}</p>
+                )}
+              </div>
+            </div>
+            <div className="candidate-detail-actions">
+              <span id="candidate-detail-stage-label" className="sr-only">
+                修改当前状态
+              </span>
+              <Select
+                aria-labelledby="candidate-detail-stage-label"
+                className="candidate-detail-stage candidate-select"
+                value={currentStage}
+                disabled={
+                  busy || !person.can_edit_profile || !application || application.can_edit === false
+                }
+                onChange={(value) => {
+                  if (typeof value === 'string') void updateStage(value);
+                }}
+                clickToHide
+                dropdownClassName="candidate-select-dropdown"
+              >
+                {Object.entries(stages).map(([value, label]) => (
+                  <Select.Option key={value} value={value}>
+                    {label}
+                  </Select.Option>
+                ))}
+              </Select>
+              <div className="candidate-detail-buttons">
+                {person.can_edit_profile && (
+                  <Button variant="outline" disabled={busy} onClick={() => setEditing(true)}>
+                    编辑
+                  </Button>
+                )}
+                {person.can_delete && (
+                  <Button variant="destructive" disabled={busy} onClick={() => setDeleting(true)}>
+                    删除
+                  </Button>
+                )}
+              </div>
+            </div>
+          </section>
+          <Tabs defaultValue="basic" className="candidate-detail-tabs">
+            <TabsList variant="line" aria-label="候选人资料">
+              <TabsTrigger value="basic">基本信息</TabsTrigger>
+              <TabsTrigger value="interviews">
+                面试记录（{person.interview_count ?? interviews.length}）
+              </TabsTrigger>
+              <TabsTrigger value="ai">
+                AI 初面（{person.ai_screening_count ?? screenings.length}）
+              </TabsTrigger>
+              <TabsTrigger value="resume">简历原文</TabsTrigger>
+            </TabsList>
+            <TabsContent value="basic">
+              <dl className="candidate-detail-fields">
+                {[
+                  ['候选人 ID', `CAND-${String(person.id).padStart(4, '0')}`],
+                  ['应聘职位', application?.job__title],
+                  ['意向岗位', person.intended_role],
+                  ['联系方式', person.phone],
+                  ['性别', person.gender],
+                  ['邮箱', person.email],
+                  ['现居城市', person.current_city],
+                  ['身份证号', person.identity_number],
+                  ['最高学历', person.education_level],
+                  ['毕业院校', person.school],
+                  ['工作年限', person.work_years],
+                  ['当前薪资', person.current_salary],
+                  ['期望薪资', person.expected_salary],
+                  ['简历来源', person.source],
+                  [
+                    'Offer 发放时间',
+                    application?.offer_sent_at ? candidateDateTime(application.offer_sent_at) : '',
+                  ],
+                  [
+                    '入职时间',
+                    application?.hired_at ? candidateDateTime(application.hired_at) : '',
+                  ],
+                  ['创建时间', person.created_at ? candidateDateTime(person.created_at) : ''],
+                  ['更新时间', person.updated_at ? candidateDateTime(person.updated_at) : ''],
+                  ['工作经历', person.work_experience],
+                  ['教育经历', person.education_experience],
+                  ['备注', person.remarks],
+                ].map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value || '—'}</dd>
+                  </div>
+                ))}
+              </dl>
+            </TabsContent>
+            <TabsContent value="interviews">
+              {interviews.length ? (
+                <div className="candidate-records">
+                  {interviews.map((item) => (
+                    <article key={item.id} className="candidate-record">
+                      <div className="candidate-record-heading">
+                        <h3>
+                          {item.job_title} · 第 {item.round_no} 轮面试
+                        </h3>
+                        <Badge variant="secondary">
+                          {(
+                            {
+                              unscheduled: '未排期',
+                              pending_confirmation: '待确认',
+                              confirmed: '已确认',
+                              completed: '已完成',
+                              cancelled: '已取消',
+                            } as Record<string, string>
+                          )[item.status] || item.status}
+                        </Badge>
+                      </div>
+                      <p>
+                        {item.revision
+                          ? `${candidateDateTime(item.revision.starts_at)} 至 ${candidateDateTime(item.revision.ends_at)}`
+                          : '暂未排期'}
+                      </p>
+                      <p>
+                        {item.revision?.location ||
+                          (
+                            { onsite: '现场面试', video: '视频面试', phone: '电话面试' } as Record<
+                              string,
+                              string
+                            >
+                          )[item.revision?.mode ?? ''] ||
+                          '—'}{' '}
+                        · 组织人：{item.organizer_name || '—'}
+                      </p>
+                      <Button variant="link" onClick={() => openApplication(item.application)}>
+                        查看应聘
+                      </Button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyTitle>暂无面试记录</EmptyTitle>
+                    <EmptyDescription>去「面试管理」为该候选人新增一条</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )}
+            </TabsContent>
+            <TabsContent value="ai">
+              {screenings.length ? (
+                <div className="candidate-records">
+                  {screenings.map((item) => (
+                    <article key={item.id} className="candidate-record">
+                      <div className="candidate-record-heading">
+                        <h3>{item.job_title || 'AI 初面报告'}</h3>
+                        <span>{candidateDateTime(item.created_at)}</span>
+                      </div>
+                      <p>{item.summary || item.conclusion || '暂无分析摘要'}</p>
+                      <p>
+                        {item.match_score === null || item.match_score === undefined
+                          ? ''
+                          : `匹配度 ${item.match_score} · `}
+                        {item.question_count} 道问题
+                      </p>
+                      <Button variant="link" onClick={() => openApplication(item.application_id)}>
+                        查看应聘
+                      </Button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyTitle>暂无 AI 初面记录</EmptyTitle>
+                    <EmptyDescription>去「AI 初面」对该候选人发起分析</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              )}
+            </TabsContent>
+            <TabsContent value="resume">
+              <div className="candidate-detail-resume">
+                {person.resume_documents?.map((document) => (
+                  <CandidateAttachment
+                    key={document.document}
+                    document={document}
+                    showDescription
+                  />
+                ))}
+                {person.resume_text ? (
+                  <pre className="candidate-resume-text">{person.resume_text}</pre>
+                ) : (
+                  <Empty>
+                    <EmptyHeader>
+                      <EmptyTitle>暂无简历原文</EmptyTitle>
+                    </EmptyHeader>
+                  </Empty>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
+          {editing && (
+            <CreateCandidateDialog
+              person={person}
+              initialApplicationId={applicationId}
+              close={() => setEditing(false)}
+              saved={(savedApplicationId) => {
+                if (savedApplicationId !== undefined) setApplicationId(savedApplicationId);
+                setEditing(false);
+                setNotice('候选人已保存。');
+                setReload((v) => v + 1);
+                changed();
+              }}
+            />
+          )}
+          {deleting && (
+            <DeleteCandidateDialog
+              candidate={person}
+              close={() => setDeleting(false)}
+              openApplication={(value) => {
+                setDeleting(false);
+                openApplication(value);
+              }}
+              deleted={() => {
+                changed();
+                close();
+              }}
+            />
+          )}
+        </>
       )}
-      <ResumeProfileFields
-        values={values}
-        change={(key, value) => setValues((old) => ({ ...old, [key]: value }))}
-        disabled={busy}
-        prefix="profile"
-      />
-      {document && (
-        <details>
-          <summary>查看识别依据原文</summary>
-          <pre className="resume-text">{document.parse?.text}</pre>
-        </details>
-      )}
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" disabled={busy} onClick={cancel}>
-          取消
-        </Button>
-        <Button type="submit" disabled={busy}>
-          {busy ? '正在保存…' : '保存资料'}
-        </Button>
-      </div>
-    </form>
+    </section>
   );
 }
 
@@ -1406,29 +1664,55 @@ function CandidateDatePicker({
   );
 }
 
-function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () => void }) {
+function CreateCandidateDialog({
+  close,
+  saved,
+  person,
+  initialApplicationId,
+}: {
+  close: () => void;
+  saved: (applicationId?: number) => void;
+  person?: CandidateRecord;
+  initialApplicationId?: number | null;
+}) {
+  const initialApplication =
+    person?.applications.find((item) => item.id === initialApplicationId) ??
+    (person ? primaryCandidateApplication(person) : undefined);
+  const [selectedApplicationId, setSelectedApplicationId] = useState<number | null>(
+    initialApplication?.id ?? null,
+  );
+  const selectedApplication = person?.applications.find(
+    (item) => item.id === selectedApplicationId,
+  );
+  const existingAttachment =
+    person?.resume_documents?.find((item) => item.is_current) ?? person?.resume_documents?.[0];
+  const formId = person ? 'edit-candidate-form' : 'create-candidate-form';
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [gender, setGender] = useState('');
-  const [currentCity, setCurrentCity] = useState('');
-  const [identityNumber, setIdentityNumber] = useState('');
-  const [birthday, setBirthday] = useState('');
-  const [intendedRole, setIntendedRole] = useState('');
-  const [educationLevel, setEducationLevel] = useState('');
-  const [school, setSchool] = useState('');
-  const [workYears, setWorkYears] = useState('');
-  const [currentSalary, setCurrentSalary] = useState('');
-  const [expectedSalary, setExpectedSalary] = useState('');
-  const [stage, setStage] = useState('pending_review');
-  const [expectedStartDate, setExpectedStartDate] = useState('');
-  const [workExperience, setWorkExperience] = useState('');
-  const [educationExperience, setEducationExperience] = useState('');
-  const [remarks, setRemarks] = useState('');
-  const [resumeText, setResumeText] = useState('');
-  const [job, setJob] = useState('');
-  const [source, setSource] = useState('');
+  const [name, setName] = useState(person?.display_name ?? '');
+  const [phone, setPhone] = useState(person?.phone ?? '');
+  const [email, setEmail] = useState(person?.email ?? '');
+  const [gender, setGender] = useState(person?.gender ?? '');
+  const [currentCity, setCurrentCity] = useState(person?.current_city ?? '');
+  const [identityNumber, setIdentityNumber] = useState(person?.identity_number ?? '');
+  const [birthday, setBirthday] = useState(person?.birthday ?? '');
+  const [intendedRole, setIntendedRole] = useState(person?.intended_role ?? '');
+  const [educationLevel, setEducationLevel] = useState(person?.education_level ?? '');
+  const [school, setSchool] = useState(person?.school ?? '');
+  const [workYears, setWorkYears] = useState(person?.work_years ?? '');
+  const [currentSalary, setCurrentSalary] = useState(person?.current_salary ?? '');
+  const [expectedSalary, setExpectedSalary] = useState(person?.expected_salary ?? '');
+  const [stage, setStage] = useState(initialApplication?.stage ?? 'pending_review');
+  const [expectedStartDate, setExpectedStartDate] = useState(
+    initialApplication?.expected_start_date ?? '',
+  );
+  const [workExperience, setWorkExperience] = useState(person?.work_experience ?? '');
+  const [educationExperience, setEducationExperience] = useState(
+    person?.education_experience ?? '',
+  );
+  const [remarks, setRemarks] = useState(person?.remarks ?? '');
+  const [resumeText, setResumeText] = useState(person?.resume_text ?? '');
+  const [job, setJob] = useState(initialApplication ? String(initialApplication.job_id) : '');
+  const [source, setSource] = useState(person?.source ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [draggingResume, setDraggingResume] = useState(false);
@@ -1437,7 +1721,7 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
     'document' | 'name' | 'parse'
   > | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [contactNote, setContactNote] = useState('待补充联系方式');
+  const [contactNote, setContactNote] = useState(person?.contact_note || '待补充联系方式');
   const autofilled = useRef<Record<string, string>>({});
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const resumeInput = useRef<HTMLInputElement>(null);
@@ -1515,7 +1799,9 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
         const value = fields[field as keyof typeof fields] ?? '';
         const previous = autofilled.current[field];
         setValue((current) =>
-          current === previous || (!current && previous === undefined) ? value : current,
+          field === 'resume_text' || current === previous || (!current && previous === undefined)
+            ? value
+            : current,
         );
       }
       autofilled.current = fields;
@@ -1531,9 +1817,9 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
     <Modal
       visible
       centered
-      width={940}
-      title="新增候选人"
-      className="candidate-create-modal"
+      width={820}
+      title={person ? `编辑 · CAND-${String(person.id).padStart(4, '0')}` : '新增候选人'}
+      className="candidate-create-modal candidate-editor-modal"
       maskClosable={!busy}
       closable={!busy}
       closeOnEsc={!busy}
@@ -1545,14 +1831,14 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
           <Button type="button" variant="outline" disabled={busy} onClick={close}>
             取消
           </Button>
-          <Button type="submit" form="create-candidate-form" disabled={busy || !stage}>
+          <Button type="submit" form={formId} disabled={busy || !stage}>
             {uploading ? '正在识别…' : busy ? '正在保存…' : '保存'}
           </Button>
         </div>
       }
     >
       <form
-        id="create-candidate-form"
+        id={formId}
         className="candidate-create-form"
         onSubmit={async (event) => {
           event.preventDefault();
@@ -1560,8 +1846,7 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
           setBusy(true);
           setError('');
           try {
-            await api<{ candidate: number; application: number | null }>('candidates/', {
-              request_key: requestKey,
+            const fields = {
               display_name: name,
               phone,
               email,
@@ -1576,19 +1861,55 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
               work_years: workYears,
               current_salary: currentSalary,
               expected_salary: expectedSalary,
-              stage,
-              expected_start_date: expectedStartDate || null,
               work_experience: workExperience,
               education_experience: educationExperience,
               remarks,
               resume_text: resumeText,
-              job: job ? Number(job) : null,
               source,
-              ...(attachment
-                ? { resume_document: attachment.document, resume_parse: attachment.parse?.id }
-                : {}),
-            });
-            saved();
+            };
+            const resume = attachment
+              ? { resume_document: attachment.document, resume_parse: attachment.parse?.id }
+              : {};
+            if (person) {
+              const updated = await api<CandidateRecord>(`candidates/${person.id}/edit/`, {
+                request_key: requestKey,
+                updated_at: person.updated_at,
+                fields,
+                ...resume,
+                ...(selectedApplication?.can_edit === false
+                  ? {}
+                  : job
+                    ? {
+                        job: Number(job),
+                        application: {
+                          ...(selectedApplication
+                            ? { id: selectedApplication.id, version: selectedApplication.version }
+                            : {}),
+                          stage,
+                          expected_start_date: expectedStartDate || null,
+                        },
+                      }
+                    : {}),
+              });
+              const savedApplication = selectedApplicationId
+                ? updated.applications.find((item) => item.id === selectedApplicationId)
+                : updated.applications.find(
+                    (item) =>
+                      item.job_id === Number(job) &&
+                      !person.applications.some((previous) => previous.id === item.id),
+                  );
+              saved(savedApplication?.id);
+            } else {
+              await api('candidates/', {
+                request_key: requestKey,
+                ...fields,
+                ...resume,
+                job: job ? Number(job) : null,
+                stage,
+                expected_start_date: expectedStartDate || null,
+              });
+              saved();
+            }
           } catch (e) {
             setError((e as Error).message);
             if (e instanceof ApiError && e.status >= 400 && e.status < 500)
@@ -1600,31 +1921,45 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
       >
         <Field className="candidate-resume-field">
           <FieldLabel>简历文件</FieldLabel>
-          <button
-            type="button"
-            className={`candidate-resume-choice${draggingResume ? ' is-dragging' : ''}`}
-            disabled={busy}
-            onClick={() => resumeInput.current?.click()}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setDraggingResume(true);
-            }}
-            onDragLeave={() => setDraggingResume(false)}
-            onDrop={(event) => {
-              event.preventDefault();
-              setDraggingResume(false);
-              void importSelectedResume(event.dataTransfer.files);
-            }}
-          >
-            <FileText aria-hidden="true" className="candidate-resume-icon" />
-            <span>
-              {uploading ? '正在识别简历…' : attachment ? attachment.name : '拖拽简历到此处，或'}{' '}
-              {!uploading && <strong>{attachment ? '更换文件' : '点击选择文件'}</strong>}
-            </span>
-            <small>可识别：文字型 PDF / Word(.docx) / 纯文本</small>
-            <small>图片与旧版 Word(.doc) 保存为附件，信息可手动填写</small>
-            <small>单文件 ≤ 10MB</small>
-          </button>
+          {person && existingAttachment && !attachment ? (
+            <div className="candidate-edit-attachment">
+              <CandidateAttachment document={existingAttachment} />
+              <Button
+                type="button"
+                variant="link"
+                disabled={busy}
+                onClick={() => resumeInput.current?.click()}
+              >
+                重新上传
+              </Button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className={`candidate-resume-choice${draggingResume ? ' is-dragging' : ''}`}
+              disabled={busy}
+              onClick={() => resumeInput.current?.click()}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDraggingResume(true);
+              }}
+              onDragLeave={() => setDraggingResume(false)}
+              onDrop={(event) => {
+                event.preventDefault();
+                setDraggingResume(false);
+                void importSelectedResume(event.dataTransfer.files);
+              }}
+            >
+              <FileText aria-hidden="true" className="candidate-resume-icon" />
+              <span>
+                {uploading ? '正在识别简历…' : attachment ? attachment.name : '拖拽简历到此处，或'}{' '}
+                {!uploading && <strong>{attachment ? '更换文件' : '点击选择文件'}</strong>}
+              </span>
+              <small>可识别：文字型 PDF / Word(.docx) / 纯文本</small>
+              <small>图片与旧版 Word(.doc) 保存为附件，信息可手动填写</small>
+              <small>单文件 ≤ 10MB</small>
+            </button>
+          )}
           <Input
             ref={resumeInput}
             className="candidate-resume-input"
@@ -1664,11 +1999,13 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="new-candidate-gender">性别</FieldLabel>
+            <FieldLabel id="new-candidate-gender-label" htmlFor="new-candidate-gender">
+              性别
+            </FieldLabel>
             <Select
               className="candidate-select"
               id="new-candidate-gender"
-              aria-label="性别"
+              aria-labelledby="new-candidate-gender-label"
               value={gender}
               onChange={(value) => setGender(typeof value === 'string' ? value : '')}
               placeholder="请选择性别"
@@ -1676,6 +2013,7 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
               clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
+              <Select.Option value="">未标注</Select.Option>
               <Select.Option value="男">男</Select.Option>
               <Select.Option value="女">女</Select.Option>
             </Select>
@@ -1724,16 +2062,35 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="new-candidate-job">应聘职位</FieldLabel>
+            <FieldLabel id="new-candidate-job-label" htmlFor="new-candidate-job">
+              应聘职位
+            </FieldLabel>
             <Select
               className="candidate-select"
               id="new-candidate-job"
-              aria-label="应聘职位"
-              value={job}
+              aria-labelledby="new-candidate-job-label"
+              value={
+                person
+                  ? selectedApplicationId
+                    ? `application:${selectedApplicationId}`
+                    : job
+                      ? `job:${job}`
+                      : ''
+                  : job
+              }
               onChange={(value) => {
                 const selected = typeof value === 'string' ? value : '';
-                setJob(selected);
-                if (!selected) setStage('pending_review');
+                const chosenApplication = person?.applications.find(
+                  (item) => selected === `application:${item.id}`,
+                );
+                setSelectedApplicationId(chosenApplication?.id ?? null);
+                setJob(
+                  chosenApplication
+                    ? String(chosenApplication.job_id)
+                    : selected.replace(/^job:/, ''),
+                );
+                setStage(chosenApplication?.stage ?? 'pending_review');
+                setExpectedStartDate(chosenApplication?.expected_start_date ?? '');
               }}
               placeholder="暂不关联职位"
               disabled={busy}
@@ -1742,12 +2099,30 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
               dropdownClassName="candidate-select-dropdown"
             >
               <Select.Option value="">暂不关联职位</Select.Option>
-              {jobs.map((item) => (
-                <Select.Option key={item.id} value={String(item.id)}>
-                  {item.title} · {item.department_name}
+              {person?.applications.map((item) => (
+                <Select.Option key={`application:${item.id}`} value={`application:${item.id}`}>
+                  {item.job__title} · 第 {item.attempt_no} 次应聘
                 </Select.Option>
               ))}
+              {jobs
+                .filter(
+                  (item) =>
+                    !person?.applications.some(
+                      (application) => !application.closed_at && application.job_id === item.id,
+                    ),
+                )
+                .map((item) => (
+                  <Select.Option key={item.id} value={person ? `job:${item.id}` : String(item.id)}>
+                    {item.title} · {item.department_name}
+                  </Select.Option>
+                ))}
             </Select>
+            {person && job && !selectedApplication && (
+              <FieldDescription>将新增本职位应聘并保留原记录。</FieldDescription>
+            )}
+            {person && !job && person.applications.length > 0 && (
+              <FieldDescription>仅编辑候选人资料，已有应聘记录保持不变。</FieldDescription>
+            )}
           </Field>
           <Field>
             <FieldLabel htmlFor="new-candidate-intended-role">意向岗位（简历识别）</FieldLabel>
@@ -1761,11 +2136,13 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="new-candidate-source">简历来源</FieldLabel>
+            <FieldLabel id="new-candidate-source-label" htmlFor="new-candidate-source">
+              简历来源
+            </FieldLabel>
             <Select
               className="candidate-select"
               id="new-candidate-source"
-              aria-label="简历来源"
+              aria-labelledby="new-candidate-source-label"
               value={source}
               onChange={(value) => setSource(typeof value === 'string' ? value : '')}
               placeholder="请选择简历来源"
@@ -1773,6 +2150,10 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
               clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
+              <Select.Option value="">未标注</Select.Option>
+              {source && !(resumeSources as readonly string[]).includes(source) && (
+                <Select.Option value={source}>{source}</Select.Option>
+              )}
               {resumeSources.map((item) => (
                 <Select.Option key={item} value={item}>
                   {item}
@@ -1781,11 +2162,16 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
             </Select>
           </Field>
           <Field>
-            <FieldLabel htmlFor="new-candidate-education-level">最高学历</FieldLabel>
+            <FieldLabel
+              id="new-candidate-education-level-label"
+              htmlFor="new-candidate-education-level"
+            >
+              最高学历
+            </FieldLabel>
             <Select
               className="candidate-select"
               id="new-candidate-education-level"
-              aria-label="最高学历"
+              aria-labelledby="new-candidate-education-level-label"
               value={educationLevel}
               onChange={(value) => setEducationLevel(typeof value === 'string' ? value : '')}
               placeholder="请选择学历"
@@ -1793,6 +2179,11 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
               clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
+              <Select.Option value="">请选择</Select.Option>
+              {educationLevel &&
+                !(educationLevels as readonly string[]).includes(educationLevel) && (
+                  <Select.Option value={educationLevel}>{educationLevel}</Select.Option>
+                )}
               {educationLevels.map((item) => (
                 <Select.Option key={item} value={item}>
                   {item}
@@ -1831,7 +2222,7 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
               disabled={busy}
             />
           </Field>
-          <Field className="candidate-create-full">
+          <Field>
             <FieldLabel htmlFor="new-candidate-expected-salary">期望薪资</FieldLabel>
             <Input
               id="new-candidate-expected-salary"
@@ -1842,19 +2233,23 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
               disabled={busy}
             />
           </Field>
-          <Field className="candidate-create-full">
-            <FieldLabel htmlFor="new-candidate-stage">当前状态</FieldLabel>
+          <Field>
+            <FieldLabel id="new-candidate-stage-label" htmlFor="new-candidate-stage">
+              当前状态
+            </FieldLabel>
             <Select
               className="candidate-select"
               id="new-candidate-stage"
-              aria-label="当前状态"
+              aria-labelledby="new-candidate-stage-label"
               value={stage}
               onChange={(value) => setStage(typeof value === 'string' ? value : '')}
-              disabled={busy || !job}
+              disabled={busy || !job || selectedApplication?.can_edit === false}
               clickToHide
               dropdownClassName="candidate-select-dropdown"
             >
               <Select.Option value="pending_review">待筛选</Select.Option>
+              {person && <Select.Option value="needs_information">待补充资料</Select.Option>}
+              {person && <Select.Option value="interviewing">面试中</Select.Option>}
               <Select.Option value="ready_to_schedule">待初试</Select.Option>
               <Select.Option value="first_interview_passed">初试通过</Select.Option>
               <Select.Option value="second_interview">待复试</Select.Option>
@@ -1878,13 +2273,13 @@ function CreateCandidateDialog({ close, saved }: { close: () => void; saved: () 
               />
             </Field>
           )}
-          <Field className="candidate-create-full">
+          <Field>
             <FieldLabel htmlFor="new-candidate-expected-start">预计入职日期</FieldLabel>
             <CandidateDatePicker
               id="new-candidate-expected-start"
               value={expectedStartDate}
               onChange={setExpectedStartDate}
-              disabled={busy}
+              disabled={busy || !job || selectedApplication?.can_edit === false}
             />
             <p className="candidate-field-help">
               选填。待入职阶段的预计日期；为空时「入职管理」列表显示「待定」

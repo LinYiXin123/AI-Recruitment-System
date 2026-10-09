@@ -113,7 +113,7 @@ test('旧导入入口核对八项简历资料，来源可选择或留空并平�
   await expect(page.getByText('已接收 1 / 1 份，已核对 1 份')).toBeVisible();
 });
 
-test('遗留档案先预览识别结果，保存资料后刷新及来源筛选生效', async ({ page }) => {
+test('遗留档案在编辑表单补齐资料，保存后刷新及来源筛选生效', async ({ page }) => {
   test.setTimeout(90000);
   await login(page);
   const job = await openJob(page, '虚构遗留资料验收岗');
@@ -168,25 +168,31 @@ test('遗留档案先预览识别结果，保存资料后刷新及来源筛选�
   await page.getByLabel('搜索候选人').fill('虚构遗留乙');
   const row = page.getByRole('row').filter({ hasText: '虚构遗留乙' });
   await row.getByRole('button', { name: '详情', exact: true }).click();
-  await page.getByRole('button', { name: '识别并补全资料', exact: true }).click();
-  await expect(page.locator('#candidate-profile-form')).toBeVisible();
-  await expect(page.locator('#profile-education_level')).toContainText('本科');
-  await expect(page.locator('#profile-school')).toHaveValue('虚构学院');
-  await expect(page.locator('#profile-intended_role')).toHaveValue('产品专员');
-  for (const field of ['current_city', 'work_years', 'current_salary', 'expected_salary'])
-    await expect(page.locator(`#profile-${field}`)).toHaveValue('');
-  await expect(page.locator('#profile-source')).toContainText('未标注');
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await expect(page.locator('#edit-candidate-form')).toBeVisible();
+  for (const field of [
+    'city',
+    'school',
+    'intended-role',
+    'work-years',
+    'current-salary',
+    'expected-salary',
+  ])
+    await expect(page.locator(`#new-candidate-${field}`)).toHaveValue('');
+  await selectSource(page, '#new-candidate-education-level', '本科');
+  await page.locator('#new-candidate-school').fill('虚构学院');
+  await page.locator('#new-candidate-intended-role').fill('产品专员');
   expect(await (await page.request.get(path)).json()).toMatchObject({
     ...emptyFields,
     updated_at: before.updated_at,
   });
-  await selectSource(page, '#profile-source', '猎聘');
+  await selectSource(page, '#new-candidate-source', '猎聘');
   expect(await (await page.request.get(path)).json()).toMatchObject({
     ...emptyFields,
     updated_at: before.updated_at,
   });
-  const saved = page.waitForResponse(`**/candidates/${before.id}/supplement-profile/`);
-  await page.getByRole('button', { name: '保存资料', exact: true }).click();
+  const saved = page.waitForResponse(`**/candidates/${before.id}/edit/`);
+  await page.getByRole('button', { name: '保存', exact: true }).click();
   const response = await saved;
   expect(response.ok(), await response.text()).toBeTruthy();
   const fields = {
@@ -195,14 +201,13 @@ test('遗留档案先预览识别结果，保存资料后刷新及来源筛选�
     intended_role: '产品专员',
     source: '猎聘',
   };
-  expect(response.request().postDataJSON()).toEqual({
+  expect(response.request().postDataJSON()).toMatchObject({
     updated_at: before.updated_at,
-    parse: parsed.parse.id,
     fields,
   });
-  await expect(page.getByText('资料已保存。', { exact: true })).toBeVisible();
-  await expect(page.locator('#candidate-profile-form')).toHaveCount(0);
-  await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click();
+  await expect(page.getByText('候选人已保存。', { exact: true })).toBeVisible();
+  await expect(page.locator('#edit-candidate-form')).toHaveCount(0);
+  await page.getByRole('button', { name: '返回候选人库', exact: true }).click();
   await page.reload();
   await page.getByLabel('搜索候选人').fill('虚构遗留乙');
   const sourceFilter = page.locator('.candidate-filter-select').nth(1);
@@ -224,6 +229,6 @@ test('遗留档案先预览识别结果，保存资料后刷新及来源筛选�
   expect(after).toMatchObject({ ...emptyFields, ...fields });
   expect(after.updated_at).not.toBe(before.updated_at);
   await row.getByRole('button', { name: '详情', exact: true }).click();
-  await expect(page.getByRole('dialog').locator('dl')).toContainText('虚构学院');
-  await expect(page.getByRole('dialog').locator('dl')).toContainText('产品专员');
+  await expect(page.locator('.candidate-detail-fields')).toContainText('虚构学院');
+  await expect(page.locator('.candidate-detail-fields')).toContainText('产品专员');
 });

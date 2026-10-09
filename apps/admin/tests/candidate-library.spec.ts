@@ -127,17 +127,26 @@ test('上传简历仍在原表单，核对保存后回到候选人列表且刷�
   );
   expect(csv).toContain('"虚构入库甲","","厦门","本科","4 年","15-18K · 13薪","","待筛选"');
   await row.getByRole('button', { name: '详情', exact: true }).click();
-  const details = page.getByRole('dialog');
-  await expect(details).toContainText('虚构入库甲 · 候选人详情');
+  const details = page.getByRole('region', { name: '候选人详情', exact: true });
+  await expect(page).toHaveURL(new RegExp(`#candidate/${created.candidate}$`));
+  await expect(details.getByRole('heading', { name: '虚构入库甲', exact: true })).toBeVisible();
   await expect(details.locator('dl')).toContainText('厦门');
   await expect(details.locator('dl')).toContainText('15-18K · 13薪');
   await expect(details.getByRole('region', { name: '应聘记录' })).toHaveCount(0);
-  await expect(details.getByRole('region', { name: '简历附件' })).toContainText(resume.name);
-  // 本地体验 HR 只有资料查看权限；附件入库不应自动获得下载权限。
-  await expect(details.getByRole('link', { name: resume.name, exact: true })).toHaveCount(0);
-  const download = await page.request.get(`/api/v1/documents/${preview.document}/download/`);
-  expect(download.status()).toBe(403);
+  await details.getByRole('tab', { name: '简历原文', exact: true }).click();
+  await expect(details.locator('.candidate-detail-resume')).toContainText(resume.name);
   const person = await (await page.request.get(`/api/v1/candidates/${created.candidate}/`)).json();
+  const canDownload = person.resume_documents[0].download;
+  // 默认 seed 只有资料查看权限；独立 UI 验收库可另授下载权限，按钮和接口须保持一致。
+  await expect(details.getByRole('link', { name: '下载', exact: true })).toHaveCount(
+    canDownload ? 1 : 0,
+  );
+  await expect(details.getByRole('link', { name: '查看', exact: true })).toHaveCount(
+    canDownload ? 1 : 0,
+  );
+  const download = await page.request.get(`/api/v1/documents/${preview.document}/download/`);
+  expect(download.status()).toBe(canDownload ? 200 : 403);
+  if (canDownload) expect(await download.body()).toEqual(resume.buffer);
   expect(person).toMatchObject({
     display_name: '虚构入库甲',
     current_city: '厦门',
@@ -148,7 +157,10 @@ test('上传简历仍在原表单，核对保存后回到候选人列表且刷�
     applications: [],
   });
   expect(person.resume_documents).toHaveLength(1);
-  expect(person.resume_documents[0]).toMatchObject({ document: preview.document, download: false });
+  expect(person.resume_documents[0]).toMatchObject({
+    document: preview.document,
+    download: canDownload,
+  });
 });
 
 test('保存响应丢失后保留表单，重试只保存一个候选人及一份附件', async ({ page }) => {
@@ -245,7 +257,6 @@ test('解析失败及无效文件不会清空已有表单，可继续人工填�
   const row = page.getByRole('row').filter({ hasText: '虚构手填丙' });
   await expect(row).toContainText('厦门');
   await row.getByRole('button', { name: '详情', exact: true }).click();
-  await expect(page.getByRole('region', { name: '简历附件' })).toContainText(
-    'fictional-damaged.pdf',
-  );
+  await page.getByRole('tab', { name: '简历原文', exact: true }).click();
+  await expect(page.locator('.candidate-detail-resume')).toContainText('fictional-damaged.pdf');
 });

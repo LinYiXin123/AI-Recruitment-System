@@ -77,8 +77,15 @@ const knownRoutes = new Set<Route>([
   'employees-unlinked',
 ]);
 
+const candidateFromHash = (): number | null => {
+  const match = window.location.hash.match(/^#\/?candidate\/([1-9]\d*)(?:\?.*)?$/);
+  const id = match ? Number(match[1]) : null;
+  return id !== null && Number.isSafeInteger(id) ? id : null;
+};
+
 const routeFromHash = (): Route => {
-  const route = window.location.hash.slice(1).split('?')[0] as Route;
+  if (candidateFromHash() !== null) return 'candidates';
+  const route = window.location.hash.replace(/^#\/?/, '').split('?')[0] as Route;
   return knownRoutes.has(route) ? route : 'today';
 };
 
@@ -139,6 +146,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [homeUrl, setHomeUrl] = useState('');
   const [route, setRoute] = useState(routeFromHash);
+  const [candidateId, setCandidateId] = useState(candidateFromHash);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [applicationId, setApplicationId] = useState<number | null>(null);
@@ -184,6 +192,7 @@ export default function App() {
     void boot();
     const nav = () => {
       setRoute(routeFromHash());
+      setCandidateId(candidateFromHash());
       setMobileNavOpen(false);
     };
     const restore = (event: PageTransitionEvent) => {
@@ -304,7 +313,7 @@ export default function App() {
         >
           <Menu />
         </Button>
-        <strong>{current.title}</strong>
+        <strong>{candidateId !== null ? '候选人详情' : current.title}</strong>
         <button
           type="button"
           className="mobile-avatar-button"
@@ -334,13 +343,14 @@ export default function App() {
 
       <div className="workspace-body">
         <main
-          className={`workspace-main${route === 'ai-screening' ? ' ai-screening-main' : ''}`}
+          className={`workspace-main${route === 'ai-screening' ? ' ai-screening-main' : ''}${candidateId !== null ? ' candidate-detail-main' : ''}`}
           id="main-content"
           tabIndex={-1}
         >
           {route !== 'employer-brand' &&
             route !== 'question-bank' &&
-            route !== 'talent-profiles' && (
+            route !== 'talent-profiles' &&
+            candidateId === null && (
               <div className="page-heading">
                 <div>
                   <h1>{current.title}</h1>
@@ -425,6 +435,13 @@ export default function App() {
               revision={revision}
               changed={() => setRevision((value) => value + 1)}
               openApplication={setApplicationId}
+              candidateId={candidateId}
+              openCandidate={(id) => {
+                window.location.hash = `candidate/${id}`;
+              }}
+              backToCandidates={() => {
+                window.location.hash = 'candidates';
+              }}
             />
           ) : route === 'interviews' ? (
             <Interviews ref={interviewRef} revision={revision} />

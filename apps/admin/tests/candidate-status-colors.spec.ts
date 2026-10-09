@@ -156,17 +156,21 @@ test('候选人和人才画像的全部应聘状态在列表与详情同色，�
     backgrounds.push(await badge.evaluate((element) => getComputedStyle(element).backgroundColor));
   }
   await candidateRow.getByRole('button', { name: '详情', exact: true }).click();
-  const candidateDetail = page.getByRole('dialog', {
-    name: `${candidate.display_name} · 候选人详情`,
-    exact: true,
-  });
+  const candidateDetail = page.getByRole('region', { name: '候选人详情', exact: true });
   for (const [index, item] of cases.entries()) {
+    await candidateDetail.locator('.candidate-detail-application').click();
+    await page
+      .locator('.candidate-select-dropdown:visible')
+      .getByText(`${applications[index].job_title} · 第 ${applications[index].attempt_no} 次应聘`, {
+        exact: true,
+      })
+      .click();
     const badge = candidateDetail.locator('[data-slot="badge"]').filter({ hasText: item.label });
     await expect(badge).toHaveText(item.label);
     await expect(badge).toHaveCSS('color', item.color);
     await expect(badge).toHaveCSS('background-color', backgrounds[index]);
   }
-  await candidateDetail.getByRole('button', { name: '关闭', exact: true }).click();
+  await candidateDetail.getByRole('button', { name: '返回候选人库', exact: true }).click();
   await page.getByRole('link', { name: '人才画像', exact: true }).click();
   await page.getByRole('tab', { name: '简历对照', exact: true }).click();
   for (const [index, item] of cases.entries()) {
