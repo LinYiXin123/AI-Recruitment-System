@@ -150,7 +150,7 @@ test('已确定要求的岗位查看本职位应聘，按该岗位筛选且可�
     page.getByText('这里显示职位应聘记录，包括已移出候选人库的人选。同一个人的不同应聘分别查看。', {
       exact: false,
     }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(page.getByRole('row').filter({ hasText: application.name })).toBeVisible();
   await expect(page.getByRole('row').filter({ hasText: otherApplication.name })).toHaveCount(0);
   expect(requestedJobs).toContain(String(job.id));

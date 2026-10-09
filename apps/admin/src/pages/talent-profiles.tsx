@@ -343,10 +343,6 @@ function CandidateProfiles({
         </Empty>
       ) : (
         <>
-          <p className="px-[26px] py-3 text-sm text-muted-foreground">
-            {selectedJob ? `当前职位：${selectedJob.title}。` : ''}
-            这里显示职位应聘记录，包括已移出候选人库的人选。同一个人的不同应聘分别查看。
-          </p>
           <div className="table-container">
             <Table<Application>
               rowKey="id"

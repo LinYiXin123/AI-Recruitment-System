@@ -194,6 +194,7 @@ test('候选人和人才画像的全部应聘状态在列表与详情同色，�
     await detail.getByRole('button', { name: '关闭详情', exact: true }).click();
   }
   const removedRow = page.getByRole('row').filter({ hasText: removed.name });
+  await expect(page.getByText('这里显示职位应聘记录', { exact: false })).toHaveCount(0);
   await expect(
     removedRow.locator('[data-slot="badge"]').filter({ hasText: '已移出候选人库' }),
   ).toHaveCSS('color', colors.red);
