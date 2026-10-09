@@ -31,6 +31,7 @@ export type Job = {
   title: string;
   department: number;
   department_name: string;
+  department_path?: string;
   company_name: string;
   enterprise_id?: number | null;
   enterprise_name?: string;
@@ -93,7 +94,13 @@ export type Me = {
   auth_source: 'feishu' | 'local';
   organization: string;
   roles: string[];
-  departments: { id: number; name: string; approvers: Person[]; collaborators: Person[] }[];
+  departments: {
+    id: number;
+    name: string;
+    path?: string;
+    approvers: Person[];
+    collaborators: Person[];
+  }[];
 };
 export type DashboardData = {
   period: { week_start: string; week_end: string; today: string };

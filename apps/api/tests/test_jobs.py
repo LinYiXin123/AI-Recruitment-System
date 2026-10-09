@@ -73,6 +73,50 @@ def new_job(team, **changes):
     return response.data
 
 
+def test_department_paths_distinguish_company_without_expanding_job_access(team):
+    org, department, hr, _, outsider = team
+    company = Department.objects.create(
+        organization=org, name="甲公司", feishu_open_department_id="od_company_a"
+    )
+    department.parent = company
+    department.feishu_open_department_id = "od_team_a"
+    department.save()
+    other_company = Department.objects.create(
+        organization=org, name="乙公司", feishu_open_department_id="od_company_b"
+    )
+    other_department = Department.objects.create(
+        organization=org,
+        name=department.name,
+        parent=other_company,
+        feishu_open_department_id="od_team_b",
+    )
+    job = new_job(team)
+    client = client_for(hr)
+    options = client.get("/api/v1/me/").data["departments"]
+    assert [(item["id"], item["path"]) for item in options] == [(department.id, "甲公司 / 研发部")]
+    assert job["department_name"] == "研发部"
+    assert job["department_path"] == "甲公司 / 研发部"
+    assert (
+        client.get("/api/v1/jobs/").data["results"][0]["department_path"] == job["department_path"]
+    )
+    assert client_for(outsider).get(f"/api/v1/jobs/{job['id']}/").status_code == 404
+    assert (
+        client.post(
+            "/api/v1/jobs/",
+            {
+                "request_id": str(uuid.uuid4()),
+                "title": "未授权职位",
+                "location": "深圳",
+                "headcount": 1,
+                "department": other_department.id,
+                "approver": team[3].id,
+            },
+            format="json",
+        ).status_code
+        == 404
+    )
+
+
 def save_profile(client, job, **changes):
     return client.post(
         f"/api/v1/jobs/{job['id']}/profiles/",

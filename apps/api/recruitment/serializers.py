@@ -8,6 +8,7 @@ from identity.models import FeishuIdentity
 
 from .access import can_confirm, can_edit
 from .auth import safe_avatar_url
+from .feishu_departments import department_paths
 from .models import AuditEvent, Job, ProfileClarification, ProfileRequirement, ProfileVersion, Task
 
 RECRUITMENT_SITES = ("BOSS直聘", "猎聘", "智联招聘", "前程无忧", "拉勾招聘", "其他")
@@ -116,6 +117,7 @@ class JobSerializer(serializers.ModelSerializer):
     enterprise_enabled = serializers.BooleanField(source="enterprise.enabled", default=None)
     enterprise_deleted = serializers.SerializerMethodField()
     department_name = serializers.CharField(source="department.name")
+    department_path = serializers.SerializerMethodField()
     active_profile_number = serializers.IntegerField(source="active_profile.number", default=None)
     owner_name = serializers.SerializerMethodField()
     owner_avatar_url = serializers.SerializerMethodField()
@@ -123,6 +125,12 @@ class JobSerializer(serializers.ModelSerializer):
     approver_name = serializers.SerializerMethodField()
     latest_profile = serializers.SerializerMethodField()
     permissions = serializers.SerializerMethodField()
+
+    def get_department_path(self, obj):
+        paths = self.context.setdefault("department_paths", {})
+        if obj.organization_id not in paths:
+            paths[obj.organization_id] = department_paths(obj.organization_id)
+        return paths[obj.organization_id].get(obj.department_id, obj.department.name)
 
     def get_enterprise_deleted(self, obj):
         return bool(obj.enterprise_id and obj.enterprise.deleted_at)
@@ -154,6 +162,7 @@ class JobSerializer(serializers.ModelSerializer):
             "title",
             "department",
             "department_name",
+            "department_path",
             "company_name",
             "enterprise_id",
             "enterprise_name",

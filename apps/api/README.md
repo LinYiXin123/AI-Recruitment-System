@@ -28,6 +28,23 @@ uv run --env-file .env python manage.py runserver 127.0.0.1:8100
 
 退出仍使用带 CSRF 校验的 POST，服务端清除会话后返回固定配置的 `redirect_url`，不接受客户端传入跳转地址。账号密码网页已移除；原 POST 登录接口保留用于受控开发测试。
 
+## 飞书组织部门目录
+
+部门目录复用服务端的飞书自建应用配置。需开通部门基础信息与组织架构读取权限，并在应用的通讯录数据范围中授权所需部门；应用可用范围与通讯录范围分别配置。扩大通讯录范围会影响该范围关联的全部现有权限，维护者应先核对后再发布。
+
+先执行 `uv run --env-file .env python manage.py migrate`，再使用以下命令；默认只预览，核对组织 ID 后加 `--apply` 才保存：
+
+```powershell
+uv run --env-file .env python manage.py sync_feishu_departments --organization <本地组织ID>
+uv run --env-file .env python manage.py sync_feishu_departments --organization <本地组织ID> --apply
+```
+
+首次保存将本地组织绑定到当前自建应用，后续拒绝混入其他应用或组织。目录按飞书稳定部门 ID 更新，保留父子层级及不同分支下的同名部门。任何分页或校验失败都不写入；未返回的旧部门保留，不因授权范围变化而删除历史数据。当前为维护命令同步，不自动定时刷新。
+
+如需把已明确归属的体验部门改为真实部门，可在首次保存前加 `--bind-local <本地部门ID>=<飞书open_department_id>`。该操作保留原部门的本地 ID、职位及角色引用；不会按同名自动合并，也不会给 HR 授予新部门权限。新建职位仍限于既有 `DepartmentRole` 授权，`me/` 的 `path` 与职位的 `department_path` 提供完整路径用于搜索和区分。
+
+官方依据：[通讯录数据范围](https://open.feishu.cn/document/ukTMukTMukTM/uETNz4SM1MjLxUzM/v3/guides/scope_authority)、[授权范围接口](https://open.feishu.cn/document/server-docs/contact-v3/scope/list)、[子部门列表](https://open.feishu.cn/document/server-docs/contact-v3/department/children)。
+
 ## 飞书机器人本地联调
 
 在飞书开放平台的“事件配置”启用“长连接接收事件”并订阅 `im.message.receive_v1`；再切到“回调配置”，同样使用长连接并添加“卡片回传交互” `card.action.trigger`。开通 `im:message` 和 `im:message:send_as_bot` 权限后，创建并发布新版本。本机 `.env` 还需要配置不入库的 `LLM_API_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`。保持数据库服务可用，再另开一个终端运行：

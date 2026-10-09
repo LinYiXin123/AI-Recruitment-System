@@ -16,6 +16,7 @@ from identity.models import FeishuIdentity
 
 from .access import can_confirm, can_edit, department_ids, member, visible_jobs
 from .errors import Conflict
+from .feishu_departments import department_paths
 from .models import (
     Application,
     ApplicationResume,
@@ -60,6 +61,7 @@ def me(request):
         app_id=settings.FEISHU_APP_ID,
     ).first()
     departments = Department.objects.filter(pk__in=department_ids(m, ["hr"]))
+    paths = department_paths(m.organization_id)
     options = []
     for d in departments:
         people = Membership.objects.filter(
@@ -75,6 +77,7 @@ def me(request):
             {
                 "id": d.id,
                 "name": d.name,
+                "path": paths[d.id],
                 "approvers": [{"id": p.id, "name": display_name(p)} for p in managers],
                 "collaborators": [{"id": p.id, "name": display_name(p)} for p in collaborators],
             }

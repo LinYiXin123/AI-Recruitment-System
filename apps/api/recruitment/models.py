@@ -15,15 +15,38 @@ class Timestamped(models.Model):
 
 class Organization(Timestamped):
     name = models.CharField(max_length=100)
+    feishu_app_id = models.CharField(max_length=128, blank=True, default="")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["feishu_app_id"],
+                condition=~Q(feishu_app_id=""),
+                name="one_organization_per_feishu_app",
+            )
+        ]
 
 
 class Department(Timestamped):
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT)
     name = models.CharField(max_length=100)
+    feishu_open_department_id = models.CharField(max_length=128, blank=True, default="")
+    parent = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="children"
+    )
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["organization", "name"], name="department_name")
+            models.UniqueConstraint(
+                fields=["organization", "name"],
+                condition=Q(feishu_open_department_id=""),
+                name="department_name",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "feishu_open_department_id"],
+                condition=~Q(feishu_open_department_id=""),
+                name="one_feishu_department_per_org",
+            ),
         ]
 
 

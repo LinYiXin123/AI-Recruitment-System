@@ -24,7 +24,7 @@ type WorkspaceProps = {
   revision: number;
   openJob: (id: number, tab?: string) => void;
   canCreate: boolean;
-  departments: Pick<Me['departments'][number], 'id' | 'name'>[];
+  departments: Pick<Me['departments'][number], 'id' | 'name' | 'path'>[];
   openApplication?: (id: number) => void;
 };
 type TodayProps = {
@@ -382,8 +382,14 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
     };
   }, [jobsUrl, revision, reload]);
 
-  const departmentOptions = new Map<number, string>(departments.map(({ id, name }) => [id, name]));
-  for (const job of data?.results ?? []) departmentOptions.set(job.department, job.department_name);
+  const departmentOptions = new Map<number, string>(
+    departments.map(({ id, name, path }) => [id, path || name]),
+  );
+  for (const job of data?.results ?? [])
+    departmentOptions.set(
+      job.department,
+      job.department_path || departmentOptions.get(job.department) || job.department_name,
+    );
   const companyOptions = [
     ...new Set([company, ...(data?.results.map((job) => job.company_name) ?? [])]),
   ]
@@ -483,6 +489,9 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
           </span>
           <Select
             aria-labelledby="jobs-department-label"
+            filter
+            searchPosition="dropdown"
+            searchPlaceholder="搜索公司或部门"
             className="jobs-filter-select"
             value={department}
             clickToHide
@@ -610,7 +619,12 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
                       </div>
                     ),
                   },
-                  { title: '所属部门', dataIndex: 'department_name', width: 80 },
+                  {
+                    title: '所属部门',
+                    dataIndex: 'department_name',
+                    width: 80,
+                    render: (name, job) => <span title={job.department_path || name}>{name}</span>,
+                  },
                   {
                     title: '所属企业',
                     dataIndex: 'company_name',

@@ -11,6 +11,7 @@ type NativeSelectProps = {
   className?: string;
   defaultValue?: string | number;
   disabled?: boolean;
+  filter?: boolean;
   id?: string;
   name?: string;
   onBlur?: React.FocusEventHandler;
@@ -31,6 +32,7 @@ function NativeSelect({
   className,
   defaultValue,
   disabled,
+  filter,
   id,
   name,
   onBlur,
@@ -58,6 +60,9 @@ function NativeSelect({
         clickToHide
         motion={false}
         disabled={disabled}
+        filter={filter}
+        searchPosition={filter ? 'dropdown' : undefined}
+        searchPlaceholder="搜索选项"
         dropdownClassName="candidate-select-dropdown"
         id={id}
         onBlur={onBlur}

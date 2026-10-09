@@ -137,6 +137,7 @@ export function CreateJob({
                 <NativeSelect
                   aria-labelledby="department-label"
                   id="department"
+                  filter
                   className="w-full"
                   disabled={busy}
                   value={department}
@@ -144,7 +145,7 @@ export function CreateJob({
                 >
                   {me.departments.map((d) => (
                     <NativeSelectOption key={d.id} value={d.id}>
-                      {d.name}
+                      {d.path || d.name}
                     </NativeSelectOption>
                   ))}
                 </NativeSelect>
@@ -462,7 +463,7 @@ export function JobDetail({
           <SheetTitle>{job?.title || '正在读取职位'}</SheetTitle>
           <SheetDescription>
             {job
-              ? `${job.department_name} · ${job.location} · 计划 ${job.headcount} 人`
+              ? `${job.department_path || job.department_name} · ${job.location} · 计划 ${job.headcount} 人`
               : '正在读取你获授权的职位信息'}
           </SheetDescription>
         </SheetHeader>
@@ -676,7 +677,7 @@ export function JobDetail({
                 <dl className="job-meta">
                   <div>
                     <dt>所属部门</dt>
-                    <dd>{job.department_name}</dd>
+                    <dd>{job.department_path || job.department_name}</dd>
                   </div>
                   <div>
                     <dt>所属企业</dt>
