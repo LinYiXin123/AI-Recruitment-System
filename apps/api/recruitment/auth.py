@@ -77,6 +77,10 @@ def _request_feishu_json(url, *, data=None, headers=None):
 def _begin_feishu_login(request):
     if not _feishu_configured():
         return _feishu_error("飞书登录尚未完成本机配置，请联系系统管理员。", status=503)
+    request_url = parse.urlsplit(request.build_absolute_uri())
+    callback_url = parse.urlsplit(settings.FEISHU_REDIRECT_URI)
+    if (request_url.scheme, request_url.netloc) != (callback_url.scheme, callback_url.netloc):
+        return HttpResponseRedirect(settings.FEISHU_REDIRECT_URI)
     state = secrets.token_urlsafe(32)
     request.session["feishu_login_state"] = state
     query = parse.urlencode(
@@ -269,7 +273,7 @@ def start_local_experience(request):
 
     客户端选择的是体验身份，而不是可任意写入会话的权限；正式环境没有这个入口。
     """
-    if not settings.DEBUG:
+    if not settings.DEBUG or not settings.LOCAL_EXPERIENCE_ENABLED:
         return JsonResponse({"errors": {"detail": "未找到此服务。"}}, status=404)
     try:
         role = json.loads(request.body)["role"]

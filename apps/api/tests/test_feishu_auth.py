@@ -53,12 +53,35 @@ def create_hr_membership(username="local_hr"):
 
 
 def login_state(client):
-    response = client.get("/api/v1/auth/login/")
+    response = client.get(
+        "/api/v1/auth/login/",
+        HTTP_HOST=urlparse(FEISHU_SETTINGS["FEISHU_REDIRECT_URI"]).netloc,
+    )
     assert response.status_code == 302
     query = parse_qs(urlparse(response["Location"]).query)
     assert query["app_id"] == [FEISHU_SETTINGS["FEISHU_APP_ID"]]
     assert query["redirect_uri"] == [FEISHU_SETTINGS["FEISHU_REDIRECT_URI"]]
     return query["state"][0]
+
+
+@pytest.mark.parametrize(
+    "host, secure",
+    [("127.0.0.1:5173", False), ("localhost:5174", False), ("localhost:5173", True)],
+)
+@override_settings(**FEISHU_SETTINGS)
+def test_feishu_login_sets_state_only_at_configured_callback_origin(host, secure):
+    client = Client()
+    response = client.get(
+        "/api/v1/auth/login/?next=https://other.example.test/",
+        HTTP_HOST=host,
+        secure=secure,
+    )
+    assert response.status_code == 302
+    assert response["Location"] == FEISHU_SETTINGS["FEISHU_REDIRECT_URI"]
+    assert not client.cookies
+    state = login_state(client)
+    assert state == client.session["feishu_login_state"]
+    assert "_auth_user_id" not in client.session
 
 
 @override_settings(**FEISHU_SETTINGS)

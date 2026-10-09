@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import close_old_connections, connection
 from django.test import Client, override_settings
@@ -335,7 +336,7 @@ def test_csrf_login_logout_and_session(team):
     assert c.get("/api/v1/me/").status_code == 403
 
 
-@override_settings(DEBUG=True)
+@override_settings(DEBUG=True, LOCAL_EXPERIENCE_ENABLED=True)
 def test_local_experience_uses_only_fixed_active_demo_members(team):
     org, dept, _, _, _ = team
     org.name = "知遇体验团队（虚构）"
@@ -384,10 +385,25 @@ def test_local_experience_uses_only_fixed_active_demo_members(team):
     )
 
 
+@override_settings(DEBUG=True, LOCAL_EXPERIENCE_ENABLED=False)
+def test_local_experience_requires_explicit_enablement_without_creating_session():
+    c = Client(enforce_csrf_checks=True)
+    token = c.get("/api/v1/auth/csrf/").json()["csrfToken"]
+    response = c.post(
+        "/api/v1/auth/experience/",
+        {"role": "hr"},
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=token,
+    )
+    assert response.status_code == 404
+    assert settings.SESSION_COOKIE_NAME not in c.cookies
+    assert c.get("/api/v1/me/").status_code == 403
+
+
 def test_local_experience_is_not_available_outside_debug():
     c = Client(enforce_csrf_checks=True)
     token = c.get("/api/v1/auth/csrf/").json()["csrfToken"]
-    with override_settings(DEBUG=False):
+    with override_settings(DEBUG=False, LOCAL_EXPERIENCE_ENABLED=True):
         assert (
             c.post(
                 "/api/v1/auth/experience/",

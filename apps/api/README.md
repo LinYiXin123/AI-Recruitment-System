@@ -16,9 +16,13 @@ uv run --env-file .env python manage.py runserver 127.0.0.1:8100
 
 `local_database.py` 复用当前 PostgreSQL 安装，仅为本项目建立独立实例：数据目录在工作副本 `.local/postgres`，只监听 `127.0.0.1:55432`。首次运行生成随机数据库密码、Django 密钥和本地体验密码，写入权限受限且不入库的 `.env` 与 `.local/体验账号.txt`。再次执行不覆盖已有配置。需要 PostgreSQL 可执行文件；macOS 可识别 Homebrew 的 `postgresql@18`。
 
+免凭据的 `POST /api/v1/auth/experience/` 默认关闭。只有仅供本机使用的虚构数据演示可同时设置 `DJANGO_DEBUG=1`、`LOCAL_EXPERIENCE_ENABLED=1`；向局域网开放时必须保持 `LOCAL_EXPERIENCE_ENABLED=0`，并清空 `FEISHU_LOCAL_BOOTSTRAP_HR_USERNAME`，使用已授权账号登录。后端和数据库仍只监听本机，由前端同源 `/api` 代理访问；首页、登录成功和飞书回调地址须使用其他设备可达的地址，回调还必须在飞书开放平台登记。
+
 ## 飞书网页登录与退出
 
 公共首页统一发起 `GET /api/v1/auth/login/` 飞书授权，成功后进入 `FEISHU_LOGIN_SUCCESS_URL`。应用凭据只放在服务端 `.env`。`PUBLIC_HOME_URL` 控制未登录访问工作台及退出后的首页地址，本地默认 `http://localhost:5173/`；部署时必须设置为正式公共首页，不能指向工作台本身。
+
+从 `localhost`、回环地址或不同端口发起登录时，先跳到固定配置的 `FEISHU_REDIRECT_URI`，再创建授权会话，避免局域网回调因地址不同丢失会话；客户端不能指定其他跳转目标。
 
 每次成功飞书登录更新已绑定身份的姓名和 HTTPS 头像地址，`me/` 只返回本次登录身份的展示信息，不返回飞书标识、邮箱或令牌。招聘角色仍取自已有组织成员授权；头像缺失不阻断登录。本地密码测试会话不冒用飞书身份，旧会话重新飞书登录后可显示头像。
 
