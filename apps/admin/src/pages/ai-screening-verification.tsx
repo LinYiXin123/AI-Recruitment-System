@@ -41,6 +41,13 @@ const statuses = {
   withdrawn: '已撤回',
 };
 type Status = keyof typeof statuses;
+export const verificationStatusVariants = {
+  pending: 'warning',
+  supported: 'success',
+  contradicted: 'warning',
+  unresolved: 'warning',
+  withdrawn: 'muted',
+} as const;
 export type Verification = {
   id: number;
   question_index: number;
@@ -388,7 +395,9 @@ export function ScreeningVerification({
             {question.origin === 'verification_fallback' && (
               <Badge variant="outline">系统补齐的核实题</Badge>
             )}
-            <Badge variant="secondary">{item ? statuses[item.status] : '未采用'}</Badge>
+            <Badge variant={item ? verificationStatusVariants[item.status] : 'muted'}>
+              {item ? statuses[item.status] : '未采用'}
+            </Badge>
             {item && (
               <>
                 {item.answer && <p className="whitespace-pre-wrap">实际回答：{item.answer}</p>}
@@ -571,7 +580,11 @@ export function ScreeningVerification({
           {revisions.history.map((item) => (
             <div key={item.id} className="grid gap-1 border-b pb-2">
               <p>
-                第 {item.version} 版 · {statuses[item.status]} · {item.recorder_name}
+                第 {item.version} 版 ·{' '}
+                <Badge variant={verificationStatusVariants[item.status]}>
+                  {statuses[item.status]}
+                </Badge>{' '}
+                · {item.recorder_name}
               </p>
               <p className="ai-screening-help">
                 {new Date(item.created_at).toLocaleString('zh-CN')}

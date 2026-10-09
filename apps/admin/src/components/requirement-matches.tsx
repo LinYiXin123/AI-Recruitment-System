@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { kindLabel } from '@/lib/api';
-import type { Verification } from '@/pages/ai-screening-verification';
+import { type Verification, verificationStatusVariants } from '@/pages/ai-screening-verification';
 
 export type RequirementMatch = {
   requirement_id: number;
@@ -42,24 +42,24 @@ export function RequirementMatches({
       <div className="flex flex-col gap-2">
         <h3>岗位要求与材料对照</h3>
         <div className="flex flex-wrap gap-2">
-          <Badge variant="secondary">材料支持 {supported} 项</Badge>
-          <Badge variant="outline">
+          <Badge variant="success">材料支持 {supported} 项</Badge>
+          <Badge variant="warning">
             信息不足 {confirmed.filter((i) => i.status === 'insufficient').length} 项
           </Badge>
           {items.length > confirmed.length && (
-            <Badge variant="outline">岗位要求待确认 {items.length - confirmed.length} 项</Badge>
+            <Badge variant="warning">岗位要求待确认 {items.length - confirmed.length} 项</Badge>
           )}
           {confirmed.some((i) => i.status === 'contradictory') && (
-            <Badge variant="outline">
+            <Badge variant="warning">
               材料矛盾待核实 {confirmed.filter((i) => i.status === 'contradictory').length} 项
             </Badge>
           )}
           {confirmed.some((i) => i.status === 'analysis_error') && (
-            <Badge variant="outline">
+            <Badge variant="destructive">
               分析需重试 {confirmed.filter((i) => i.status === 'analysis_error').length} 项
             </Badge>
           )}
-          {signals > 0 && <Badge variant="outline">排除信号待核实 {signals} 项</Badge>}
+          {signals > 0 && <Badge variant="warning">排除信号待核实 {signals} 项</Badge>}
         </div>
         <p className="text-sm text-muted-foreground">
           材料支持表示简历中有相关原文，不代表能力已核实。信息不足不等于不符合要求。
@@ -83,11 +83,13 @@ export function RequirementMatches({
               <Badge variant="outline">{kindLabel[item.kind]}</Badge>
               <Badge
                 variant={
-                  item.status === 'supported' &&
-                  item.kind !== 'exclusion' &&
-                  !item.needs_verification
-                    ? 'secondary'
-                    : 'outline'
+                  item.needs_verification
+                    ? 'warning'
+                    : item.status === 'analysis_error'
+                      ? 'destructive'
+                      : item.status === 'supported' && item.kind !== 'exclusion'
+                        ? 'success'
+                        : 'warning'
                 }
               >
                 {item.needs_verification
@@ -125,15 +127,17 @@ export function RequirementMatches({
               <div key={verified.id} className="rounded-md bg-muted p-2 text-sm">
                 <p>
                   人工核实：
-                  {
+                  <Badge variant={verificationStatusVariants[verified.status]}>
                     {
-                      pending: '待核实',
-                      supported: '有依据支持',
-                      contradicted: '与材料不符',
-                      unresolved: '仍待补充',
-                      withdrawn: '已撤回',
-                    }[verified.status]
-                  }
+                      {
+                        pending: '待核实',
+                        supported: '有依据支持',
+                        contradicted: '与材料不符',
+                        unresolved: '仍待补充',
+                        withdrawn: '已撤回',
+                      }[verified.status]
+                    }
+                  </Badge>
                 </p>
                 <p className="text-muted-foreground">
                   问题 {verified.question_index + 1} · {verified.recorder_name}

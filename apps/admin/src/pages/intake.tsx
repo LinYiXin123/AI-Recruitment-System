@@ -42,6 +42,7 @@ import {
   resumeFormFields,
   reviewActions,
   stages,
+  stageVariants,
 } from '@/lib/intake';
 import { ApplicationProfile } from '@/pages/application-profile';
 import { ScheduleInterview } from '@/pages/interviews';
@@ -816,7 +817,7 @@ export const Candidates = forwardRef<
                           ? [...new Set(c.applications.map((a) => a.stage))]
                           : ['pending_review']
                         ).map((value) => (
-                          <Badge variant="secondary" key={value}>
+                          <Badge variant={stageVariants[value] || 'muted'} key={value}>
                             {stages[value] || value}
                           </Badge>
                         ))}
@@ -1090,7 +1091,9 @@ function CandidateDetails({
                   <Button variant="link" onClick={() => openApplication(application.id)}>
                     {application.job__title} · 第 {application.attempt_no} 次应聘
                   </Button>
-                  <Badge variant="secondary">{stages[application.stage]}</Badge>
+                  <Badge variant={stageVariants[application.stage] || 'muted'}>
+                    {stages[application.stage] || application.stage}
+                  </Badge>
                 </div>
               ))}
             </section>
@@ -2164,7 +2167,17 @@ export function ImportDrawer({
               <li key={item.id} className="rounded-lg border p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <strong className="break-all">{item.name}</strong>
-                  <Badge variant="secondary">
+                  <Badge
+                    variant={
+                      item.application
+                        ? 'success'
+                        : item.parse?.status === 'succeeded'
+                          ? 'warning'
+                          : item.parse
+                            ? 'destructive'
+                            : 'muted'
+                    }
+                  >
                     {item.application
                       ? '已关联应聘'
                       : item.parse?.status === 'succeeded'
@@ -2743,7 +2756,9 @@ export function ApplicationDetail({
         <>
           <div>
             <h3>{data.job_title}</h3>
-            <Badge variant="secondary">{stages[data.stage]}</Badge>
+            <Badge variant={stageVariants[data.stage] || 'muted'}>
+              {stages[data.stage] || data.stage}
+            </Badge>
             <p>
               来源：{data.source} · HR：{data.owner_name}
             </p>
@@ -2751,7 +2766,7 @@ export function ApplicationDetail({
           </div>
           {data.candidate_deleted_at && (
             <Alert>
-              <AlertTitle>已移出候选人库</AlertTitle>
+              <AlertTitle className="text-destructive">已移出候选人库</AlertTitle>
               <AlertDescription className="flex flex-col gap-3">
                 <p>
                   {data.closed_at === null
@@ -2830,7 +2845,7 @@ export function ApplicationDetail({
             {data.requirements.map((r) => (
               <p key={r.id} className="mt-3">
                 {kindLabel[r.kind]}：{r.text}
-                {r.needs_verification && <Badge variant="outline">岗位要求待确认</Badge>}
+                {r.needs_verification && <Badge variant="warning">岗位要求待确认</Badge>}
                 {r.rationale && `（${r.rationale}）`}
               </p>
             ))}

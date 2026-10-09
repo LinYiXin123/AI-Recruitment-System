@@ -914,6 +914,55 @@ def create_screening(client, **data):
     return response.data
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("state", ["closed", "legacy_deleted"])
+def test_interrupted_reanalysis_rolls_back_and_same_request_can_retry(state):
+    client, membership, job = hr_context()
+    application, parse = screening_source(membership, job)
+    old_report = create_screening(client, application_id=application.id, resume_parse_id=parse.id)
+    old_result = AIScreening.objects.get(pk=old_report["id"]).result
+    if state == "closed":
+        application.stage = "closed"
+        application.closed_at = timezone.now()
+        application.close_reason = "虚构应聘已结束"
+        application.version += 1
+        application.save()
+    else:
+        application.candidate.deleted_at = timezone.now()
+        application.candidate.save(update_fields=["deleted_at", "updated_at"])
+    payload = {
+        "request_key": str(uuid.uuid4()),
+        "resume": parse.text,
+        "application_id": application.id,
+        "resume_parse_id": parse.id,
+    }
+    # 在报告已写入、响应尚未完成时模拟中断，验证整个创建事务会回滚。
+    with (
+        patch(
+            "recruitment.ai_screening.chat_completion", return_value=json.dumps(complete_report())
+        ),
+        patch("recruitment.ai_screening._report_data", side_effect=ConnectionResetError),
+        pytest.raises(ConnectionResetError),
+    ):
+        client.post("/api/v1/ai-screenings/", payload, format="json")
+    assert not AIScreening.objects.filter(request_key=payload["request_key"]).exists()
+    assert AIScreening.objects.get(pk=old_report["id"]).result == old_result
+
+    with patch(
+        "recruitment.ai_screening.chat_completion", return_value=json.dumps(complete_report())
+    ) as complete:
+        saved = client.post("/api/v1/ai-screenings/", payload, format="json")
+        retry = client.post("/api/v1/ai-screenings/", payload, format="json")
+    assert saved.status_code == retry.status_code == 200
+    assert saved.data == retry.data
+    complete.assert_called_once()
+    assert AIScreening.objects.count() == 2
+    assert client.get(f"/api/v1/ai-screenings/{old_report['id']}/").status_code == 200
+    application.refresh_from_db()
+    assert application.stage == ("closed" if state == "closed" else "pending_review")
+    assert bool(application.candidate.deleted_at) == (state == "legacy_deleted")
+
+
 def verification_payload(**values):
     return {
         "question_index": 0,

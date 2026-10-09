@@ -27,7 +27,7 @@ import {
   type Page,
   type Requirement,
 } from '@/lib/api';
-import { type Application, stages } from '@/lib/intake';
+import { type Application, stages, stageVariants } from '@/lib/intake';
 import { cn } from '@/lib/utils';
 import { ImportDrawer, ProfileCandidatePicker } from '@/pages/intake';
 
@@ -367,11 +367,11 @@ function CandidateProfiles({
                           {item.name}
                         </Button>
                         {item.candidate_deleted_at && (
-                          <Badge variant="outline">已移出候选人库</Badge>
+                          <Badge variant="destructive">已移出候选人库</Badge>
                         )}
                       </div>
                       {item.candidate_deleted_at && item.closed_at === null && (
-                        <small className="cell-secondary">原应聘待处理</small>
+                        <small className="text-warning">原应聘待处理</small>
                       )}
                     </div>
                   ),
@@ -381,7 +381,11 @@ function CandidateProfiles({
                 {
                   title: '当前阶段',
                   dataIndex: 'stage',
-                  render: (value) => <Badge variant="secondary">{stages[value] || value}</Badge>,
+                  render: (value) => (
+                    <Badge variant={stageVariants[value] || 'muted'}>
+                      {stages[value] || value}
+                    </Badge>
+                  ),
                 },
                 {
                   title: '经办 HR',
@@ -543,7 +547,7 @@ function JobProfiles({
                   title: '招人要求',
                   dataIndex: 'active_profile_number',
                   render: (value) => (
-                    <Badge variant={value ? 'secondary' : 'outline'}>
+                    <Badge variant={value ? 'success' : 'warning'}>
                       {value ? '已确定，可以对照简历' : '尚未确定'}
                     </Badge>
                   ),
@@ -775,7 +779,7 @@ export function ProfileAi({
                         “{r.source_quote}”
                       </blockquote>
                     )}
-                    {r.needs_verification && <Badge variant="outline">待核实</Badge>}
+                    {r.needs_verification && <Badge variant="warning">待核实</Badge>}
                   </div>
                 </Field>
               ))}

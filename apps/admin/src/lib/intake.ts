@@ -317,6 +317,22 @@ export const stages: Record<string, string> = {
   closed: '已淘汰',
   talent_pool: '人才库',
 };
+export const stageVariants: Record<
+  string,
+  'secondary' | 'success' | 'warning' | 'destructive' | 'muted'
+> = {
+  pending_review: 'secondary',
+  needs_information: 'warning',
+  ready_to_schedule: 'secondary',
+  interviewing: 'secondary',
+  first_interview_passed: 'success',
+  second_interview: 'secondary',
+  second_interview_passed: 'success',
+  offer_sent: 'secondary',
+  hired: 'success',
+  closed: 'destructive',
+  talent_pool: 'muted',
+};
 export const reviewActions: Record<string, string> = {
   advance: '通过复核',
   need_info: '需要补充',

@@ -20,7 +20,7 @@ export function ProfileRequirementSummary({ requirements }: { requirements: Requ
       <Badge variant="outline">
         排除信号 {requirements.filter((r) => r.kind === 'exclusion').length}
       </Badge>
-      <Badge variant="outline">
+      <Badge variant="warning">
         要求未确定 {requirements.filter((r) => r.needs_verification).length}
       </Badge>
     </section>
@@ -62,7 +62,7 @@ function RequirementCard({
       >
         <Badge variant={r.kind === 'must' ? 'secondary' : 'outline'}>{kindLabel[r.kind]}</Badge>{' '}
         <span className="break-words">{r.text || `要求 ${index}：填写具体要求`}</span>{' '}
-        {r.needs_verification && <Badge variant="outline">要求未确定</Badge>}
+        {r.needs_verification && <Badge variant="warning">要求未确定</Badge>}
       </summary>
       <FieldSet className="mt-4" disabled={busy}>
         <FieldGroup>
