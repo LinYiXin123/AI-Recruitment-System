@@ -1,5 +1,6 @@
 import './index.css';
 import '@douyinfe/semi-ui/react19-adapter';
+import './lib/crypto';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
