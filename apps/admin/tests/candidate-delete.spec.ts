@@ -12,7 +12,15 @@ function candidate(id: number, canDelete = true) {
     work_years: '4 年',
     expected_salary: '12-15K',
     source: '猎聘',
-    applications: [],
+    applications: [] as {
+      id: number;
+      job_id: number;
+      job__title: string;
+      attempt_no: number;
+      stage: string;
+      closed_at: string | null;
+    }[],
+    active_application_count: 0,
     can_delete: canDelete,
     updated_at: '2026-10-09T00:00:00Z',
   };
@@ -111,7 +119,7 @@ test('窄屏删除红字在详情右侧，无权限隐藏，取消不删且成�
   await remove.click();
   const dialog = page.getByRole('dialog', { name: '删除候选人', exact: true });
   await expect(dialog).toContainText(`确定删除「${person.display_name}」吗？`);
-  await expect(dialog).toContainText('已有应聘、面试记录保留，进行中的流程不会自动终止。');
+  await expect(dialog).toContainText('已结束的应聘、面试和附件历史保留。');
   await dialog.getByRole('button', { name: '取消', exact: true }).click();
   await expect(dialog).toBeHidden();
   expect(state.deletions).toHaveLength(0);
@@ -187,5 +195,82 @@ test('删除第 2 页最后一条后回到第 1 页并同步人数', async ({ pa
   ]);
   expect(state.loads).toContain(2);
   expect(state.loads.at(-1)).toBe(1);
+  expect(state.unexpected).toEqual([]);
+});
+
+test('仍有进行中应聘时禁用删除，只能打开尚未结束的应聘继续处理', async ({ page }) => {
+  const person = {
+    ...candidate(99201),
+    active_application_count: 1,
+    applications: [
+      {
+        id: 99211,
+        job_id: 99221,
+        job__title: '虚构进行中岗位',
+        attempt_no: 1,
+        stage: 'pending_review',
+        closed_at: null,
+      },
+      {
+        id: 99212,
+        job_id: 99222,
+        job__title: '虚构已结束岗位',
+        attempt_no: 1,
+        stage: 'closed',
+        closed_at: '2026-10-09T01:00:00Z',
+      },
+    ],
+  };
+  const { state } = await openCandidates(page, [person]);
+  const opened: number[] = [];
+  await page.route('**/api/v1/applications/99211/', (route) => {
+    opened.push(99211);
+    return route.fulfill({
+      json: {
+        id: 99211,
+        candidate: person.id,
+        name: person.display_name,
+        job: 99221,
+        job_title: '虚构进行中岗位',
+        job_status: 'open',
+        attempt_no: 1,
+        stage: 'pending_review',
+        closed_at: null,
+        version: 1,
+        source: '其他',
+        owner_name: '虚构验收 HR',
+        phone: '',
+        email: '',
+        contact_note: '虚构验收资料',
+        profile: 99231,
+        requirements: [],
+        handlers: [],
+        interviewers: [],
+        resumes: [],
+        reviews: [],
+        candidate_deleted_at: null,
+        candidate_updated_at: person.updated_at,
+        can_restore_candidate: false,
+      },
+    });
+  });
+  const row = page.getByRole('row').filter({ hasText: person.display_name });
+  await row.getByRole('button', { name: '删除', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '删除候选人', exact: true });
+  await expect(dialog).toContainText(`「${person.display_name}」还有 1 条进行中的应聘`);
+  await expect(dialog).toContainText('请先处理后再删除');
+  await expect(dialog.getByRole('button', { name: '确认删除', exact: true })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: '查看应聘', exact: true })).toHaveCount(1);
+  await expect(dialog).toContainText('虚构进行中岗位');
+  await expect(dialog).not.toContainText('虚构已结束岗位');
+  await page.keyboard.press('Enter');
+  expect(state.deletions).toHaveLength(0);
+  await dialog.getByRole('button', { name: '查看应聘', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(
+    page.getByRole('dialog', { name: `${person.display_name} · 第 1 次应聘`, exact: true }),
+  ).toBeVisible();
+  expect(new Set(opened)).toEqual(new Set([99211]));
+  expect(state.deletions).toHaveLength(0);
   expect(state.unexpected).toEqual([]);
 });

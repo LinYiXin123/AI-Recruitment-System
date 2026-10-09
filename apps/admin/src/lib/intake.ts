@@ -363,6 +363,7 @@ export type Candidate = {
     job__title: string;
     attempt_no: number;
     stage: string;
+    closed_at: string | null;
   }[];
 };
 export type Application = {
@@ -370,6 +371,9 @@ export type Application = {
   profile: number;
   id: number;
   candidate: number;
+  candidate_deleted_at: string | null;
+  candidate_updated_at: string;
+  can_restore_candidate: boolean;
   name: string;
   job: number;
   job_title: string;
@@ -378,6 +382,7 @@ export type Application = {
   version: number;
   source: string;
   owner_name: string;
+  closed_at: string | null;
   close_reason: string;
   phone: string;
   email: string;

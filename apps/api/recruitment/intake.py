@@ -344,6 +344,7 @@ def candidate_data(c, m, detail=False):
         "source": "" if source in ["HR 上传", "未标注"] else source,
         "created_at": c.created_at,
         "updated_at": c.updated_at,
+        "active_application_count": sum(a.closed_at is None for a in applications),
         "applications": [
             {
                 "id": a.id,
@@ -351,6 +352,7 @@ def candidate_data(c, m, detail=False):
                 "job__title": a.job.title,
                 "attempt_no": a.attempt_no,
                 "stage": a.stage,
+                "closed_at": a.closed_at,
                 "source": a.source,
                 "owner_name": display_name(a.owner),
             }
@@ -851,12 +853,48 @@ class CandidateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Gen
             return Response({"deleted": True})
         if person.updated_at != data["updated_at"]:
             raise Conflict("候选人资料已更新，请刷新后确认再删除。")
+        if person.applications.filter(closed_at__isnull=True).exists():
+            raise Conflict("仍有进行中的应聘，请先处理这些应聘再删除候选人。")
         person.deleted_at = timezone.now()
         person.deleted_by = m
         person.save(update_fields=["deleted_at", "deleted_by", "updated_at"])
         for application in person.applications.select_related("job"):
-            audit(m, application.job, "从候选人库删除", application, note="保留已有应聘及面试流程")
+            audit(m, application.job, "从候选人库删除", application, note="保留已有应聘及面试记录")
         return Response({"deleted": True})
+
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def restore(self, request, pk=None):
+        class RestoreInput(serializers.Serializer):
+            updated_at = serializers.DateTimeField()
+
+        m = member(request)
+        require_hr(m)
+        lock_candidate_creation(m)
+        original = get_object_or_404(candidates(m, include_deleted=True), pk=pk)
+        person = Candidate.objects.select_for_update().get(pk=original.pk)
+        m = member(request)
+        require_hr(m)
+        get_object_or_404(candidates(m, include_deleted=True), pk=person.pk)
+        if not candidate_data(person, m)["can_delete"]:
+            raise PermissionDenied("当前没有该候选人及全部关联职位的恢复权限。")
+        data = validated(RestoreInput, request.data)
+        if not person.deleted_at:
+            return Response({"restored": True})
+        if person.updated_at != data["updated_at"]:
+            raise Conflict("候选人资料已更新，请刷新后确认再恢复。")
+        if possible_matches(
+            m, {field: getattr(person, field) for field in ["display_name", "phone", "email"]}
+        ).exists():
+            raise Conflict("候选人库已有姓名或联系方式相似的档案，请先核对后再恢复。")
+        person.deleted_at = None
+        person.deleted_by = None
+        person.save(update_fields=["deleted_at", "deleted_by", "updated_at"])
+        for application in person.applications.select_related("job"):
+            audit(
+                m, application.job, "恢复到候选人库", application, note="保留原主档及本次应聘阶段"
+            )
+        return Response({"restored": True})
 
     @action(detail=True, methods=["post"], url_path="supplement-profile")
     @transaction.atomic
@@ -1126,6 +1164,11 @@ def app_data(a, m, detail=False):
     result = {
         "id": a.id,
         "candidate": a.candidate_id,
+        "candidate_deleted_at": a.candidate.deleted_at,
+        "candidate_updated_at": a.candidate.updated_at,
+        "can_restore_candidate": bool(
+            a.candidate.deleted_at and candidate_data(a.candidate, m)["can_delete"]
+        ),
         "name": a.candidate.display_name,
         "current_city": a.candidate.current_city,
         "education_level": a.candidate.education_level,

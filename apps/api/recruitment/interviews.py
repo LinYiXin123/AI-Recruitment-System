@@ -196,12 +196,16 @@ class InterviewViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         )
         if not can_edit(m, original.job):
             raise PermissionDenied("仅当前职位的 HR 负责人或获授权协作者可以安排面试。")
+        Candidate.objects.select_for_update().get(pk=original.candidate_id)
+        Job.objects.select_for_update().get(pk=original.job_id)
         a = (
-            Application.objects.select_for_update()
+            Application.objects.select_for_update(of=("self",))
             .select_related("job", "candidate")
             .get(pk=original.pk)
         )
-        Job.objects.select_for_update().get(pk=a.job_id)
+        m = member(request)
+        if not can_edit(m, a.job):
+            raise PermissionDenied("仅当前职位的 HR 负责人或获授权协作者可以安排面试。")
         old = (
             Interview.objects.select_related("current_revision")
             .prefetch_related("current_revision__participants")
@@ -219,7 +223,6 @@ class InterviewViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         if not a.job.active_profile_id:
             raise Conflict("职位缺少正式招人要求，暂不能安排面试。")
 
-        Candidate.objects.select_for_update().get(pk=a.candidate_id)
         eligible = list(
             Membership.objects.filter(
                 pk__in=data["participants"],

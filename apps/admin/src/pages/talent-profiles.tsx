@@ -80,7 +80,7 @@ export function TalentProfiles({
           <p>
             {context.tab === 'jobs'
               ? '先确定招人要求，再选择简历，看看写到了什么、还需要问什么。'
-              : '选一个职位和候选人，用简历对照招人要求。AI 提供依据，由你核实。'}
+              : '按职位查看应聘记录，用本次简历对照招人要求。AI 提供依据，由你核实。'}
           </p>
         </div>
         <div className="page-actions">
@@ -276,10 +276,10 @@ function CandidateProfiles({
             </EmptyMedia>
             <EmptyTitle>
               {search
-                ? '没有找到这个候选人'
+                ? '没有找到匹配的应聘记录'
                 : selectedJob
-                  ? `“${selectedJob.title}”还没有候选人`
-                  : '还没有可分析的候选人'}
+                  ? `“${selectedJob.title}”还没有应聘记录`
+                  : '还没有可对照的应聘记录'}
             </EmptyTitle>
             <EmptyDescription>
               {search
@@ -305,7 +305,7 @@ function CandidateProfiles({
         <>
           <p className="px-[26px] py-3 text-sm text-muted-foreground">
             {selectedJob ? `当前职位：${selectedJob.title}。` : ''}
-            选择一位候选人，补齐简历后开始对照。同一个人应聘不同职位，分别查看。
+            这里显示职位应聘记录，包括已移出候选人库的人选。同一个人的不同应聘分别查看。
           </p>
           <div className="table-container">
             <Table<Application>
@@ -317,13 +317,23 @@ function CandidateProfiles({
                   title: '候选人',
                   dataIndex: 'name',
                   render: (_value, item) => (
-                    <Button
-                      variant="link"
-                      className="job-link"
-                      onClick={() => openApplication(item.id)}
-                    >
-                      {item.name}
-                    </Button>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          variant="link"
+                          className="job-link"
+                          onClick={() => openApplication(item.id)}
+                        >
+                          {item.name}
+                        </Button>
+                        {item.candidate_deleted_at && (
+                          <Badge variant="outline">已移出候选人库</Badge>
+                        )}
+                      </div>
+                      {item.candidate_deleted_at && item.closed_at === null && (
+                        <small className="cell-secondary">原应聘待处理</small>
+                      )}
+                    </div>
                   ),
                 },
                 { title: '目标职位', dataIndex: 'job_title' },
@@ -339,7 +349,7 @@ function CandidateProfiles({
                   dataIndex: 'id',
                   render: (_value, item) => (
                     <Button variant="outline" onClick={() => openApplication(item.id)}>
-                      查看简历并对照
+                      {item.candidate_deleted_at ? '处理原有应聘' : '查看简历并对照'}
                     </Button>
                   ),
                 },
@@ -503,7 +513,7 @@ function JobProfiles({
                   render: (_value, job) => (
                     <div className="flex flex-wrap gap-2">
                       {job.active_profile ? (
-                        <Button onClick={() => chooseJob(job)}>查看候选人</Button>
+                        <Button onClick={() => chooseJob(job)}>查看本职位应聘</Button>
                       ) : (
                         job.permissions.edit &&
                         job.status !== 'closed' && (

@@ -412,6 +412,7 @@ type CandidateRecord = Candidate & {
   updated_at: string;
   can_edit_profile: boolean;
   can_delete: boolean;
+  active_application_count: number;
 };
 
 export type CandidateLibraryActions = {
@@ -848,6 +849,10 @@ export const Candidates = forwardRef<
       {deleting && (
         <DeleteCandidateDialog
           candidate={deleting}
+          openApplication={(id) => {
+            setDeleting(null);
+            openApplication(id);
+          }}
           close={() => {
             setDeleting(null);
             setReload((value) => value + 1);
@@ -890,17 +895,20 @@ function DeleteCandidateDialog({
   candidate,
   close,
   deleted,
+  openApplication,
 }: {
   candidate: CandidateRecord;
   close: () => void;
   deleted: () => void;
+  openApplication: (id: number) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const submitting = useRef(false);
+  const blocked = candidate.active_application_count > 0;
 
   async function remove() {
-    if (submitting.current) return;
+    if (submitting.current || blocked) return;
     submitting.current = true;
     setBusy(true);
     setError('');
@@ -937,17 +945,42 @@ function DeleteCandidateDialog({
           <Button variant="outline" disabled={busy} onClick={close}>
             取消
           </Button>
-          <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
+          <Button variant="destructive" disabled={busy || blocked} onClick={() => void remove()}>
             {busy ? '正在删除…' : '确认删除'}
           </Button>
         </div>
       }
     >
       <div className="flex flex-col gap-3">
-        <p>确定删除「{candidate.display_name}」吗？</p>
-        <p className="text-sm text-muted-foreground">
-          删除后将移出候选人库；已有应聘、面试记录保留，进行中的流程不会自动终止。
-        </p>
+        {blocked ? (
+          <>
+            <p>
+              「{candidate.display_name}」还有 {candidate.active_application_count} 条进行中的应聘，
+              请先处理后再删除。
+            </p>
+            <ul className="flex flex-col gap-2">
+              {candidate.applications
+                .filter((application) => application.closed_at === null)
+                .map((application) => (
+                  <li key={application.id} className="flex items-center justify-between gap-3">
+                    <span>
+                      {application.job__title} · {stages[application.stage] || application.stage}
+                    </span>
+                    <Button variant="link" onClick={() => openApplication(application.id)}>
+                      查看应聘
+                    </Button>
+                  </li>
+                ))}
+            </ul>
+          </>
+        ) : (
+          <>
+            <p>确定删除「{candidate.display_name}」吗？</p>
+            <p className="text-sm text-muted-foreground">
+              删除后将移出候选人库；已结束的应聘、面试和附件历史保留。
+            </p>
+          </>
+        )}
         {error && <ErrorNotice message={error} />}
       </div>
     </Modal>
@@ -2641,6 +2674,7 @@ export function ApplicationDetail({
   const [key, setKey] = useState(() => crypto.randomUUID());
   const [success, setSuccess] = useState('');
   const [supplementing, setSupplementing] = useState(false);
+  const restoring = useRef(false);
   useEffect(() => {
     const c = new AbortController();
     setLoading(true);
@@ -2715,6 +2749,54 @@ export function ApplicationDetail({
             </p>
             <p>{data.phone || data.email || data.contact_note}</p>
           </div>
+          {data.candidate_deleted_at && (
+            <Alert>
+              <AlertTitle>已移出候选人库</AlertTitle>
+              <AlertDescription className="flex flex-col gap-3">
+                <p>
+                  {data.closed_at === null
+                    ? ['pending_review', 'needs_information', 'ready_to_schedule'].includes(
+                        data.stage,
+                      )
+                      ? '原应聘仍在进行中。可恢复主档案继续招聘；如需结束本次应聘，请在下方「人工复核」填写处理结果和说明。'
+                      : '原应聘仍在进行中。请先恢复主档案，再按当前阶段处理后续流程。'
+                    : '这里保留的是已结束的应聘记录。恢复主档案后可在候选人库中继续使用，历史结果不变。'}
+                </p>
+                {data.can_restore_candidate ? (
+                  <Button
+                    variant="outline"
+                    className="self-start"
+                    disabled={loading || busy || dirty || analysisBusy || analysisEditing}
+                    onClick={async () => {
+                      if (restoring.current) return;
+                      restoring.current = true;
+                      setBusy(true);
+                      setError('');
+                      setSuccess('');
+                      try {
+                        await api(`candidates/${data.candidate}/restore/`, {
+                          updated_at: data.candidate_updated_at,
+                        });
+                        setSuccess('已恢复到候选人库，原有应聘和材料保持不变。');
+                        setLoading(true);
+                        setReload((value) => value + 1);
+                        changed();
+                      } catch (e) {
+                        setError((e as Error).message);
+                      } finally {
+                        restoring.current = false;
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    {busy ? '正在恢复…' : '恢复到候选人库'}
+                  </Button>
+                ) : (
+                  <p>恢复主档案需由有原始资料及全部关联职位权限的 HR 操作。</p>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
           {data.stage !== 'closed' && data.job_status === 'open' && (
             <section
               className="flex flex-col gap-3 rounded-lg border p-4"

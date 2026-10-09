@@ -45,6 +45,9 @@ const application: Application = {
   id: 93301,
   profile: 93201,
   candidate: 93401,
+  candidate_deleted_at: null,
+  candidate_updated_at: '2026-10-08T01:00:00Z',
+  can_restore_candidate: false,
   name: '虚构渠道候选人',
   job: job.id,
   job_title: job.title,
@@ -54,6 +57,7 @@ const application: Application = {
   source: '其他',
   owner_name: '测试 HR',
   close_reason: '',
+  closed_at: null,
   phone: '',
   email: '',
   contact_note: '仅测试材料',
@@ -126,18 +130,23 @@ async function prepare(
   return requestedJobs;
 }
 
-test('已确定要求的岗位直接查看候选人，按该岗位筛选且可恢复全部', async ({ page }) => {
+test('已确定要求的岗位查看本职位应聘，按该岗位筛选且可恢复全部', async ({ page }) => {
   const requestedJobs = await prepare(page);
   await page
     .getByRole('row')
     .filter({ hasText: job.title })
-    .getByRole('button', { name: '查看候选人', exact: true })
+    .getByRole('button', { name: '查看本职位应聘', exact: true })
     .click();
   await expect(page.getByRole('tab', { name: '简历对照', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
   );
   await expect(page.getByLabel('目标职位', { exact: true })).toContainText(job.title);
+  await expect(
+    page.getByText('这里显示职位应聘记录，包括已移出候选人库的人选。同一个人的不同应聘分别查看。', {
+      exact: false,
+    }),
+  ).toBeVisible();
   await expect(page.getByRole('row').filter({ hasText: application.name })).toBeVisible();
   await expect(page.getByRole('row').filter({ hasText: otherApplication.name })).toHaveCount(0);
   expect(requestedJobs).toContain(String(job.id));
@@ -158,9 +167,10 @@ test('零应聘岗位保留选岗上下文，选人不会自动加入，明确�
   await page
     .getByRole('row')
     .filter({ hasText: job.title })
-    .getByRole('button', { name: '查看候选人', exact: true })
+    .getByRole('button', { name: '查看本职位应聘', exact: true })
     .click();
   await expect(page.getByLabel('目标职位', { exact: true })).toContainText(job.title);
+  await expect(page.getByText(`“${job.title}”还没有应聘记录`, { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '选择候选人', exact: true }).first().click();
   const picker = page.getByRole('dialog', { name: '选择候选人', exact: true });
   await expect(picker.getByLabel('搜索已有候选人', { exact: true })).toBeVisible();
@@ -190,7 +200,7 @@ test('没有岗位编辑权限时可查看已有对照，不提供新增应聘�
   await page
     .getByRole('row')
     .filter({ hasText: job.title })
-    .getByRole('button', { name: '查看候选人', exact: true })
+    .getByRole('button', { name: '查看本职位应聘', exact: true })
     .click();
   await expect(page.getByRole('row').filter({ hasText: application.name })).toBeVisible();
   await expect(page.getByRole('button', { name: '选择候选人', exact: true })).toHaveCount(0);
@@ -216,6 +226,7 @@ test('同岗位已有进行中应聘时直接打开，不重复创建记录', as
                 job__title: job.title,
                 attempt_no: 1,
                 stage: 'pending_review',
+                closed_at: null,
               },
             ],
           },
@@ -231,7 +242,7 @@ test('同岗位已有进行中应聘时直接打开，不重复创建记录', as
   await page
     .getByRole('row')
     .filter({ hasText: job.title })
-    .getByRole('button', { name: '查看候选人', exact: true })
+    .getByRole('button', { name: '查看本职位应聘', exact: true })
     .click();
   await page.getByRole('button', { name: '选择候选人', exact: true }).first().click();
   const picker = page.getByRole('dialog', { name: '选择候选人', exact: true });
@@ -279,7 +290,7 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
     id: 93501,
     job: job.id,
     job_title: job.title,
-    source: 'HR 上传',
+    source: '',
     total: 2,
     received: uploaded,
     completed: confirmed ? 1 : 0,
@@ -298,7 +309,7 @@ test('补充简历锁定本次应聘，核对失败保留依据并可重试，�
   await page.route('**/api/v1/imports/', (route) => {
     expect(route.request().postDataJSON()).toMatchObject({
       job: job.id,
-      source: 'HR 上传',
+      source: '',
       total: 2,
     });
     return route.fulfill({ status: 201, json: batch() });
@@ -470,7 +481,7 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
     id: 93601,
     job: job.id,
     job_title: job.title,
-    source: 'HR 上传',
+    source: '',
     total: 2,
     received: uploaded,
     completed: Number(confirmed) + Number(secondConfirmed),
@@ -490,7 +501,7 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   await page.route('**/api/v1/imports/', (route) => {
     expect(route.request().postDataJSON()).toMatchObject({
       job: job.id,
-      source: 'HR 上传',
+      source: '',
       total: 2,
     });
     return route.fulfill({ status: 201, json: batch() });
@@ -534,7 +545,7 @@ test('新简历自动填写身份，重新加载保留人工修改和主动留�
   await page
     .getByRole('row')
     .filter({ hasText: job.title })
-    .getByRole('button', { name: '查看候选人', exact: true })
+    .getByRole('button', { name: '查看本职位应聘', exact: true })
     .click();
   await page.getByRole('button', { name: '选择候选人', exact: true }).first().click();
   await page
@@ -744,7 +755,7 @@ test('导入丢失响应后可换文件重新开始，上传及确认后的刷�
     id: 93701,
     job: job.id,
     job_title: job.title,
-    source: 'HR 上传',
+    source: '',
     total: 2,
     received: uploaded,
     completed: Number(confirmed) + Number(secondConfirmed),
@@ -802,7 +813,7 @@ test('导入丢失响应后可换文件重新开始，上传及确认后的刷�
   await page
     .getByRole('row')
     .filter({ hasText: job.title })
-    .getByRole('button', { name: '查看候选人', exact: true })
+    .getByRole('button', { name: '查看本职位应聘', exact: true })
     .click();
   await page.getByRole('button', { name: '选择候选人', exact: true }).first().click();
   await page
@@ -832,8 +843,8 @@ test('导入丢失响应后可换文件重新开始，上传及确认后的刷�
   }
   await expect(drawer.getByRole('alert').filter({ hasText: '虚构上传后刷新失败' })).toBeVisible();
   expect(creations).toHaveLength(2);
-  expect(creations[0]).toMatchObject({ job: job.id, source: 'HR 上传', total: 1 });
-  expect(creations[1]).toMatchObject({ job: job.id, source: 'HR 上传', total: 2 });
+  expect(creations[0]).toMatchObject({ job: job.id, source: '', total: 1 });
+  expect(creations[1]).toMatchObject({ job: job.id, source: '', total: 2 });
   expect(creations[1].request_key).not.toBe(creations[0].request_key);
   await drawer.getByRole('button', { name: '重新加载', exact: true }).click();
   await expect(drawer.getByText('已接收 2 / 2 份，已核对 0 份', { exact: true })).toBeVisible();
