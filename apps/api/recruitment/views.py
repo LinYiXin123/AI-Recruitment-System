@@ -40,6 +40,7 @@ from .serializers import (
     JobSerializer,
     NewJobSerializer,
     ProfileSerializer,
+    RecruitmentSitesSerializer,
     ReviewSerializer,
     SaveProfileSerializer,
     StatusSerializer,
@@ -284,6 +285,7 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                     "company_name",
                     "job_level",
                     "salary_range",
+                    "recruitment_sites",
                     "base_salary",
                     "performance_salary",
                     "commission_salary",
@@ -346,6 +348,7 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                     "company_name",
                     "job_level",
                     "salary_range",
+                    "recruitment_sites",
                     "base_salary",
                     "performance_salary",
                     "commission_salary",
@@ -366,6 +369,16 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 bind_preview(job, profile_data, m)
             self.save_profile(job, profile_data, m, created_with_job=True)
         return Response(self.get_serializer(job).data, status=201)
+
+    @action(detail=True, methods=["post"], url_path="recruitment-sites")
+    @transaction.atomic
+    def recruitment_sites(self, request, pk=None):
+        data = validate_input(RecruitmentSitesSerializer, request.data)
+        job = self.locked_job(data)
+        m = self.editable(job)
+        job.recruitment_sites = data["recruitment_sites"]
+        record(job, m, "修改招聘网站", note="、".join(job.recruitment_sites) or "未选择招聘网站")
+        return Response(self.get_serializer(job).data)
 
     @action(detail=True, methods=["get", "post"])
     def profiles(self, request, pk=None):

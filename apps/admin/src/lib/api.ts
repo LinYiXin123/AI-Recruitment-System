@@ -38,6 +38,7 @@ export type Job = {
   enterprise_deleted?: boolean;
   job_level: string;
   salary_range: string;
+  recruitment_sites?: string[];
   base_salary: string;
   performance_salary: string;
   commission_salary: string;

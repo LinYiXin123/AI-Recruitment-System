@@ -100,19 +100,16 @@ test('职位列表展示保存后的建岗字段', async ({ page }) => {
   await expect(page.getByText('薪资区间', { exact: true })).toBeVisible();
   await expect(page.getByText('招聘人数', { exact: true })).toBeVisible();
   await expect(page.getByText('发布时间', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: title, exact: true })).toBeVisible();
-  await expect(page.getByText('工作地点 · 深圳', { exact: true })).toBeVisible();
-  await expect(page.getByText('产品研发部（虚构）', { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole('grid').getByText('知遇体验团队（虚构）', { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole('grid').getByText('主管级', { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole('grid').getByText('底薪 7K + 绩效 1K + 提成 1K', { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole('grid').getByText('3 人', { exact: true })).toBeVisible();
-  await expect(page.getByRole('grid').getByText('2026-09-29', { exact: true })).toBeVisible();
-  await expect(page.getByRole('grid').getByText('草稿', { exact: true })).toBeVisible();
+  const row = page.getByRole('grid').getByRole('row').filter({ hasText: title });
+  await expect(row.getByRole('button', { name: title, exact: true })).toBeVisible();
+  await expect(row.getByText('工作地点 · 深圳', { exact: true })).toBeVisible();
+  await expect(row.getByText('产品研发部（虚构）', { exact: true })).toBeVisible();
+  await expect(row.getByText('知遇体验团队（虚构）', { exact: true })).toBeVisible();
+  await expect(row.getByText('主管级', { exact: true })).toBeVisible();
+  await expect(row.getByText('底薪 7K + 绩效 1K + 提成 1K', { exact: true })).toBeVisible();
+  await expect(row.getByText('3 人', { exact: true })).toBeVisible();
+  await expect(row.getByText('2026-09-29', { exact: true })).toBeVisible();
+  await expect(row.getByText('草稿', { exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/职位完整字段列表.png' });
 });
 

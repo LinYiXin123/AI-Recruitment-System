@@ -75,6 +75,7 @@ class Job(Timestamped):
     )
     job_level = models.CharField(max_length=100, blank=True, default="")
     salary_range = models.CharField(max_length=200, blank=True, default="")
+    recruitment_sites = models.JSONField(default=list, blank=True)
     base_salary = models.CharField(max_length=100, blank=True, default="")
     performance_salary = models.CharField(max_length=100, blank=True, default="")
     commission_salary = models.CharField(max_length=100, blank=True, default="")

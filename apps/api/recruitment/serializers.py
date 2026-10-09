@@ -3,6 +3,13 @@ from rest_framework import serializers
 from .access import can_confirm, can_edit
 from .models import AuditEvent, Job, ProfileClarification, ProfileRequirement, ProfileVersion, Task
 
+RECRUITMENT_SITES = ("BOSS直聘", "猎聘", "智联招聘", "前程无忧", "拉勾招聘", "其他")
+
+
+def unique_recruitment_sites(value):
+    if len(value) != len(set(value)):
+        raise serializers.ValidationError("招聘网站不能重复选择。")
+
 
 def display_name(membership):
     return membership.user.get_full_name() or membership.user.username
@@ -114,6 +121,7 @@ class JobSerializer(serializers.ModelSerializer):
             "enterprise_deleted",
             "job_level",
             "salary_range",
+            "recruitment_sites",
             "base_salary",
             "performance_salary",
             "commission_salary",
@@ -164,6 +172,12 @@ class NewJobSerializer(serializers.Serializer):
     company_name = serializers.CharField(max_length=200, allow_blank=True, default="")
     job_level = serializers.CharField(max_length=100, allow_blank=True, default="")
     salary_range = serializers.CharField(max_length=200, allow_blank=True, default="")
+    recruitment_sites = serializers.ListField(
+        child=serializers.ChoiceField(choices=RECRUITMENT_SITES),
+        max_length=6,
+        validators=[unique_recruitment_sites],
+        default=list,
+    )
     base_salary = serializers.CharField(max_length=100, allow_blank=True, default="")
     performance_salary = serializers.CharField(max_length=100, allow_blank=True, default="")
     commission_salary = serializers.CharField(max_length=100, allow_blank=True, default="")
@@ -187,6 +201,14 @@ class NewJobSerializer(serializers.Serializer):
 
 class VersionSerializer(serializers.Serializer):
     version = serializers.IntegerField(min_value=1)
+
+
+class RecruitmentSitesSerializer(VersionSerializer):
+    recruitment_sites = serializers.ListField(
+        child=serializers.ChoiceField(choices=RECRUITMENT_SITES),
+        max_length=6,
+        validators=[unique_recruitment_sites],
+    )
 
 
 class ClarificationRequestSerializer(VersionSerializer):

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Blank, ErrorNotice, Loading } from '@/components/feedback';
+import { RecruitmentSites } from '@/components/recruitment-sites';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -415,6 +416,7 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
           '所属企业',
           '职级',
           '薪资区间',
+          '招聘网站',
           '招聘人数',
           '状态',
           '发布时间',
@@ -426,6 +428,7 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
           job.company_name || '—',
           job.job_level || '—',
           job.salary_range || '—',
+          job.recruitment_sites?.join('、') || '—',
           job.headcount,
           jobStatus[job.status] || job.status,
           job.planned_publish_date || '—',
@@ -625,6 +628,12 @@ export const Jobs = forwardRef<JobsActions, WorkspaceProps>(function Jobs(
                     dataIndex: 'salary_range',
                     width: 120,
                     render: (value) => value || '—',
+                  },
+                  {
+                    title: '招聘网站',
+                    dataIndex: 'recruitment_sites',
+                    width: 120,
+                    render: (value) => <RecruitmentSites value={value} />,
                   },
                   {
                     title: '招聘人数',
