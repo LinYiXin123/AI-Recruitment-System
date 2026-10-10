@@ -734,18 +734,21 @@ export function ProfileAi({
   setBusy,
   restoreInput,
   adopt,
+  compact = false,
 }: {
   job?: Job;
   jd: string;
   businessGoal: string;
   busy: boolean;
   setBusy: (value: boolean) => void;
-  restoreInput: (input: ProfileGeneration['input']) => void;
+  restoreInput?: (input: ProfileGeneration['input']) => void;
   adopt: (generation: ProfileGeneration, requirements: Requirement[]) => void;
+  compact?: boolean;
 }) {
   const [result, setResult] = useState<ProfileGeneration | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [error, setError] = useState('');
+  const [compactMessage, setCompactMessage] = useState('');
   const [request, setRequest] = useState<{ key: string; input: string } | null>(null);
   const [history, setHistory] = useState<ProfileGeneration[] | null>(null);
   const endpoint = job ? `jobs/${job.id}/profile-ai/` : 'jobs/profile-ai/';
@@ -757,6 +760,7 @@ export function ProfileAi({
     if (busy || !jd.trim()) return;
     setBusy(true);
     setError('');
+    setCompactMessage('');
     const input = JSON.stringify([job?.version, jd, businessGoal]);
     const key = request?.input === input ? request.key : crypto.randomUUID();
     setRequest({ key, input });
@@ -767,9 +771,24 @@ export function ProfileAi({
         jd,
         business_goal: businessGoal,
       });
-      show(generated);
+      if (compact && generated.status === 'succeeded') {
+        const sameInput =
+          generated.input.jd === jd.trim() && generated.input.business_goal === businessGoal.trim();
+        const sameJobVersion =
+          !job || generated.job_version == null || generated.job_version === job.version;
+        if (sameInput && sameJobVersion) {
+          adopt(generated, generated.requirements);
+          setCompactMessage('已提取字段，请核对后保存。');
+        } else {
+          setError('职位或招聘需求已变化，请重新生成画像。');
+        }
+      } else if (compact) {
+        setError(generated.error || '生成仍在处理中，稍后重试可读取同一次结果。');
+      } else {
+        show(generated);
+      }
       if (generated.status !== 'running') setRequest(null);
-      if (generated.status !== 'succeeded')
+      if (generated.status !== 'succeeded' && !compact)
         setError(generated.error || '生成仍在处理中，稍后重试可读取同一次结果。');
     } catch (e) {
       setError((e as Error).message);
@@ -782,6 +801,18 @@ export function ProfileAi({
   const outdated = Boolean(
     job && result?.job_version != null && result.job_version !== job.version,
   );
+  if (compact) {
+    return (
+      <section className="flex flex-col items-start gap-2" aria-label="AI 岗位画像助手">
+        <Button type="button" disabled={busy || !jd.trim()} onClick={() => void generate()}>
+          <Sparkles data-icon="inline-start" />
+          {busy ? '正在生成…' : 'AI 生成画像'}
+        </Button>
+        {compactMessage && <p role="status">{compactMessage}</p>}
+        {error && <ErrorNotice message={error} />}
+      </section>
+    );
+  }
   return (
     <section className="flex flex-col gap-4" aria-label="AI 岗位画像助手">
       <div className="flex flex-wrap gap-2">
@@ -851,7 +882,7 @@ export function ProfileAi({
             type="button"
             variant="outline"
             disabled={busy}
-            onClick={() => restoreInput(result.input)}
+            onClick={() => restoreInput?.(result.input)}
           >
             恢复这次输入
           </Button>
