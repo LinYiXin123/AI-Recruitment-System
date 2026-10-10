@@ -502,6 +502,7 @@ def candidate_data(c, m, detail=False):
             ]:
                 result[field] = ""
         result["resume_documents"] = []
+        visible_profile_parse = None
         for doc in docs:
             visible_parses = doc.parses.filter(applicationresume__application__in=applications)
             parse = visible_parses.first() if applications else doc.parses.first()
@@ -509,6 +510,7 @@ def candidate_data(c, m, detail=False):
                 if current_parse:
                     parse = current_parse
                 result["resume_text"] = parse.text if parse and doc.access_state == "active" else ""
+                visible_profile_parse = parse
             download = standalone_download_allowed(c, m) or any(
                 a.job.department_id in department_ids(m, ["resume_download"])
                 and a.resumes.filter(parse__document=doc).exists()
@@ -539,6 +541,28 @@ def candidate_data(c, m, detail=False):
             for row in _visible_screenings(m).filter(application__in=applications)
         ]
         result["ai_screening_count"] = len(result["ai_screenings"])
+        portrait = _visible_screenings(m).filter(
+            application__isnull=True,
+            job__isnull=True,
+            resume_parse__document__candidate=c,
+        ).first()
+        result["talent_profile_analysis"] = None
+        if portrait:
+            profile_result = portrait.result
+            source = (portrait.source_context or {}).get("source")
+            result["talent_profile_analysis"] = {
+                "id": portrait.id,
+                "created_at": portrait.created_at.isoformat(),
+                "summary": profile_result.get("summary", ""),
+                "source_context": {"source": source} if source else None,
+                "evidence": profile_result.get("evidence", []),
+                "gaps": profile_result.get("gaps", []),
+                "questions": profile_result.get("questions", []),
+                "resume_parse_id": portrait.resume_parse_id,
+                "source_is_current": bool(
+                    visible_profile_parse and portrait.resume_parse_id == visible_profile_parse.id
+                ),
+            }
     return result
 
 

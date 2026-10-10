@@ -232,3 +232,79 @@ test('遗留档案在编辑表单补齐资料，保存后刷新及来源筛选�
   await expect(page.locator('.candidate-detail-fields')).toContainText('虚构学院');
   await expect(page.locator('.candidate-detail-fields')).toContainText('产品专员');
 });
+
+test('候选人详情把个人画像和岗位对照分开，并按当前简历整理', async ({ page }) => {
+  test.setTimeout(90000);
+  await login(page);
+  const job = await openJob(page, '虚构人才画像验收岗');
+  const batch = await post(page, 'imports/', {
+    request_key: crypto.randomUUID(),
+    job: job.id,
+    source: '',
+    total: 1,
+  });
+  const csrf = await (await page.request.get('/api/v1/auth/csrf/')).json();
+  const uploaded = await page.request.post(`/api/v1/imports/${batch.id}/upload/`, {
+    headers: { 'X-CSRFToken': csrf.csrfToken },
+    multipart: { request_key: crypto.randomUUID(), file },
+  });
+  expect(uploaded.ok(), await uploaded.text()).toBeTruthy();
+  const item = await uploaded.json();
+  const parsed = await post(page, `imports/${batch.id}/items/${item.id}/parse/`, {
+    request_key: crypto.randomUUID(),
+    text: '姓名：虚构画像候选人\n邮箱：portrait@example.test\n意向：产品交付\n负责产品上线，整理用户反馈。',
+  });
+  const confirmed = await post(page, `imports/${batch.id}/items/${item.id}/confirm/`, {
+    parse: parsed.parse.id,
+    display_name: '虚构画像候选人',
+    email: 'portrait@example.test',
+  });
+  const application = await (
+    await page.request.get(`/api/v1/applications/${confirmed.application}/`)
+  ).json();
+  const candidateId = application.candidate;
+  let generatedProfile: Record<string, unknown> | null = null;
+
+  await page.route(`**/api/v1/candidates/${candidateId}/`, async (route) => {
+    const response = await route.fetch();
+    const detail = await response.json();
+    if (generatedProfile) detail.talent_profile_analysis = generatedProfile;
+    await route.fulfill({ response, body: JSON.stringify(detail) });
+  });
+  await page.route('**/api/v1/ai-screenings/', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    const input = route.request().postDataJSON();
+    expect(input).toMatchObject({ candidate_id: candidateId, resume_parse_id: parsed.parse.id });
+    expect(input).not.toHaveProperty('application_id');
+    expect(input).not.toHaveProperty('job_id');
+    generatedProfile = {
+      id: 1,
+      created_at: new Date().toISOString(),
+      summary: '简历提到产品上线与用户反馈整理，具体职责还可面试核实。',
+      resume_parse_id: parsed.parse.id,
+      source_is_current: true,
+      source_context: { source: { filename: item.name, parse_version: parsed.parse.version } },
+      evidence: [
+        {
+          criterion: '产品交付',
+          quote: '负责产品上线',
+          reason: '简历文字提到上线工作，实际承担范围需核实。',
+        },
+      ],
+      gaps: [],
+      questions: [],
+    };
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+
+  await page.getByRole('link', { name: '候选人', exact: true }).click();
+  await page.getByLabel('搜索候选人').fill('虚构画像候选人');
+  const row = page.getByRole('row').filter({ hasText: '虚构画像候选人' });
+  await row.getByRole('button', { name: '详情', exact: true }).click();
+  await page.getByRole('tab', { name: '人才画像', exact: true }).click();
+  await page.getByRole('button', { name: 'AI 整理人才画像', exact: true }).click();
+  await expect(
+    page.getByText('简历提到产品上线与用户反馈整理，具体职责还可面试核实。'),
+  ).toBeVisible();
+  await expect(page.getByText('每个岗位的匹配情况在对应应聘记录中查看。')).toBeVisible();
+});

@@ -36,6 +36,7 @@ export default defineConfig({
       cwd: '../api',
       env,
       url: 'http://127.0.0.1:8101/api/v1/auth/csrf/',
+      timeout: 180_000,
       reuseExistingServer: false,
     },
     {

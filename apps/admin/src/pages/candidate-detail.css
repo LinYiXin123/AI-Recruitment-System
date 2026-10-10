@@ -255,6 +255,108 @@
   color: var(--muted-foreground);
   font-size: 13px;
 }
+.talent-profile-view,
+.talent-profile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.talent-profile-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.talent-profile-heading h2,
+.talent-profile-heading h3,
+.talent-profile-section h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.talent-profile-heading p,
+.talent-profile-section > p,
+.talent-profile-section li p,
+.talent-profile-facts > p {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.talent-profile-heading > span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.talent-profile-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--secondary);
+}
+.talent-profile-facts > div {
+  min-width: 0;
+}
+.talent-profile-facts > div:nth-child(n + 5) {
+  grid-column: 1 / -1;
+}
+.talent-profile-facts span,
+.talent-profile-section > div > span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.talent-profile-facts div p {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.talent-profile-section {
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.talent-profile-section > ul,
+.talent-profile-section > ol {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.talent-profile-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.talent-profile-evidence article {
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.talent-profile-evidence blockquote {
+  margin: 4px 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--primary);
+  color: var(--foreground);
+}
+.talent-profile-evidence p {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+.talent-profile-note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
 .candidate-editor-modal .semi-modal-content {
   display: flex;
   max-height: 92dvh;
@@ -344,6 +446,15 @@
   }
   .candidate-detail-tabs [data-slot="tabs-trigger"] {
     padding: 12px 10px;
+  }
+  .talent-profile-heading {
+    flex-direction: column;
+  }
+  .talent-profile-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .talent-profile-facts > div:nth-child(n + 5) {
+    grid-column: auto;
   }
   .candidate-editor-modal .candidate-create-grid {
     grid-template-columns: minmax(0, 1fr);

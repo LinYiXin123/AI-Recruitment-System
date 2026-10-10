@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from .access import member, visible_jobs
 from .employer_brand import enterprise_snapshot as build_enterprise_snapshot
 from .errors import Conflict
-from .intake import extract_resume_text, hr_jobs, requirement_data
+from .intake import candidates, extract_resume_text, hr_jobs, requirement_data
 from .llm import LLMServiceError, chat_completion
 from .models import (
     AIScreening,
@@ -122,6 +122,7 @@ class AnalysisInputSerializer(serializers.Serializer):
     job_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     enterprise_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     resume_parse_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    candidate_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     source_note = serializers.CharField(
         required=False, allow_blank=True, max_length=500, default=""
     )
@@ -440,13 +441,94 @@ def _visible_screenings(current_member):
                     parse__document__candidate_id=OuterRef("application__candidate_id"),
                     parse__document__access_state="active",
                 )
+            ),
+            candidate_source_accessible=Exists(
+                ApplicationResume.objects.filter(
+                    parse_id=OuterRef("resume_parse_id"),
+                    application__organization=current_member.organization,
+                    application__job__in=hr_jobs(current_member),
+                    application__candidate__organization=current_member.organization,
+                    parse__status="succeeded",
+                    parse__document__organization=current_member.organization,
+                    parse__document__access_state="active",
+                )
             )
+            | Exists(
+                ResumeParse.objects.filter(
+                    pk=OuterRef("resume_parse_id"),
+                    status="succeeded",
+                    document__organization=current_member.organization,
+                    document__access_state="active",
+                    document__uploaded_by=current_member,
+                    document__candidate__created_by=current_member,
+                    document__candidate__applications__isnull=True,
+                )
+            ),
         )
-        .filter(Q(resume_parse__isnull=True) | Q(source_accessible=True))
+        .filter(
+            Q(resume_parse__isnull=True)
+            | Q(application__isnull=False, source_accessible=True)
+            | Q(application__isnull=True, candidate_source_accessible=True)
+        )
     )
 
 
 def _analysis_sources(current_member, data, *, lock=False):
+    if data.get("candidate_id") is not None:
+        if any(data.get(key) is not None for key in ("application_id", "job_id", "enterprise_id")):
+            raise serializers.ValidationError("人才画像只能使用个人简历，不能混入岗位或应聘信息。")
+        if not data.get("resume_parse_id"):
+            raise serializers.ValidationError({"resume_parse_id": "请选择当前可用的简历版本。"})
+        if lock:
+            get_object_or_404(Candidate.objects.select_for_update(), pk=data["candidate_id"])
+            parse = get_object_or_404(ResumeParse, pk=data["resume_parse_id"])
+            get_object_or_404(ResumeDocument.objects.select_for_update(), pk=parse.document_id)
+            get_object_or_404(ResumeParse.objects.select_for_update(), pk=parse.pk)
+            return _analysis_sources(current_member, data)
+        candidate = get_object_or_404(candidates(current_member), pk=data["candidate_id"])
+        parse = get_object_or_404(
+            ResumeParse.objects.filter(
+                pk=data["resume_parse_id"],
+                document__candidate=candidate,
+                document__organization=current_member.organization,
+                document__access_state="active",
+                status="succeeded",
+            ).select_related("document"),
+        )
+        source_is_accessible = ApplicationResume.objects.filter(
+            parse=parse,
+            application__organization=current_member.organization,
+            application__candidate=candidate,
+            application__job__in=hr_jobs(current_member),
+        ).exists() or (
+            not candidate.applications.exists()
+            and candidate.created_by_id == current_member.id
+            and parse.document.uploaded_by_id == current_member.id
+        )
+        if not source_is_accessible:
+            raise serializers.ValidationError({"resume_parse_id": "当前没有查看这份简历的权限。"})
+        if " ".join(data["resume"].split()) != " ".join(parse.text.split()):
+            raise serializers.ValidationError({"resume": "人才画像必须基于所选简历原文生成。"})
+        data["resume"] = parse.text
+        source = {
+            "kind": "candidate_resume",
+            "note": "基于候选人档案中当前授权的简历版本；内容仍需人工核实。",
+            "resume_parse_id": parse.id,
+            "document_id": parse.document_id,
+            "filename": parse.document.original_name,
+            "parse_version": parse.version,
+            "edited": False,
+            "parse_text_digest": hashlib.sha256(parse.text.encode()).hexdigest(),
+        }
+        return None, None, None, parse, {
+            "resume": parse.text,
+            "source": source,
+            "job": None,
+            "application": None,
+            "enterprise": None,
+            "candidate": {"id": candidate.id, "name": candidate.display_name},
+        }
+
     application = None
     if data.get("application_id") is not None:
         application = get_object_or_404(
@@ -764,7 +846,10 @@ def analyze(request):
     current_member = _hr_member(request)
     if request.method == "GET":
         paginator = PageNumberPagination()
-        rows = paginator.paginate_queryset(_visible_screenings(current_member), request)
+        rows = paginator.paginate_queryset(
+            _visible_screenings(current_member).filter(~Q(source_context__has_key="candidate")),
+            request,
+        )
         return Response(
             {
                 "items": [_report_data(row, detail=False) for row in rows],
@@ -877,7 +962,11 @@ def analyze(request):
         application=application,
         job=job,
         enterprise=enterprise,
-        candidate_name=application.candidate.display_name[:120] if application else "",
+        candidate_name=(
+            application.candidate.display_name[:120]
+            if application
+            else source_context.get("candidate", {}).get("name", "")[:120]
+        ),
         job_title=job.title[:120] if job else "",
         enterprise_name=enterprise.name if enterprise else "",
         enterprise_snapshot=source_context["enterprise"],

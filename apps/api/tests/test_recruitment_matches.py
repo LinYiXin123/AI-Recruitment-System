@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from recruitment.ai_screening import _parse_analysis
-from recruitment.intake import requirement_data
+from recruitment.intake import candidate_data, requirement_data
 from recruitment.models import (
     AIScreening,
     ApplicationResume,
@@ -97,6 +97,73 @@ def analyze(client, application, parse, requirements, **payload):
         )
     assert response.status_code == 200, response.data
     return response.data, json.loads(complete.call_args.kwargs["user_text"])
+
+
+def test_candidate_talent_profile_is_job_free_and_shown_in_the_person_record():
+    client, membership, _, application, parse, _ = profile_context()
+    candidate = application.candidate
+    candidate.profile_resume_parse = parse
+    candidate.save(update_fields=["profile_resume_parse"])
+    report = {**complete_report(), "conclusion": "建议录用", "match_score": 98}
+    with patch(
+        "recruitment.ai_screening.chat_completion", return_value=json.dumps(report)
+    ) as complete:
+        response = client.post(
+            "/api/v1/ai-screenings/",
+            {
+                "request_key": str(uuid.uuid4()),
+                "candidate_id": candidate.id,
+                "resume_parse_id": parse.id,
+                "resume": parse.text,
+            },
+            format="json",
+        )
+
+    assert response.status_code == 200, response.data
+    assert response.data["application_id"] is None and response.data["job_id"] is None
+    assert response.data["match_score"] is None
+    assert response.data["conclusion"] == "通用初判"
+    prompt = json.loads(complete.call_args.kwargs["user_text"])
+    assert prompt["target_job"] is None
+    assert prompt["resume"] == parse.text
+    assert response.data["source_context"]["source"]["kind"] == "candidate_resume"
+    assert response.data["source_context"]["candidate"]["id"] == candidate.id
+
+    detail = candidate_data(candidate, membership, detail=True)
+    assert detail["talent_profile_analysis"]["id"] == response.data["id"]
+    assert detail["talent_profile_analysis"]["source_is_current"] is True
+    assert detail["ai_screenings"] == []
+    assert response.data["id"] not in {
+        item["id"] for item in client.get("/api/v1/ai-screenings/").data["items"]
+    }
+    assert not AIScreening.objects.get(pk=response.data["id"]).application_id
+
+    ApplicationResume.objects.filter(application=application, parse=parse).delete()
+    assert client.get(f"/api/v1/ai-screenings/{response.data['id']}/").status_code == 404
+    detail = candidate_data(candidate, membership, detail=True)
+    assert detail["talent_profile_analysis"] is None and detail["resume_text"] == ""
+
+
+def test_candidate_talent_profile_rejects_other_resume_and_job_context():
+    client, _, _, application, parse, _ = profile_context()
+    payload = {
+        "request_key": str(uuid.uuid4()),
+        "candidate_id": application.candidate_id,
+        "resume_parse_id": parse.id,
+        "resume": "伪造的简历内容",
+    }
+    with patch("recruitment.ai_screening.chat_completion") as complete:
+        changed_resume = client.post("/api/v1/ai-screenings/", payload, format="json")
+        mixed_context = client.post(
+            "/api/v1/ai-screenings/",
+            {**payload, "request_key": str(uuid.uuid4()), "job_id": application.job_id},
+            format="json",
+        )
+
+    assert changed_resume.status_code == 400
+    assert mixed_context.status_code == 400
+    assert not AIScreening.objects.exists()
+    complete.assert_not_called()
 
 
 def test_unconfirmed_preferences_stay_out_of_model_input_and_keep_full_snapshot():

@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Sparkles,
 } from 'lucide-react';
 import {
   forwardRef,
@@ -469,6 +470,19 @@ type CandidateRecord = Omit<Candidate, 'applications'> & {
     conclusion: string;
     question_count: number;
   }[];
+  talent_profile_analysis: {
+    id: number;
+    created_at: string;
+    summary: string;
+    resume_parse_id: number;
+    source_is_current: boolean;
+    source_context: {
+      source?: { filename?: string; parse_version?: number };
+    } | null;
+    evidence: { criterion: string; quote: string; reason: string }[];
+    gaps: { criterion: string; note: string; kind: string; quotes: string[] }[];
+    questions: { question: string; reason: string; follow_up: string }[];
+  } | null;
 };
 
 function primaryCandidateApplication(person: CandidateRecord) {
@@ -1197,6 +1211,8 @@ function CandidateDetails({
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [profiling, setProfiling] = useState(false);
+  const [profileError, setProfileError] = useState('');
   const [notice, setNotice] = useState('');
   const [applicationId, setApplicationId] = useState<number | null>(null);
   useEffect(() => {
@@ -1220,6 +1236,40 @@ function CandidateDetails({
   const currentStage = application?.stage ?? 'pending_review';
   const interviews = person?.interview_records ?? [];
   const screenings = person?.ai_screenings ?? [];
+  const currentResume = person?.resume_documents?.find(
+    (document) =>
+      document.is_current && document.parse?.status === 'succeeded' && document.parse.text,
+  );
+  const talentProfile = person?.talent_profile_analysis;
+  const talentProfileFacts = person
+    ? [
+        ['意向方向', person.intended_role],
+        ['现居城市', person.current_city],
+        ['最高学历', person.education_level],
+        ['毕业院校', person.school],
+        ['工作经历', person.work_experience],
+        ['教育经历', person.education_experience],
+      ].filter(([, value]) => Boolean(value?.trim()))
+    : [];
+  async function generateTalentProfile() {
+    if (!person || !currentResume?.parse || profiling) return;
+    setProfiling(true);
+    setProfileError('');
+    try {
+      await api('ai-screenings/', {
+        request_key: crypto.randomUUID(),
+        candidate_id: person.id,
+        resume_parse_id: currentResume.parse.id,
+        resume: currentResume.parse.text,
+      });
+      setNotice('人才画像已整理。内容来自简历，请结合原文核对。');
+      setReload((value) => value + 1);
+    } catch (e) {
+      setProfileError((e as Error).message);
+    } finally {
+      setProfiling(false);
+    }
+  }
   async function updateStage(value: string) {
     if (!person || !application || busy || value === application.stage) return;
     setBusy(true);
@@ -1341,6 +1391,7 @@ function CandidateDetails({
           <Tabs defaultValue="basic" className="candidate-detail-tabs">
             <TabsList variant="line" aria-label="候选人资料">
               <TabsTrigger value="basic">基本信息</TabsTrigger>
+              <TabsTrigger value="portrait">人才画像</TabsTrigger>
               <TabsTrigger value="interviews">
                 面试记录（{person.interview_count ?? interviews.length}）
               </TabsTrigger>
@@ -1386,6 +1437,114 @@ function CandidateDetails({
                   </div>
                 ))}
               </dl>
+            </TabsContent>
+            <TabsContent value="portrait">
+              <div className="talent-profile-view">
+                <header className="talent-profile-heading">
+                  <div>
+                    <h2>人才画像</h2>
+                    <p>个人经历和能力线索。每个岗位的匹配情况在对应应聘记录中查看。</p>
+                  </div>
+                  <Button
+                    disabled={!currentResume?.parse || profiling}
+                    onClick={() => void generateTalentProfile()}
+                  >
+                    <Sparkles data-icon="inline-start" />
+                    {profiling ? '正在整理…' : talentProfile ? '更新人才画像' : 'AI 整理人才画像'}
+                  </Button>
+                </header>
+                {profileError && <ErrorNotice message={profileError} />}
+                {!currentResume?.parse && (
+                  <Alert>
+                    <AlertDescription>
+                      还没有可识别文字的当前简历，先到“简历原文”查看或补充材料。
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <section className="talent-profile-facts" aria-label="职业资料">
+                  {talentProfileFacts.length ? (
+                    talentProfileFacts.map(([label, value]) => (
+                      <div key={label}>
+                        <span>{label}</span>
+                        <p>{value}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p>职业资料会根据已识别的简历信息显示。</p>
+                  )}
+                </section>
+                {talentProfile ? (
+                  <>
+                    <section className="talent-profile-section">
+                      <div className="talent-profile-heading">
+                        <h3>简历概括</h3>
+                        <span>
+                          {talentProfile.source_is_current ? '当前简历' : '基于旧版简历'}
+                          {talentProfile.source_context?.source?.filename
+                            ? ` · ${talentProfile.source_context.source.filename}`
+                            : ''}
+                          {talentProfile.source_context?.source?.parse_version
+                            ? ` · v${talentProfile.source_context.source.parse_version}`
+                            : ''}
+                        </span>
+                      </div>
+                      <p>{talentProfile.summary}</p>
+                    </section>
+                    {!!talentProfile.evidence.length && (
+                      <section className="talent-profile-section">
+                        <h3>简历中的能力线索</h3>
+                        <div className="talent-profile-evidence">
+                          {talentProfile.evidence.map((item) => (
+                            <article key={`${item.criterion}:${item.quote}`}>
+                              {item.criterion && <strong>{item.criterion}</strong>}
+                              <blockquote>{item.quote}</blockquote>
+                              {item.reason && <p>{item.reason}</p>}
+                            </article>
+                          ))}
+                        </div>
+                      </section>
+                    )}
+                    {!!talentProfile.gaps.length && (
+                      <section className="talent-profile-section">
+                        <h3>还可以核实</h3>
+                        <ul>
+                          {talentProfile.gaps.map((item) => (
+                            <li key={`${item.criterion}:${item.note}`}>
+                              <strong>{item.criterion}</strong>：{item.note}
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
+                    {!!talentProfile.questions.length && (
+                      <section className="talent-profile-section">
+                        <h3>面试可追问</h3>
+                        <ol>
+                          {talentProfile.questions.map((item) => (
+                            <li key={item.question}>
+                              <strong>{item.question}</strong>
+                              {item.reason && <p>{item.reason}</p>}
+                              {item.follow_up && <p>可以继续问：{item.follow_up}</p>}
+                            </li>
+                          ))}
+                        </ol>
+                      </section>
+                    )}
+                    <p className="talent-profile-note">
+                      AI 只整理简历线索，不代表经历已经核实，也不作录用或淘汰判断。
+                    </p>
+                  </>
+                ) : (
+                  <Empty>
+                    <EmptyHeader>
+                      <EmptyTitle>还没有 AI 整理的人才画像</EmptyTitle>
+                      <EmptyDescription>
+                        点击“AI 整理人才画像”，系统会根据当前简历整理经历线索和可核实的问题。
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                )}
+              </div>
             </TabsContent>
             <TabsContent value="interviews">
               {interviews.length ? (
