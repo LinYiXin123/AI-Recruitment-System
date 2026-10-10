@@ -163,6 +163,7 @@ test('按本次应聘和简历分析，逐项依据、核实记录及失败重�
   await page.getByRole('tab', { name: '岗位对照', exact: true }).click();
   const matches = page.getByRole('region', { name: '岗位要求与材料对照' });
   await expect(matches).not.toContainText('材料支持 1 项');
+  await expect(matches.getByText('简历原文：开发内部检索工具')).toBeHidden();
   await matches.getByText('查看材料依据与 AI 说明').first().click();
   await expect(matches).toContainText('简历原文：开发内部检索工具');
   await expect(matches).toContainText('岗位要求待确认');
@@ -191,6 +192,7 @@ test('按本次应聘和简历分析，逐项依据、核实记录及失败重�
     }),
   );
   await page.getByRole('button', { name: '加入待核实' }).click();
+  await expect(matches.locator('article').first()).toContainText('已列入核实');
   const verifications = page.getByRole('region', { name: '人工核实' });
   await expect(verifications).toContainText('待核实');
   await page.getByRole('button', { name: '记录核实', exact: true }).click();

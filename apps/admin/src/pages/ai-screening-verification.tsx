@@ -376,7 +376,7 @@ export function ScreeningVerification({
     <section aria-labelledby="ai-verification-title" className="grid gap-3">
       <h3 id="ai-verification-title">人工核实</h3>
       <p className="ai-screening-help">
-        由报告创建者记录实际回答与依据，仅本人可见；不是正式面评，不自动推进招聘或同步飞书。手动对接人仅用于备忘，未发送通知。
+        仅本人可见的核实备忘，不是正式面评；不会发送通知或改变招聘阶段。
       </p>
       <p className="ai-screening-help">
         已采用 {items.filter((item) => item.status !== 'withdrawn').length} / {questions.length} 题

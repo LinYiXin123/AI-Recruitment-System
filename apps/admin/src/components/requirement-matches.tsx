@@ -55,10 +55,12 @@ export function RequirementMatchSummary({ items }: { items?: RequirementMatch[] 
 export function RequirementMatches({
   items,
   questions = [],
+  adoptedQuestionIndices = [],
   showSummary = true,
 }: {
   items?: RequirementMatch[];
   questions?: { requirement_id?: number | null }[];
+  adoptedQuestionIndices?: number[];
   showSummary?: boolean;
 }) {
   if (!items?.length)
@@ -79,6 +81,7 @@ export function RequirementMatches({
           question.requirement_id === item.requirement_id ? [index] : [],
         );
         if (!indices.length && item.question_index != null) indices.push(item.question_index);
+        const adopted = indices.some((index) => adoptedQuestionIndices.includes(index));
         return (
           <article key={item.requirement_id} className="flex flex-col gap-2 rounded-lg border p-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -106,6 +109,7 @@ export function RequirementMatches({
                         ? '分析需重试'
                         : '信息不足'}
               </Badge>
+              {adopted && <Badge variant="secondary">已列入核实</Badge>}
             </div>
             <p className="font-medium">{item.text}</p>
             <details>
@@ -120,7 +124,7 @@ export function RequirementMatches({
                 ))}
                 <p className="text-sm text-muted-foreground">{item.reason}</p>
                 {item.question && <p className="text-sm">建议核实：{item.question}</p>}
-                {indices.length > 0 && (
+                {indices.length > 0 && !adopted && (
                   <p className="text-sm text-muted-foreground">
                     对应下方核实问题 {indices.map((i) => i + 1).join('、')}
                   </p>

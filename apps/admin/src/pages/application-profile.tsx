@@ -228,6 +228,12 @@ export function ApplicationProfileComparison({
   onBusyChange: (busy: boolean) => void;
   onEditingChange: (editing: boolean) => void;
 }) {
+  const [verificationItems, setVerificationItems] = useState(report?.verifications ?? []);
+  useEffect(
+    () => setVerificationItems(report?.verifications ?? []),
+    [report?.id, report?.verifications],
+  );
+
   if (!report)
     return (
       <section className="rounded-lg border p-4" aria-label="岗位对照详情">
@@ -263,6 +269,9 @@ export function ApplicationProfileComparison({
       <RequirementMatches
         items={report.requirement_matches}
         questions={report.questions}
+        adoptedQuestionIndices={verificationItems
+          .filter((item) => item.status !== 'withdrawn')
+          .map((item) => item.question_index)}
         showSummary={false}
       />
       <ScreeningSourceDetails source={report.source_context} />
@@ -273,6 +282,7 @@ export function ApplicationProfileComparison({
         initial={report.verifications}
         disabled={disabled || differentMaterial}
         onEditingChange={onEditingChange}
+        onRecordsChange={setVerificationItems}
         onBusyChange={onBusyChange}
       />
     </section>
