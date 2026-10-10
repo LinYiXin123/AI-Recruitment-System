@@ -318,6 +318,81 @@ def test_saving_profile_also_saves_edited_job_location_and_salary(team):
     assert saved_job.salary_range == "20-35K，13 薪"
 
 
+def test_saving_profile_also_saves_edited_job_title(team):
+    job = new_job(team)
+    response = save_profile(client_for(team[2]), job, title="更新后的职位名称")
+    assert response.status_code == 201, response.data
+    assert response.data["title"] == "更新后的职位名称"
+    assert response.data["version"] == job["version"] + 1
+    assert Job.objects.get(pk=job["id"]).title == "更新后的职位名称"
+
+
+def test_delete_profile_archives_job_and_preserves_history(team):
+    job = new_job(team)
+    client = client_for(team[2])
+    response = client.post(
+        f"/api/v1/jobs/{job['id']}/archive/", {"version": job["version"]}, format="json"
+    )
+    assert response.status_code == 204
+    archived = Job.objects.get(pk=job["id"])
+    assert archived.archived_at is not None
+    assert archived.events.filter(action="删除岗位画像").exists()
+    assert client.post(
+        f"/api/v1/jobs/{job['id']}/archive/", {"version": job["version"]}, format="json"
+    ).status_code == 204
+    assert client.get("/api/v1/jobs/").data["count"] == 0
+    assert client.get(f"/api/v1/jobs/{job['id']}/").status_code == 200
+    assert client_for(team[4]).post(
+        f"/api/v1/jobs/{job['id']}/archive/", {"version": archived.version}, format="json"
+    ).status_code == 404
+
+
+def test_deleted_profile_creation_retry_does_not_return_archived_job(team):
+    request_id = uuid.uuid4()
+    payload = {
+        "request_id": str(request_id),
+        "title": "可归档职位",
+        "location": "深圳",
+        "headcount": 1,
+        "department": team[1].id,
+        "approver": team[3].id,
+    }
+    client = client_for(team[2])
+    created = client.post("/api/v1/jobs/", payload, format="json")
+    assert created.status_code == 201, created.data
+    assert client.post(
+        f"/api/v1/jobs/{created.data['id']}/archive/",
+        {"version": created.data["version"]},
+        format="json",
+    ).status_code == 204
+    retry = client.post("/api/v1/jobs/", payload, format="json")
+    assert retry.status_code == 409
+    assert "已删除" in retry.data["errors"]["detail"]
+
+
+def test_delete_profile_is_blocked_when_job_has_application_history(team):
+    job = new_job(team)
+    candidate = Candidate.objects.create(
+        organization=team[0], created_by=team[2], display_name="历史应聘人选"
+    )
+    Application.objects.create(
+        organization=team[0],
+        candidate=candidate,
+        job_id=job["id"],
+        owner=team[2],
+        attempt_no=1,
+        source="简历导入",
+    )
+    client = client_for(team[2])
+    response = client.post(
+        f"/api/v1/jobs/{job['id']}/archive/", {"version": job["version"]}, format="json"
+    )
+    assert response.status_code == 400
+    assert "已有应聘记录" in str(response.data)
+    assert Job.objects.get(pk=job["id"]).archived_at is None
+    assert client.get("/api/v1/jobs/").data["count"] == 1
+
+
 def test_creation_rejects_cross_org_and_unauthorized_relations(team):
     org, dept, hr, manager, outsider = team
     other = Organization.objects.create(name="外部组织")

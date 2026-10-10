@@ -113,6 +113,7 @@ class Job(Timestamped):
     active_profile = models.ForeignKey(
         "ProfileVersion", on_delete=models.PROTECT, null=True, blank=True, related_name="+"
     )
+    archived_at = models.DateTimeField(null=True, blank=True)
     version = models.PositiveIntegerField(default=1)
 
     class Meta:

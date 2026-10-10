@@ -62,7 +62,7 @@ async function openProfile(page: Page, title: string) {
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
 }
 
-test('岗位画像表单可查询和重置，新建入口打开画像起草流程', async ({ page }) => {
+test('岗位画像表单可查询和重置，新建入口打开完整画像弹窗', async ({ page }) => {
   await login(page);
   await page.route('**/api/v1/jobs/?*', (route) =>
     route.fulfill({ json: { count: 0, next: null, previous: null, results: [] } }),
@@ -90,32 +90,43 @@ test('岗位画像表单可查询和重置，新建入口打开画像起草流�
   await expect(page.getByLabel('目标职位', { exact: true })).toHaveValue('');
   await expect(page.getByText('还没有岗位画像', { exact: true })).toBeVisible();
   await page.screenshot({ path: '../../.local/人才画像-统一页面布局.png', fullPage: true });
-  const draft = page.getByRole('dialog', { name: 'AI 起草招人要求' });
+  const draft = page.getByRole('dialog', { name: '新建画像' });
   let prompts = 0;
   let discard = false;
   page.on('dialog', async (dialog) => {
     prompts++;
-    expect(dialog.message()).toBe('招人要求还没保存，确定关闭吗？');
+    expect(dialog.message()).toBe('画像内容还没保存，确定关闭吗？');
     if (discard) await dialog.accept();
     else await dialog.dismiss();
   });
   await startDraft.click();
-  await expect(draft.getByLabel('你想招什么样的人？')).toBeVisible();
-  await expect(draft.getByLabel('职位名称', { exact: true })).toHaveCount(0);
-  await expect(draft.getByLabel('所属部门', { exact: true })).toHaveCount(0);
+  await expect(draft.getByLabel('目标职位', { exact: true })).toBeVisible();
+  await expect(draft.getByLabel('招聘需求', { exact: true })).toBeVisible();
+  await expect(draft.getByRole('button', { name: 'AI 生成 JD', exact: true })).toBeVisible();
   await expect(draft.getByRole('button', { name: 'AI 生成画像', exact: true })).toBeDisabled();
-  await draft.getByRole('button', { name: '关闭详情', exact: true }).click();
+  for (const label of [
+    '工作城市',
+    '年限下限',
+    '年限上限',
+    '薪资范围',
+    '行业背景',
+    '必备技能',
+    '加分技能',
+    '其它要求',
+  ]) {
+    await expect(draft.getByLabel(label, { exact: true })).toBeVisible();
+  }
+  await expect(draft.getByRole('combobox', { name: '学历门槛' })).toBeVisible();
+  await draft.getByRole('button', { name: '取消', exact: true }).click();
   await expect(draft).toHaveCount(0);
   expect(prompts).toBe(0);
   await startDraft.click();
-  await draft.getByLabel('你想招什么样的人？').fill('招聘渠道经理，负责试点和项目复盘。');
+  await draft.getByLabel('目标职位', { exact: true }).fill('招聘渠道经理');
   await draft.getByRole('button', { name: '取消', exact: true }).click();
-  await expect(draft.getByLabel('你想招什么样的人？')).toHaveValue(
-    '招聘渠道经理，负责试点和项目复盘。',
-  );
+  await expect(draft.getByLabel('目标职位', { exact: true })).toHaveValue('招聘渠道经理');
   expect(prompts).toBe(1);
   discard = true;
-  await draft.getByRole('button', { name: '关闭详情', exact: true }).click();
+  await draft.getByRole('button', { name: '取消', exact: true }).click();
   await expect(draft).toHaveCount(0);
   expect(prompts).toBe(2);
   expect(jobPosts).toBe(0);
@@ -187,7 +198,7 @@ test('岗位列表展示生效画像字段，按职位和城市查询并可直�
   if (!editorBounds || !viewport) throw new Error('无法读取画像弹窗位置。');
   expect(Math.abs(editorBounds.x + editorBounds.width / 2 - viewport.width / 2)).toBeLessThan(2);
   await expect(editor.getByLabel('目标职位', { exact: true })).toHaveValue(job.title);
-  await expect(editor.getByLabel('目标职位', { exact: true })).toHaveAttribute('readonly', '');
+  await expect(editor.getByLabel('目标职位', { exact: true })).not.toHaveAttribute('readonly', '');
   for (const label of [
     '招聘需求',
     '工作城市',
@@ -211,9 +222,14 @@ test('岗位列表展示生效画像字段，按职位和城市查询并可直�
   await expect(editor.getByRole('combobox', { name: '学历门槛' })).toContainText('本科');
   await expect(editor.getByLabel('年限下限', { exact: true })).toHaveValue('3');
   await expect(editor.getByLabel('必备技能', { exact: true })).toHaveValue('LangGraph');
+  await editor.getByLabel('目标职位', { exact: true }).fill('更新后的职位名称（未保存）');
   await editor.getByRole('button', { name: 'AI 生成 JD', exact: true }).click();
   await expect(editor.getByLabel('招聘需求', { exact: true })).toHaveValue('整理后的职位描述。');
-  expect(jdRequest).toMatchObject({ version: job.version, jd: job.jd });
+  expect(jdRequest).toMatchObject({
+    version: job.version,
+    title: '更新后的职位名称（未保存）',
+    jd: job.jd,
+  });
   page.once('dialog', (dialog) => dialog.accept());
   await editor.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('button', { name: '关闭详情', exact: true }).click();
@@ -237,20 +253,43 @@ test('岗位列表展示生效画像字段，按职位和城市查询并可直�
   );
 });
 
-test('AI 优先先生成再补职位信息，最终保存才建岗，失败保留内容并以同一请求重试', async ({
-  page,
-}) => {
+test('删除画像会从列表移除并保留职位历史', async ({ page }) => {
+  await login(page);
+  const job = await createJob(page, '待删除岗位画像验收');
+  await page.goto('/#talent-profiles');
+  const row = page.getByRole('row').filter({ hasText: job.title });
+  const remove = row.getByRole('button', { name: '删除', exact: true });
+  await expect(remove).toBeVisible();
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain(job.title);
+    await dialog.accept();
+  });
+  const archived = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/v1/jobs/${job.id}/archive/`) && response.status() === 204,
+  );
+  await remove.click();
+  await archived;
+  await expect(row).toHaveCount(0);
+  await expect(page.getByText('画像已从列表删除，职位及历史记录仍保留。')).toBeVisible();
+  expect((await readJob(page, job.id)).title).toBe(job.title);
+});
+
+test('新建画像可用 AI 起草 JD 和画像，保存失败后保留内容并安全重试', async ({ page }) => {
   await login(page);
   const before = await (await page.request.get('/api/v1/jobs/')).json();
   const me: Me = await (await page.request.get('/api/v1/me/')).json();
-  const jd = '招聘渠道经理，负责独立寻找合作伙伴并复盘项目结果。';
-  const goal = '首季度完成渠道试点，形成可复用记录。';
+  const title = '渠道经理（画像弹窗验收）';
+  const jd = '负责独立寻找合作伙伴并复盘项目结果。';
+  const generatedJd = `招聘${jd}`;
+  let jdRequest: Record<string, unknown> | undefined;
   const generationRequests: Record<string, unknown>[] = [];
   const saveRequests: Record<string, unknown>[] = [];
   const requirements = [
     {
       kind: 'must' as const,
-      text: '能够独立寻找合作伙伴并复盘项目结果',
+      category: 'skill',
+      text: '渠道拓展',
       rationale: '通过本人负责的项目核对渠道经验。',
       needs_verification: true,
       source_kind: 'jd',
@@ -259,7 +298,10 @@ test('AI 优先先生成再补职位信息，最终保存才建岗，失败保�
       generation_index: 0,
     },
   ];
-  // 只模拟模型和最终保存响应；原子建岗及重试不重复入库由后端业务测试验证。
+  await page.route('**/api/v1/jobs/job-description-ai/', async (route) => {
+    jdRequest = route.request().postDataJSON();
+    await route.fulfill({ json: { status: 'succeeded', error: '', jd: generatedJd } });
+  });
   await page.route('**/api/v1/jobs/profile-ai/', async (route) => {
     if (route.request().method() !== 'POST') return route.fulfill({ json: { items: [] } });
     const input = route.request().postDataJSON();
@@ -274,7 +316,7 @@ test('AI 优先先生成再补职位信息，最终保存才建岗，失败保�
         id: 90301,
         status: 'succeeded',
         error: '',
-        input: { jd: input.jd, business_goal: input.business_goal },
+        input: { jd: input.jd, business_goal: '' },
         requirements,
         created_at: '2026-10-03T03:00:00Z',
         job_version: null,
@@ -339,80 +381,58 @@ test('AI 优先先生成再补职位信息，最终保存才建岗，失败保�
   await page.route('**/api/v1/jobs/90302/', (route) => route.fulfill({ json: created }));
   await page.goto('/#talent-profiles');
   await page.getByRole('button', { name: '新建画像', exact: true }).click();
-  const draft = page.getByRole('dialog', { name: 'AI 起草招人要求' });
-  await expect(draft.getByLabel('你想招什么样的人？')).toBeVisible();
-  await page.screenshot({ path: '../../.local/人才画像-AI先起草.png' });
+  const draft = page.getByRole('dialog', { name: '新建画像' });
+  await expect(draft.getByLabel('目标职位', { exact: true })).toBeVisible();
+  await page.screenshot({ path: '../../.local/人才画像-新建画像弹窗.png' });
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(draft.getByLabel('职位名称', { exact: true })).toHaveCount(0);
-  await draft.getByLabel('你想招什么样的人？').fill(jd);
-  await draft.getByText('补充入职目标（可选）', { exact: true }).click();
-  await draft.getByLabel('希望入职后完成什么？').fill(goal);
+  await draft.getByLabel('目标职位', { exact: true }).fill(title);
+  await draft.getByLabel('工作城市', { exact: true }).fill('深圳');
+  await draft.getByLabel('薪资范围', { exact: true }).fill('20-35K，13 薪');
+  await draft.getByRole('button', { name: 'AI 生成 JD', exact: true }).click();
+  await expect(draft.getByLabel('招聘需求', { exact: true })).toHaveValue(generatedJd);
+  expect(jdRequest).toMatchObject({ title, jd: '' });
+  await draft.getByLabel('招聘需求', { exact: true }).fill(jd);
   await draft.getByRole('button', { name: 'AI 生成画像', exact: true }).click();
   await expect(draft.getByRole('alert')).toContainText('生成暂时失败');
-  await expect(draft.getByRole('button', { name: '手动整理要求', exact: true })).toBeEnabled();
-  await expect(draft.getByLabel('你想招什么样的人？')).toHaveValue(jd);
-  await expect(draft.getByLabel('希望入职后完成什么？')).toHaveValue(goal);
+  await expect(draft.getByLabel('招聘需求', { exact: true })).toHaveValue(jd);
   expect(saveRequests).toHaveLength(0);
   await draft.getByRole('button', { name: 'AI 生成画像', exact: true }).click();
-  await expect(draft.getByRole('button', { name: '采用这份草稿', exact: true })).toBeEnabled();
+  await expect(draft.getByLabel('必备技能', { exact: true })).toHaveValue('渠道拓展');
   expect(generationRequests).toHaveLength(2);
-  expect(generationRequests[0]).toMatchObject({ jd, business_goal: goal });
+  expect(generationRequests[0]).toMatchObject({ jd, business_goal: '' });
   expect(generationRequests[1]).toEqual(generationRequests[0]);
   expect(generationRequests[1]).not.toHaveProperty('version');
   expect(saveRequests).toHaveLength(0);
   expect((await (await page.request.get('/api/v1/jobs/')).json()).count).toBe(before.count);
-  await draft.getByRole('button', { name: '采用这份草稿', exact: true }).click();
-  await draft.getByLabel('具体要求 1', { exact: true }).fill('能用本人项目说明渠道拓展及复盘结果');
-  await expect(draft.getByLabel('要求 1 类型', { exact: true })).toContainText('必须满足');
-  await expect(draft.getByText(`原始依据：${requirements[0].source_quote}`)).toBeVisible();
-  await draft.getByRole('button', { name: '添加一项要求', exact: true }).click();
-  await draft.getByLabel('具体要求 2', { exact: true }).fill('可补充项目复盘样例');
-  await draft.getByRole('button', { name: '删除要求 2', exact: true }).click();
-  await expect(draft.getByLabel('具体要求 2', { exact: true })).toHaveCount(0);
-  expect(saveRequests).toHaveLength(0);
-  await draft.getByRole('button', { name: '继续：补充职位信息', exact: true }).click();
-  await expect(draft.getByRole('button', { name: '保存并使用', exact: true })).toBeDisabled();
-  await draft.getByRole('button', { name: '上一步', exact: true }).click();
-  await expect(draft.getByLabel('具体要求 1', { exact: true })).toHaveValue(
-    '能用本人项目说明渠道拓展及复盘结果',
-  );
-  await draft.getByRole('checkbox', { name: '这条招人要求还没确定' }).uncheck();
-  await draft.getByRole('button', { name: '继续：补充职位信息', exact: true }).click();
-  await draft.getByLabel('职位名称', { exact: true }).fill('渠道经理（AI 优先虚构验收）');
-  await draft.getByLabel('工作地点', { exact: true }).fill('深圳');
-  await draft.getByLabel('薪资范围', { exact: true }).fill('20-35K，13 薪');
-  await draft.getByLabel('用人负责人（用于澄清）', { exact: true }).click();
-  await page.getByRole('option', { name: new RegExp(me.departments[0].approvers[0].name) }).click();
-  await expect(draft.getByLabel('用人负责人（用于澄清）', { exact: true })).toContainText(
-    me.departments[0].approvers[0].name,
-  );
-  expect(saveRequests).toHaveLength(0);
-  expect((await (await page.request.get('/api/v1/jobs/')).json()).count).toBe(before.count);
   const bounds = await draft.boundingBox();
-  if (!bounds) throw new Error('AI 起草弹层不可见');
+  if (!bounds) throw new Error('新建画像弹窗不可见');
   expect(bounds.x).toBeGreaterThanOrEqual(0);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(391);
-  await expect(draft.getByRole('button', { name: '保存并使用', exact: true })).toBeInViewport();
-  await page.screenshot({ path: '../../.local/人才画像-AI优先390.png' });
-  await draft.getByRole('button', { name: '保存并使用', exact: true }).click();
+  const confirmDetails = draft.locator('details').filter({ hasText: '确认 1 项必备要求' });
+  if (!(await confirmDetails.evaluate((details) => (details as HTMLDetailsElement).open)))
+    await confirmDetails.locator('summary').click();
+  await draft.getByRole('checkbox', { name: '确认该必备要求：渠道拓展' }).click();
+  await expect(confirmDetails).toHaveCount(0);
+  const save = draft.getByRole('button', { name: '保存', exact: true });
+  await expect(save).toBeInViewport();
+  await page.screenshot({ path: '../../.local/人才画像-新建画像390.png' });
+  await save.click();
   await expect(draft.getByRole('alert')).toContainText('保存暂时失败');
-  await expect(draft.getByLabel('职位名称', { exact: true })).toHaveValue(
-    '渠道经理（AI 优先虚构验收）',
-  );
+  await expect(draft.getByLabel('目标职位', { exact: true })).toHaveValue(title);
   expect(saveRequests[0]).toMatchObject({
-    title: '渠道经理（AI 优先虚构验收）',
+    title,
     jd,
     location: '深圳',
     salary_range: '20-35K，13 薪',
     headcount: 1,
     profile: {
       generation_id: 90301,
-      business_goal: goal,
+      business_goal: '',
       activate: true,
       requirements: [
         {
           generation_index: 0,
-          text: '能用本人项目说明渠道拓展及复盘结果',
+          text: '渠道拓展',
           needs_verification: false,
           source_quote: requirements[0].source_quote,
         },
@@ -420,16 +440,13 @@ test('AI 优先先生成再补职位信息，最终保存才建岗，失败保�
     },
   });
   expect(saveRequests[0].request_id).toMatch(/^[0-9a-f-]{36}$/i);
-  await draft.getByRole('button', { name: '保存并使用', exact: true }).click();
+  await save.click();
   await expect(draft).toHaveCount(0);
   expect(saveRequests).toHaveLength(2);
   expect(saveRequests[1]).toEqual(saveRequests[0]);
-  await expect(
-    page.getByRole('heading', { name: '渠道经理（AI 优先虚构验收）', exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText('能用本人项目说明渠道拓展及复盘结果', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await expect(page.getByText('渠道拓展', { exact: true })).toBeVisible();
 });
-
 test('编辑画像按参考字段自动提取，待确认项不生效且失败时保留内容', async ({ page }) => {
   await login(page);
   const job = await createJob(page, '渠道经理（AI 画像虚构验收）', {
@@ -645,6 +662,8 @@ test('AI 失败保留输入，HR 可直接手工保存并在刷新后看到同�
     .getByRole('button', { name: 'AI 起草招人要求', exact: true })
     .click();
   const editor = page.getByRole('dialog');
+  const updatedTitle = `${job.title}（名称已修订）`;
+  await editor.getByLabel('目标职位', { exact: true }).fill(updatedTitle);
   await editor.getByLabel('招聘需求', { exact: true }).fill('负责渠道试点和项目复盘。');
   await editor.getByLabel('其它要求', { exact: true }).fill('能说明本人负责的渠道项目及复盘结果');
   await page.route(`**/api/v1/jobs/${job.id}/profile-ai/`, (route) =>
@@ -663,15 +682,18 @@ test('AI 失败保留输入，HR 可直接手工保存并在刷新后看到同�
   await editor.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('招人要求已保存并使用');
   const active = await readJob(page, job.id);
+  expect(active.title).toBe(updatedTitle);
   expect(active.active_profile).toBe(active.latest_profile?.id);
   expect(active.latest_profile?.status).toBe('confirmed');
   expect(active.latest_profile?.confirmed_by_name).toBe('体验 HR');
   await page.reload();
-  await page.getByLabel('目标职位', { exact: true }).fill('失败恢复虚构验收');
+  await page.getByLabel('目标职位', { exact: true }).fill('名称已修订');
   await page.getByRole('button', { name: '查询', exact: true }).click();
-  await expect(page.getByRole('row').filter({ hasText: job.title })).not.toContainText('已生效 v1');
+  await expect(page.getByRole('row').filter({ hasText: updatedTitle })).not.toContainText(
+    '已生效 v1',
+  );
   await page.screenshot({ path: '../../.local/人才画像-岗位列表.png', fullPage: true });
-  await openProfile(page, job.title);
+  await openProfile(page, updatedTitle);
   await expect(page.getByRole('heading', { name: /^内部招人要求/ })).toContainText('v1 · 已确认');
   await expect(page.getByText('能说明本人负责的渠道项目及复盘结果', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '使用此版本', exact: true })).toHaveCount(0);
@@ -682,7 +704,7 @@ test('AI 失败保留输入，HR 可直接手工保存并在刷新后看到同�
   ).toBeTruthy();
   await page.getByRole('button', { name: '关闭详情', exact: true }).click();
   await page.goto('/#jobs');
-  await page.getByRole('button', { name: job.title, exact: true }).click();
+  await page.getByRole('button', { name: updatedTitle, exact: true }).click();
   await expect(page.getByRole('heading', { name: /^内部招人要求/ })).toContainText('v1 · 已确认');
   await expect(page.getByText('能说明本人负责的渠道项目及复盘结果', { exact: true })).toBeVisible();
   const reloaded = await readJob(page, job.id);

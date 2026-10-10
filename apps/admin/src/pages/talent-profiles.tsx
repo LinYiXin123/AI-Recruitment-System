@@ -138,6 +138,7 @@ export function TalentProfiles({
             {...props}
             chooseJob={(job) => setContext({ tab: 'candidates', job })}
             create={create}
+            changed={changed}
           />
         </TabsContent>
         <TabsContent value="candidates">
@@ -529,12 +530,14 @@ function JobProfiles({
   canCreate,
   chooseJob,
   create,
+  changed,
 }: {
   revision: number;
   openJob: (id: number, edit?: boolean) => void;
   canCreate: boolean;
   chooseJob: (job: Job) => void;
   create: () => void;
+  changed: () => void;
 }) {
   const [titleInput, setTitleInput] = useState('');
   const [locationInput, setLocationInput] = useState('');
@@ -544,6 +547,9 @@ function JobProfiles({
   const [reload, setReload] = useState(0);
   const [data, setData] = useState<Page<Job> | null>(null);
   const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [actionStatus, setActionStatus] = useState('');
+  const [deleting, setDeleting] = useState<number | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     setData(null);
@@ -599,6 +605,12 @@ function JobProfiles({
         </FieldGroup>
       </form>
       <section className="panel" aria-label="岗位画像工作台">
+        {actionError && <ErrorNotice message={actionError} />}
+        {actionStatus && (
+          <p className="px-5 pt-3 text-sm text-muted-foreground" role="status">
+            {actionStatus}
+          </p>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
           {canCreate ? (
             <Button onClick={create}>
@@ -700,6 +712,38 @@ function JobProfiles({
                         {job.active_profile && job.permissions.edit && job.status !== 'closed' && (
                           <Button variant="outline" onClick={() => openJob(job.id, true)}>
                             编辑
+                          </Button>
+                        )}
+                        {job.permissions.edit && (
+                          <Button
+                            variant="link"
+                            className="text-destructive"
+                            disabled={deleting === job.id}
+                            onClick={async () => {
+                              if (
+                                !window.confirm(
+                                  `从人才画像列表删除“${job.title}”？职位和画像历史会保留；已有应聘记录的职位不能删除。`,
+                                )
+                              )
+                                return;
+                              setDeleting(job.id);
+                              setActionError('');
+                              setActionStatus('');
+                              try {
+                                await api<void>(`jobs/${job.id}/archive/`, {
+                                  version: job.version,
+                                });
+                                setActionStatus('画像已从列表删除，职位及历史记录仍保留。');
+                                setReload((value) => value + 1);
+                                changed();
+                              } catch (e) {
+                                setActionError((e as Error).message);
+                              } finally {
+                                setDeleting(null);
+                              }
+                            }}
+                          >
+                            {deleting === job.id ? '删除中…' : '删除'}
                           </Button>
                         )}
                       </div>

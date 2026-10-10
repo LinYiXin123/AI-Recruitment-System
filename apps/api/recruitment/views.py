@@ -237,6 +237,7 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             "department", "owner__user", "approver__user", "enterprise", "active_profile"
         )
         if self.action == "list":
+            qs = qs.filter(archived_at__isnull=True)
             if search := self.request.query_params.get("search", "").strip():
                 qs = qs.filter(Q(title__icontains=search) | Q(location__icontains=search))
             if title := self.request.query_params.get("title", "").strip():
@@ -281,6 +282,8 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         m = member(self.request)
         if not can_edit(m, job):
             raise PermissionDenied("仅当前职位的 HR 负责人或获授权协作者可修改。")
+        if job.archived_at:
+            raise ValidationError("该职位画像已删除，不能继续修改。")
         if job.status == Job.Status.CLOSED:
             raise ValidationError("职位已关闭，请先重新开启后再调整要求。")
         return m
@@ -301,6 +304,8 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         if existing:
             if not can_edit(m, existing):
                 raise PermissionDenied("当前已无权查看或重试这个职位。")
+            if existing.archived_at:
+                raise Conflict("该职位画像已删除，不能重试创建。")
             same = all(
                 getattr(existing, key) == data[key]
                 for key in [
@@ -416,6 +421,36 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             self.save_profile(job, data, m)
             return Response(self.get_serializer(job).data, status=201)
 
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def archive(self, request, pk=None):
+        data = validate_input(VersionSerializer, request.data)
+        visible = self.get_object()
+        job = Job.objects.select_for_update().get(pk=visible.pk)
+        m = member(request)
+        if not can_edit(m, job):
+            raise PermissionDenied("仅当前职位的 HR 负责人或获授权协作者可删除画像。")
+        if job.archived_at:
+            return Response(status=204)
+        if job.version != data["version"]:
+            raise Conflict()
+        if Application.objects.filter(job=job).exists():
+            raise ValidationError("该职位已有应聘记录，不能删除；请保留职位以继续查看历史。")
+        now = timezone.now()
+        ProfileClarification.objects.filter(profile__job=job, status="pending").update(
+            status="withdrawn", updated_at=now
+        )
+        Task.objects.filter(profile__job=job, status="pending").update(
+            status="cancelled", completed_at=now
+        )
+        latest = job.profiles.first()
+        if latest and latest.status == ProfileVersion.Status.PENDING:
+            latest.status = ProfileVersion.Status.WITHDRAWN
+            latest.save()
+        job.archived_at = now
+        record(job, m, "删除岗位画像", "职位及画像历史已保留；该职位没有应聘记录。")
+        return Response(status=204)
+
     def save_profile(self, job, data, m, *, created_with_job=False):
         self.editable(job)
         last = job.profiles.first()
@@ -450,6 +485,7 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         )
         for position, requirement in enumerate(requirements):
             profile.requirements.create(position=position, **requirement)
+        job.title = data.get("title", job.title)
         job.jd = data["jd"]
         job.location = data.get("location", job.location)
         job.salary_range = data.get("salary_range", job.salary_range)
@@ -465,6 +501,10 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
     @action(detail=True, methods=["get", "post"], url_path="profile-ai")
     def profile_ai(self, request, pk=None):
         return generate_profile(request, pk)
+
+    @action(detail=False, methods=["post"], url_path="job-description-ai")
+    def job_description_ai_preview(self, request):
+        return generate_job_description(request)
 
     @action(detail=True, methods=["post"], url_path="job-description-ai")
     def job_description_ai(self, request, pk=None):
@@ -577,6 +617,8 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         m = member(request)
         if not can_edit(m, job):
             raise PermissionDenied("仅当前职位的 HR 负责人或获授权协作者可调整招聘状态。")
+        if job.archived_at:
+            raise ValidationError("该职位画像已删除，不能继续调整招聘状态。")
         transitions = {
             "draft": ["open", "closed"],
             "open": ["paused", "closed"],

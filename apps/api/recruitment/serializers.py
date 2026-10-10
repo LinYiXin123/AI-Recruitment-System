@@ -318,6 +318,7 @@ class ClarificationSerializer(serializers.ModelSerializer):
 
 
 class SaveProfileSerializer(ProfileContentSerializer, VersionSerializer):
+    title = serializers.CharField(max_length=100, required=False)
     jd = serializers.CharField(max_length=30000)
     location = serializers.CharField(max_length=100, required=False)
     salary_range = serializers.CharField(max_length=200, allow_blank=True, required=False)

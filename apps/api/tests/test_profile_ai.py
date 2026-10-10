@@ -148,6 +148,33 @@ def test_generate_job_description_is_versioned_and_does_not_save_the_job(team, s
     assert saved_job.profiles.count() == 0
 
 
+def test_job_description_can_be_generated_before_creating_job(team, settings):
+    settings.LLM_MODEL = "fake-test-model"
+    c = client_for(team[2])
+    payload = {
+        "title": "渠道经理",
+        "jd": "",
+        "business_goal": "完成渠道试点并复盘结果",
+    }
+    with patch(
+        "recruitment.profile_ai.chat_completion",
+        return_value=json.dumps({"jd": "负责渠道拓展，推进合作并复盘结果。"}),
+    ) as model:
+        result = c.post("/api/v1/jobs/job-description-ai/", payload, format="json")
+        assert result.status_code == 200, result.data
+        assert result.data == {
+            "status": "succeeded",
+            "error": "",
+            "jd": "负责渠道拓展，推进合作并复盘结果。",
+        }
+        assert "渠道经理" in model.call_args.kwargs["user_text"]
+    assert not Job.objects.exists()
+    assert not ProfileGeneration.objects.exists()
+    assert client_for(team[3]).post(
+        "/api/v1/jobs/job-description-ai/", payload, format="json"
+    ).status_code == 403
+
+
 @pytest.mark.parametrize("field", ["jd", "business_goal"])
 @pytest.mark.parametrize("activate", [False, True])
 def test_existing_job_rejects_changed_ai_input_without_changing_saved_state(team, field, activate):

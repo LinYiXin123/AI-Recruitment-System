@@ -169,6 +169,26 @@ def test_scan_failure_manual_version_and_retries(team):
     assert ResumeParse.objects.get(version=1).status == "failed"
 
 
+def test_archived_job_cannot_receive_new_candidate_application(team):
+    client = client_for(team[2])
+    job = recruiting(team)
+    archived = client.post(
+        f"/api/v1/jobs/{job['id']}/archive/", {"version": job["version"]}, format="json"
+    )
+    assert archived.status_code == 204
+    candidate = Candidate.objects.create(
+        organization=team[0], created_by=team[2], display_name="尚未应聘的人选"
+    )
+    response = client.post(
+        f"/api/v1/candidates/{candidate.id}/apply/",
+        {"request_key": str(uuid.uuid4()), "job": job["id"], "source": "人工加入"},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "已删除" in str(response.data)
+    assert not Application.objects.filter(job_id=job["id"]).exists()
+
+
 def test_dedup_multiple_jobs_reapply_and_idempotent_review(team):
     c = client_for(team[2])
     job = recruiting(team)

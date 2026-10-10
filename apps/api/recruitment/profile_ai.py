@@ -48,7 +48,14 @@ class GenerationInput(PreviewInput):
 
 class JobDescriptionInput(PreviewInput):
     version = serializers.IntegerField(min_value=1)
+    title = serializers.CharField(max_length=100, required=False)
     jd = serializers.CharField(max_length=30000, allow_blank=True, default="")
+
+
+class JobDescriptionPreviewInput(serializers.Serializer):
+    title = serializers.CharField(max_length=100)
+    jd = serializers.CharField(max_length=30000, allow_blank=True, default="")
+    business_goal = serializers.CharField(max_length=5000, allow_blank=True, default="")
 
 
 def editable_job(request, pk, *, lock=False):
@@ -59,6 +66,8 @@ def editable_job(request, pk, *, lock=False):
     job = Job.objects.select_for_update().get(pk=visible.pk) if lock else visible
     if not can_edit(m, job):
         raise PermissionDenied("仅当前职位的 HR 负责人或获授权协作者可起草或使用画像。")
+    if job.archived_at:
+        raise ValidationError("该职位画像已删除，不能继续修改。")
     if job.status == Job.Status.CLOSED:
         raise ValidationError("职位已关闭，请先重新开启后再调整要求。")
     return m, job
@@ -265,7 +274,27 @@ def generate_profile(request, pk=None):
     return Response(generation_data(generation, job))
 
 
-def generate_job_description(request, pk):
+def generate_job_description(request, pk=None):
+    if pk is None:
+        generation_context(request)
+        form = JobDescriptionPreviewInput(data=request.data)
+        form.is_valid(raise_exception=True)
+        data = form.validated_data
+        snapshot = {key: data[key] for key in ["title", "jd", "business_goal"]}
+        try:
+            jd = job_description_text(snapshot, settings.LLM_MODEL)
+            generation_context(request)
+        except (LLMServiceError, ValueError, json.JSONDecodeError) as exc:
+            error = (
+                str(exc)
+                if isinstance(exc, ValueError)
+                else "模型服务暂不可用；你仍可手动填写招聘需求。"
+            )
+            if not all((settings.LLM_API_BASE_URL, settings.LLM_API_KEY, settings.LLM_MODEL)):
+                error = "模型服务尚未配置，请联系管理员；你仍可手动填写招聘需求。"
+            return Response({"status": "failed", "error": error, "jd": ""})
+        return Response({"status": "succeeded", "error": "", "jd": jd})
+
     form = JobDescriptionInput(data=request.data)
     form.is_valid(raise_exception=True)
     data = form.validated_data
@@ -275,7 +304,7 @@ def generate_job_description(request, pk):
             raise Conflict()
         expire_interrupted(job, m, "job_description")
         snapshot = {
-            "title": job.title,
+            "title": data.get("title", job.title),
             "jd": data["jd"],
             "business_goal": data["business_goal"],
         }
@@ -302,26 +331,7 @@ def generate_job_description(request, pk):
     if generation.status == "running":
         try:
             check_generation(request, generation)
-            content = chat_completion(
-                base_url=settings.LLM_API_BASE_URL,
-                api_key=settings.LLM_API_KEY,
-                model=generation.model,
-                system_prompt=JOB_DESCRIPTION_PROMPT,
-                user_text=json.dumps(snapshot, ensure_ascii=False),
-                temperature=0.2,
-                max_tokens=6000,
-                thinking={"type": "disabled"},
-                response_format={"type": "json_object"},
-            )
-            result = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip()))
-            if (
-                not isinstance(result, dict)
-                or set(result) != {"jd"}
-                or not isinstance(result["jd"], str)
-                or not result["jd"].strip()
-                or len(result["jd"]) > 30000
-            ):
-                raise ValueError("模型没有返回有效的职位描述，请重试或手动填写。")
+            result = {"jd": job_description_text(snapshot, generation.model)}
         except (LLMServiceError, ValueError, json.JSONDecodeError) as exc:
             if isinstance(exc, ValueError):
                 error = str(exc)
@@ -357,6 +367,30 @@ def generate_job_description(request, pk):
             "jd": generation.result.get("jd", "") if generation.status == "succeeded" else "",
         }
     )
+
+
+def job_description_text(snapshot, model):
+    content = chat_completion(
+        base_url=settings.LLM_API_BASE_URL,
+        api_key=settings.LLM_API_KEY,
+        model=model,
+        system_prompt=JOB_DESCRIPTION_PROMPT,
+        user_text=json.dumps(snapshot, ensure_ascii=False),
+        temperature=0.2,
+        max_tokens=6000,
+        thinking={"type": "disabled"},
+        response_format={"type": "json_object"},
+    )
+    result = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip()))
+    if (
+        not isinstance(result, dict)
+        or set(result) != {"jd"}
+        or not isinstance(result["jd"], str)
+        or not result["jd"].strip()
+        or len(result["jd"]) > 30000
+    ):
+        raise ValueError("模型没有返回有效的职位描述，请重试或手动填写。")
+    return result["jd"]
 
 
 def expire_interrupted(job, creator, purpose):

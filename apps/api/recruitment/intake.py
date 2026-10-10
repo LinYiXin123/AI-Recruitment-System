@@ -120,6 +120,8 @@ def audit(m, job, action_name, application=None, note=""):
 
 def open_job(m, pk):
     job = get_object_or_404(hr_jobs(m), pk=pk)
+    if job.archived_at:
+        raise ValidationError("该职位画像已删除，不能接收新的应聘。")
     if job.status != "open" or not job.active_profile_id:
         raise ValidationError("请先完成招人要求确认并开始招聘，再接收新的应聘。")
     if not job.owner.active or not job.owner.user.is_active or not can_edit(job.owner, job):

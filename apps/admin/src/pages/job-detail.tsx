@@ -871,24 +871,26 @@ function ProfileContent({ profile: p }: { profile: Profile }) {
   );
 }
 
-function ProfileEditor({
+export function ProfileEditor({
   job,
   busy,
   setBusy,
   onDirty,
   cancel,
   saved,
+  creation,
 }: {
-  job: Job;
+  job: Job | null;
   busy: boolean;
   setBusy: (busy: boolean) => void;
   onDirty: () => void;
   cancel: () => void;
   saved: (j: Job) => void;
+  creation?: { requestId: string; department: number; approver: number; ready: boolean };
 }) {
   const [requirements, setRequirements] = useState<(Requirement & { key: string })[]>(
     (
-      job.latest_profile?.requirements || [
+      job?.latest_profile?.requirements || [
         {
           category: 'other' as const,
           kind: 'must' as const,
@@ -900,16 +902,19 @@ function ProfileEditor({
     ).map((r) => ({ ...r, key: crypto.randomUUID() })),
   );
   const [error, setError] = useState('');
-  const [jd, setJd] = useState(job.jd);
-  const [source, setSource] = useState(job.latest_profile?.source || 'HR 核对');
-  const [businessGoal] = useState(job.latest_profile?.business_goal || '');
-  const [location, setLocation] = useState(job.location);
-  const [salaryRange, setSalaryRange] = useState(job.salary_range);
+  const [title, setTitle] = useState(job?.title || '');
+  const [jd, setJd] = useState(job?.jd || '');
+  const [source, setSource] = useState(job?.latest_profile?.source || 'HR 手工整理');
+  const [businessGoal] = useState(job?.latest_profile?.business_goal || '');
+  const [location, setLocation] = useState(job?.location || '');
+  const [salaryRange, setSalaryRange] = useState(job?.salary_range || '');
   const [generation, setGeneration] = useState<ProfileGeneration | null>(null);
   const inputChanged = Boolean(
     generation &&
       (generation.input.jd !== jd.trim() || generation.input.business_goal !== businessGoal.trim()),
   );
+  const [requestId] = useState(() => crypto.randomUUID());
+  const cleanRequirements = requirements.filter((item) => item.text.trim());
   const pendingRequirements = requirements.filter((r) => r.kind === 'must' && r.needs_verification);
   const unverified = pendingRequirements.length > 0;
   const categoryItems = (category: Requirement['category'], kind?: Requirement['kind']) =>
@@ -1085,16 +1090,16 @@ function ProfileEditor({
     replaceCategory('experience', experienceItem?.kind ?? 'must', text ? [text] : []);
   }
   async function generateJobDescription() {
-    if (busy) return;
+    if (busy || !title.trim()) return;
     setBusy(true);
     setError('');
     onDirty();
     try {
       const result = await api<{ jd: string; error: string; status: string }>(
-        `jobs/${job.id}/job-description-ai/`,
+        job ? `jobs/${job.id}/job-description-ai/` : 'jobs/job-description-ai/',
         {
-          request_key: crypto.randomUUID(),
-          version: job.version,
+          ...(job ? { request_key: crypto.randomUUID(), version: job.version } : {}),
+          title,
           jd,
           business_goal: businessGoal,
         },
@@ -1116,22 +1121,42 @@ function ProfileEditor({
         onSubmit={async (e) => {
           e.preventDefault();
           if (busy || inputChanged) return;
+          if (!cleanRequirements.length) {
+            setError('请至少填写一项岗位要求，或点击「AI 生成画像」提取。');
+            return;
+          }
           const activate = !unverified;
           setBusy(true);
           setError('');
           try {
+            const profile = {
+              source,
+              business_goal: businessGoal,
+              generation_id: generation?.id ?? null,
+              activate,
+              requirements: cleanRequirements.map(({ key: _key, ...r }) => r),
+            };
             saved(
-              await api<Job>(`jobs/${job.id}/profiles/`, {
-                version: job.version,
-                jd,
-                source,
-                business_goal: businessGoal,
-                generation_id: generation?.id ?? null,
-                activate,
-                requirements: requirements.map(({ key: _key, ...r }) => r),
-                location,
-                salary_range: salaryRange,
-              }),
+              job
+                ? await api<Job>(`jobs/${job.id}/profiles/`, {
+                    version: job.version,
+                    title,
+                    jd,
+                    ...profile,
+                    location,
+                    salary_range: salaryRange,
+                  })
+                : await api<Job>('jobs/', {
+                    request_id: creation?.requestId ?? requestId,
+                    title,
+                    department: creation?.department,
+                    approver: creation?.approver,
+                    location,
+                    headcount: 1,
+                    jd,
+                    salary_range: salaryRange,
+                    profile,
+                  }),
             );
           } catch (e) {
             setError((e as Error).message);
@@ -1145,13 +1170,20 @@ function ProfileEditor({
             <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
               <Field>
                 <FieldLabel htmlFor="profile-title">目标职位</FieldLabel>
-                <Input id="profile-title" value={job.title} readOnly />
+                <Input
+                  id="profile-title"
+                  value={title}
+                  maxLength={100}
+                  placeholder="如：前端开发工程师"
+                  required
+                  onChange={(event) => setTitle(event.target.value)}
+                />
               </Field>
               <Button
                 className="sm:mb-px"
                 type="button"
                 variant="outline"
-                disabled={busy}
+                disabled={busy || !title.trim()}
                 onClick={() => void generateJobDescription()}
               >
                 <Sparkles data-icon="inline-start" />
@@ -1163,6 +1195,7 @@ function ProfileEditor({
               <Textarea
                 id="profile-jd"
                 value={jd}
+                placeholder="填写目标职位后，点上方「AI 生成 JD」自动起草招聘需求；也可以直接粘贴现成的 JD"
                 onChange={(event) => setJd(event.target.value)}
                 rows={5}
                 maxLength={30000}
@@ -1172,7 +1205,7 @@ function ProfileEditor({
                 <FieldDescription>当前 {jd.length} 字</FieldDescription>
                 <ProfileAi
                   compact
-                  job={job}
+                  job={job ?? undefined}
                   jd={jd}
                   businessGoal={businessGoal}
                   busy={busy}
@@ -1202,6 +1235,8 @@ function ProfileEditor({
                     id="profile-location"
                     value={location}
                     maxLength={100}
+                    placeholder="如：深圳"
+                    required
                     onChange={(event) => {
                       onDirty();
                       setLocation(event.target.value);
@@ -1262,6 +1297,7 @@ function ProfileEditor({
                       min={0}
                       max={50}
                       value={experienceMaximum}
+                      placeholder="不限"
                       onChange={(event) => updateExperience(experienceMinimum, event.target.value)}
                     />
                     <span>年</span>
@@ -1391,7 +1427,24 @@ function ProfileEditor({
             <Button type="button" variant="outline" disabled={busy} onClick={cancel}>
               取消
             </Button>
-            <Button type="submit" form="job-profile-form" disabled={busy || inputChanged}>
+            {!job && !creation?.ready && (
+              <p className="w-full" role="status">
+                当前部门尚未配置用人负责人，暂时不能新建画像。
+              </p>
+            )}
+            <Button
+              type="submit"
+              form="job-profile-form"
+              disabled={
+                busy ||
+                inputChanged ||
+                !title.trim() ||
+                !jd.trim() ||
+                !location.trim() ||
+                !cleanRequirements.length ||
+                (!job && !creation?.ready)
+              }
+            >
               {busy ? '保存中…' : '保存'}
             </Button>
           </div>
