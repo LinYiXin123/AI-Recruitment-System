@@ -126,6 +126,7 @@ async function prepare(page: Page, detail = application) {
   await page.goto('/#talent-profiles');
   await page.getByRole('tab', { name: '简历对照', exact: true }).click();
   await page.getByRole('button', { name: '查看简历并对照', exact: true }).click();
+  await page.getByRole('tab', { name: '岗位对照', exact: true }).click();
   return page.getByRole('region', { name: '候选人画像分析', exact: true });
 }
 
@@ -152,11 +153,14 @@ test('按本次应聘和简历分析，逐项依据、核实记录及失败重�
   const panel = await prepare(page);
   await panel.getByRole('button', { name: 'AI 分析候选人画像', exact: true }).click();
   await expect(panel.getByRole('button', { name: '正在对照岗位要求…' })).toBeDisabled();
+  await panel.getByRole('tab', { name: '应聘概览', exact: true }).click();
   await expect(page.getByRole('button', { name: '提交人工处理结果' })).toBeDisabled();
+  await panel.getByRole('tab', { name: '岗位对照', exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(panel).toBeVisible();
   release();
   const matches = panel.getByRole('region', { name: '岗位要求与材料对照' });
+  await matches.getByText('查看材料依据与 AI 说明').first().click();
   await expect(matches).toContainText('简历原文：开发内部检索工具');
   await expect(matches).toContainText('材料支持 1 项');
   await expect(matches).toContainText('信息不足 1 项');
@@ -187,10 +191,13 @@ test('按本次应聘和简历分析，逐项依据、核实记录及失败重�
     }),
   );
   await panel.getByRole('button', { name: '加入待核实' }).click();
-  await expect(matches).toContainText('人工核实：待核实');
+  const verifications = panel.getByRole('region', { name: '人工核实' });
+  await expect(verifications).toContainText('待核实');
   await panel.getByRole('button', { name: '记录核实', exact: true }).click();
   await expect(panel.getByRole('button', { name: '重新分析当前材料' })).toBeDisabled();
+  await panel.getByRole('tab', { name: '应聘概览', exact: true }).click();
   await expect(page.getByRole('button', { name: '提交人工处理结果' })).toBeDisabled();
+  await panel.getByRole('tab', { name: '岗位对照', exact: true }).click();
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.keyboard.press('Escape');
   await expect(panel.getByText('记录第 1 题的核实结果')).toBeVisible();
@@ -198,7 +205,7 @@ test('按本次应聘和简历分析，逐项依据、核实记录及失败重�
   await panel.getByRole('button', { name: '取消编辑', exact: true }).click();
   await panel.getByRole('button', { name: '重新分析当前材料' }).click();
   await expect(panel.getByRole('alert')).toContainText('测试模型暂时不可用');
-  await expect(matches).toContainText('人工核实：待核实');
+  await expect(verifications).toContainText('待核实');
   await panel.getByRole('button', { name: '重新分析当前材料' }).click();
   await expect(panel.getByRole('alert')).toHaveCount(0);
   expect(keys[1]).toBe(keys[2]);
@@ -302,6 +309,7 @@ test('切换简历不会误用旧报告，刷新应聘会更新过期提示', as
   await page.getByRole('option', { name: /fictional\.pdf/ }).click();
   await expect(panel.getByRole('alert')).toHaveCount(0);
   await expect(panel.getByRole('button', { name: '加入待核实' })).toBeEnabled();
+  await panel.getByRole('tab', { name: '应聘概览', exact: true }).click();
   await page.route('**/api/v1/applications/101/review/', (route) =>
     route.fulfill({
       json: {
@@ -326,6 +334,7 @@ test('刷新应聘期间暂停分析，读取完成后才允许生成新报告',
     interviewers: [{ id: 801, name: '虚构面试官' }],
     profile_analysis: report,
   });
+  await page.getByRole('tab', { name: '应聘概览', exact: true }).click();
   let release = () => {};
   const pending = new Promise<void>((resolve) => {
     release = resolve;
@@ -357,6 +366,7 @@ test('刷新应聘期间暂停分析，读取完成后才允许生成新报告',
   await expect(page.getByRole('button', { name: '保存排期', exact: true })).toBeDisabled();
   expect(analyses).toBe(0);
   release();
+  await page.getByRole('tab', { name: '岗位对照', exact: true }).click();
   await expect(panel.getByRole('button', { name: '重新分析当前材料' })).toBeEnabled();
   await panel.getByRole('button', { name: '重新分析当前材料' }).click();
   await expect(panel).toContainText('报告 AIS-0902');
@@ -369,6 +379,7 @@ test('本地生成后刷新返回空报告会移除结果，不沿用已经不�
   await page.route('**/api/v1/ai-screenings/', (route) => route.fulfill({ json: report }));
   await panel.getByRole('button', { name: 'AI 分析候选人画像', exact: true }).click();
   await expect(panel).toContainText('报告 AIS-0901');
+  await panel.getByRole('tab', { name: '应聘概览', exact: true }).click();
   await page.route('**/api/v1/applications/101/review/', (route) =>
     route.fulfill({ json: { ...application, version: 2, profile_analysis: null } }),
   );
@@ -395,6 +406,7 @@ for (const state of ['missing', 'unknown'] as const) {
     await expect(panel.getByRole('alert')).toContainText('无法确认是否仍适用，请重新分析');
     await expect(panel.getByRole('region', { name: '岗位要求与材料对照' })).toHaveCount(0);
     await expect(panel).toContainText('此报告没有逐项对照记录');
+    await panel.getByRole('tab', { name: '应聘概览', exact: true }).click();
     await page.route('**/api/v1/applications/101/review/', (route) =>
       route.fulfill({
         json: {

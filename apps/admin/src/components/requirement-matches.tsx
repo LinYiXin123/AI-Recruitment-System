@@ -1,6 +1,5 @@
 import { Badge } from '@/components/ui/badge';
 import { kindLabel } from '@/lib/api';
-import { type Verification, verificationStatusVariants } from '@/pages/ai-screening-verification';
 
 export type RequirementMatch = {
   requirement_id: number;
@@ -17,11 +16,9 @@ export type RequirementMatch = {
 
 export function RequirementMatches({
   items,
-  verifications = [],
   questions = [],
 }: {
   items?: RequirementMatch[];
-  verifications?: Verification[];
   questions?: { requirement_id?: number | null }[];
 }) {
   if (!items?.length)
@@ -74,9 +71,6 @@ export function RequirementMatches({
           question.requirement_id === item.requirement_id ? [index] : [],
         );
         if (!indices.length && item.question_index != null) indices.push(item.question_index);
-        const records = verifications.filter(
-          (v) => indices.includes(v.question_index) && v.status !== 'withdrawn',
-        );
         return (
           <article key={item.requirement_id} className="flex flex-col gap-2 rounded-lg border p-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -106,48 +100,30 @@ export function RequirementMatches({
               </Badge>
             </div>
             <p className="font-medium">{item.text}</p>
-            {quotes.map((quote) => (
-              <blockquote key={quote} className="border-l-2 pl-3 text-sm whitespace-pre-wrap">
-                简历原文：{quote}
-              </blockquote>
-            ))}
-            <p className="text-sm text-muted-foreground">{item.reason}</p>
-            {item.question && <p className="text-sm">建议核实：{item.question}</p>}
-            {indices.length > 0 && (
-              <p className="text-sm text-muted-foreground">
-                对应下方核实问题 {indices.map((i) => i + 1).join('、')}
-              </p>
-            )}
-            {item.question && !indices.length && (
-              <p className="text-sm text-muted-foreground">
-                本条未纳入本次主问题，可按上述问题另行核实。
-              </p>
-            )}
-            {records.map((verified) => (
-              <div key={verified.id} className="rounded-md bg-muted p-2 text-sm">
-                <p>
-                  人工核实：
-                  <Badge variant={verificationStatusVariants[verified.status]}>
-                    {
-                      {
-                        pending: '待核实',
-                        supported: '有依据支持',
-                        contradicted: '与材料不符',
-                        unresolved: '仍待补充',
-                        withdrawn: '已撤回',
-                      }[verified.status]
-                    }
-                  </Badge>
-                </p>
-                <p className="text-muted-foreground">
-                  问题 {verified.question_index + 1} · {verified.recorder_name}
-                </p>
-                {verified.evidence && (
-                  <p className="whitespace-pre-wrap">依据：{verified.evidence}</p>
+            <details>
+              <summary className="cursor-pointer text-sm text-primary">
+                查看材料依据与 AI 说明
+              </summary>
+              <div className="mt-2 flex flex-col gap-2">
+                {quotes.map((quote) => (
+                  <blockquote key={quote} className="border-l-2 pl-3 text-sm whitespace-pre-wrap">
+                    简历原文：{quote}
+                  </blockquote>
+                ))}
+                <p className="text-sm text-muted-foreground">{item.reason}</p>
+                {item.question && <p className="text-sm">建议核实：{item.question}</p>}
+                {indices.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    对应下方核实问题 {indices.map((i) => i + 1).join('、')}
+                  </p>
                 )}
-                {verified.next_step && <p>下一步：{verified.next_step}</p>}
+                {item.question && !indices.length && (
+                  <p className="text-sm text-muted-foreground">
+                    本条未纳入本次主问题，可按上述问题另行核实。
+                  </p>
+                )}
               </div>
-            ))}
+            </details>
           </article>
         );
       })}

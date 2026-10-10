@@ -55,7 +55,6 @@ export function ApplicationProfile({
   const [report, setReport] = useState<ProfileAnalysis | null>(
     application.profile_analysis ?? null,
   );
-  const [records, setRecords] = useState<Verification[]>(report?.verifications ?? []);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [verificationBusy, setVerificationBusy] = useState(false);
@@ -68,7 +67,6 @@ export function ApplicationProfile({
     if (incoming.current === application || busy || editing) return;
     incoming.current = application;
     setReport(application.profile_analysis ?? null);
-    setRecords(application.profile_analysis?.verifications ?? []);
   }, [application, busy, editing]);
   useEffect(() => {
     setParseId((current) => {
@@ -119,7 +117,6 @@ export function ApplicationProfile({
         resume: selected.text,
       });
       setReport(next);
-      setRecords(next.verifications ?? []);
       retry.current = null;
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) retry.current = null;
@@ -135,7 +132,7 @@ export function ApplicationProfile({
       <div>
         <h3>候选人画像 · AI 对照岗位要求</h3>
         <p className="text-sm text-muted-foreground">
-          用本次应聘的简历对照已生效标准，查看材料依据，再记录人工核实结果。
+          AI 只提示简历证据和待核实项，不给录用或淘汰结论。
         </p>
       </div>
       {!application.profile ? (
@@ -211,12 +208,9 @@ export function ApplicationProfile({
             </Alert>
           )}
           <ScreeningQualityNotice report={report} />
+          <h4>AI 预分析</h4>
           <p className="whitespace-pre-wrap">{report.summary}</p>
-          <RequirementMatches
-            items={report.requirement_matches}
-            verifications={records}
-            questions={report.questions}
-          />
+          <RequirementMatches items={report.requirement_matches} questions={report.questions} />
           <ScreeningSourceDetails source={report.source_context} />
           <ScreeningVerification
             key={report.id}
@@ -225,7 +219,6 @@ export function ApplicationProfile({
             initial={report.verifications}
             disabled={busy || disabled || differentMaterial}
             onEditingChange={setEditing}
-            onRecordsChange={setRecords}
             onBusyChange={setVerificationBusy}
           />
         </>

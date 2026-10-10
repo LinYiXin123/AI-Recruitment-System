@@ -1200,7 +1200,6 @@ export function AiScreeningPage() {
                   {analysis.requirement_matches && analysis.requirement_matches.length > 0 && (
                     <RequirementMatches
                       items={analysis.requirement_matches}
-                      verifications={analysis.verifications}
                       questions={analysis.questions}
                     />
                   )}

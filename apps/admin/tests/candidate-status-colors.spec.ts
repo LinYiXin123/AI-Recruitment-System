@@ -188,9 +188,7 @@ test('候选人和人才画像的全部应聘状态在列表与详情同色，�
       name: `${application.name} · 第 1 次应聘`,
       exact: true,
     });
-    await expect(
-      detail.getByRole('heading', { name: application.job_title, exact: true }),
-    ).toBeVisible();
+    await expect(detail).toContainText(application.job_title);
     const detailBadge = detail.locator('[data-slot="badge"]').filter({ hasText: item.label });
     await expect(detailBadge).toHaveText(item.label);
     await expect(detailBadge).toHaveCSS('color', item.color);

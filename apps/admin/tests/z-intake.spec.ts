@@ -222,8 +222,10 @@ test('导入真实文字、失败恢复、人工复核、多人多次应聘与�
     await page.request.get(`/api/v1/applications/${batch.items[0].application}/`)
   ).json();
   await page.getByRole('button', { name: '打开本次应聘' }).first().click();
+  await page.getByRole('tab', { name: '岗位对照', exact: true }).click();
   await expect(page.getByRole('region', { name: '候选人画像分析' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'AI 分析候选人画像', exact: true })).toBeEnabled();
+  await page.getByRole('tab', { name: '应聘概览', exact: true }).click();
   await choose(page, '处理结果', '需要补充');
   await page.getByLabel('依据与说明').fill('缺少联系方式，材料缺失不作不通过判断');
   await choose(page, '接手 HR', '体验 HR');

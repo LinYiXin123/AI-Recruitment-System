@@ -401,11 +401,13 @@ test('新版报告区分缺材料、材料矛盾和分析错误，核实题与�
   await expect(comparison).toContainText('材料矛盾待核实 1 项');
   await expect(comparison).toContainText('分析需重试 1 项');
   const conflict = comparison.getByRole('article').filter({ hasText: matches[2].text });
+  await conflict.getByText('查看材料依据与 AI 说明').click();
   await expect(conflict.locator('blockquote')).toHaveCount(2);
   for (const quote of matches[2].quotes) await expect(conflict).toContainText(quote);
   const error = comparison.getByRole('article').filter({ hasText: matches[3].text });
   await expect(error).toContainText('分析需重试');
   await expect(error).not.toContainText('信息不足');
+  await error.getByText('查看材料依据与 AI 说明').click();
   await expect(error).toContainText('不能据此判断候选人缺少能力');
 
   const secondQuestion = result.getByRole('article', { name: '第 2 题' });
@@ -419,8 +421,11 @@ test('新版报告区分缺材料、材料矛盾和分析错误，核实题与�
   );
   await expect(secondQuestion).toContainText(report.questions[1].answer_points[0]);
   const supplemented = comparison.getByRole('article').filter({ hasText: matches[1].text });
+  await supplemented.getByText('查看材料依据与 AI 说明').click();
   await expect(supplemented).toContainText('对应下方核实问题 2');
-  await expect(supplemented).toContainText(report.verifications[0].evidence);
+  await expect(result.getByRole('region', { name: '人工核实' })).toContainText(
+    report.verifications[0].evidence,
+  );
   await expect(conflict).not.toContainText(report.verifications[0].evidence);
   await expect(supplemented).toContainText(matches[1].reason);
 });

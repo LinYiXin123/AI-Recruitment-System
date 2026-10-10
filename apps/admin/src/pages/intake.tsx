@@ -58,6 +58,7 @@ import './candidate-detail.css';
 
 function Drawer({
   title,
+  description,
   close,
   busy,
   dirty,
@@ -65,6 +66,7 @@ function Drawer({
   children,
 }: {
   title: string;
+  description?: ReactNode;
   close: () => void;
   busy: boolean;
   dirty: boolean;
@@ -88,7 +90,7 @@ function Drawer({
       <SheetContent className="job-sheet">
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
-          <SheetDescription>只处理你有权限的职位和本次应聘。</SheetDescription>
+          <SheetDescription>{description || '只处理你有权限的职位和本次应聘。'}</SheetDescription>
         </SheetHeader>
         <div className="sheet-scroll flex flex-1 flex-col gap-5 p-5">{children}</div>
       </SheetContent>
@@ -3122,6 +3124,16 @@ export function ApplicationDetail({
   return (
     <Drawer
       title={data ? `${data.name} · 第 ${data.attempt_no} 次应聘` : '应聘详情'}
+      description={
+        data ? (
+          <>
+            {data.job_title} ·{' '}
+            <Badge variant={stageVariants[data.stage] || 'muted'}>
+              {stages[data.stage] || data.stage}
+            </Badge>
+          </>
+        ) : undefined
+      }
       close={close}
       busy={busy || analysisBusy}
       dirty={dirty || analysisEditing}
@@ -3148,307 +3160,318 @@ export function ApplicationDetail({
       {!data ? (
         <Loading />
       ) : (
-        <>
-          <div>
-            <h3>{data.job_title}</h3>
-            <Badge variant={stageVariants[data.stage] || 'muted'}>
-              {stages[data.stage] || data.stage}
-            </Badge>
-            <p>
-              来源：{data.source} · HR：{data.owner_name}
-            </p>
-            <p>{data.phone || data.email || data.contact_note}</p>
-          </div>
-          {data.candidate_deleted_at && (
-            <Alert>
-              <AlertTitle className="text-destructive">已移出候选人库</AlertTitle>
-              <AlertDescription className="flex flex-col gap-3">
-                <p>
-                  {data.closed_at === null
-                    ? ['pending_review', 'needs_information', 'ready_to_schedule'].includes(
-                        data.stage,
-                      )
-                      ? '原应聘仍在进行中。可恢复主档案继续招聘；如需结束本次应聘，请在下方「人工复核」填写处理结果和说明。'
-                      : '原应聘仍在进行中。请先恢复主档案，再按当前阶段处理后续流程。'
-                    : '这里保留的是已结束的应聘记录。恢复主档案后可在候选人库中继续使用，历史结果不变。'}
-                </p>
-                {data.can_restore_candidate ? (
-                  <Button
-                    variant="outline"
-                    className="self-start"
-                    disabled={loading || busy || dirty || analysisBusy || analysisEditing}
-                    onClick={async () => {
-                      if (restoring.current) return;
-                      restoring.current = true;
-                      setBusy(true);
-                      setError('');
-                      setSuccess('');
-                      try {
-                        await api(`candidates/${data.candidate}/restore/`, {
-                          updated_at: data.candidate_updated_at,
-                        });
-                        setSuccess('已恢复到候选人库，原有应聘和材料保持不变。');
-                        setLoading(true);
-                        setReload((value) => value + 1);
-                        changed();
-                      } catch (e) {
-                        setError((e as Error).message);
-                      } finally {
-                        restoring.current = false;
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    {busy ? '正在恢复…' : '恢复到候选人库'}
-                  </Button>
-                ) : (
-                  <p>恢复主档案需由有原始资料及全部关联职位权限的 HR 操作。</p>
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
-          {data.stage !== 'closed' && data.job_status === 'open' && (
-            <section
-              className="flex flex-col gap-3 rounded-lg border p-4"
-              aria-label="准备本次简历"
-            >
+        <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col gap-4">
+          <TabsList variant="line" aria-label="本次应聘信息">
+            <TabsTrigger value="overview">应聘概览</TabsTrigger>
+            <TabsTrigger value="comparison">岗位对照</TabsTrigger>
+            <TabsTrigger value="materials">原始材料</TabsTrigger>
+          </TabsList>
+          <TabsContent value="overview" keepMounted className="flex flex-col gap-4">
+            <section className="flex flex-col gap-1 rounded-lg border p-4">
               <p>
-                {data.resumes.some((r) => r.parse?.status === 'succeeded' && r.parse.text.trim())
-                  ? '简历已准备好，可在下方开始对照。需要更新材料时，先补充简历。'
-                  : '下一步：补充本次应聘的简历。上传并核对身份后，就能开始对照招人要求。'}
+                来源：{data.source} · HR：{data.owner_name}
               </p>
-              <Button
-                className="self-start"
-                variant={data.resumes.length ? 'outline' : 'default'}
-                disabled={loading || busy || dirty || analysisBusy || analysisEditing}
-                onClick={() => setSupplementing(true)}
-              >
-                补充简历
-              </Button>
+              <p>{data.phone || data.email || data.contact_note || '暂无联系方式'}</p>
+              {data.stage === 'closed' && (
+                <p className="mt-2 font-medium">本次结束原因：{data.close_reason || '未填写'}</p>
+              )}
             </section>
-          )}
-          <ApplicationProfile
-            application={data}
-            disabled={loading || busy || dirty}
-            onBusyChange={setAnalysisBusy}
-            onEditingChange={setAnalysisEditing}
-          />
-          <details className="rounded-lg border p-3">
-            <summary className="cursor-pointer">
-              当前正式招人要求 · {data.requirements.length} 项
-            </summary>
-            {data.requirements.map((r) => (
-              <p key={r.id} className="mt-3">
-                {kindLabel[r.kind]}：{r.text}
-                {r.needs_verification && <Badge variant="warning">岗位要求待确认</Badge>}
-                {r.rationale && `（${r.rationale}）`}
-              </p>
-            ))}
-          </details>
-          <section className="flex flex-col gap-3">
-            <h3>本次应聘的材料</h3>
-            {!data.resumes.length && (
-              <p>尚无材料。可从导入简历补充并选用此人才主档，或记录需要补充的内容。</p>
-            )}
-            {data.resumes.map((r) => (
-              <details key={r.document} className="rounded-lg border p-3">
-                <summary className="cursor-pointer break-all">
-                  {r.name} ·{' '}
-                  {r.parse
-                    ? `文字版本 v${r.parse.version} · ${r.parse.parser_version === '人工摘录' ? '人工摘录' : '原件文字提取'}`
-                    : '已停止访问'}
-                </summary>
-                {r.parse && (
-                  <>
-                    <pre className="resume-text">{r.parse.text}</pre>
-                    {r.download && (
-                      <a
-                        href={`/api/v1/documents/${r.document}/download/`}
-                        className="text-primary underline"
-                      >
-                        下载原件（重新校验权限）
-                      </a>
-                    )}
-                  </>
-                )}
-              </details>
-            ))}
-          </section>
-          {data.stage !== 'closed' && (
-            <form
-              className="flex flex-col gap-4"
-              onChange={() => {
-                setDirty(true);
-                setKey(crypto.randomUUID());
-                setSuccess('');
-              }}
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (loading || busy || analysisBusy || analysisEditing) return;
-                setBusy(true);
-                setError('');
-                try {
-                  const next = await api<Application>(`applications/${id}/review/`, {
-                    version: data.version,
-                    profile: data.profile,
-                    request_key: key,
-                    action,
-                    reason,
-                    followup_owner: action === 'need_info' ? Number(handler) : null,
-                    due_at: action === 'need_info' ? new Date(due).toISOString() : null,
-                  });
-                  setData(next);
-                  setAction(next.stage === 'ready_to_schedule' ? 'withdraw' : 'advance');
-                  setReason('');
-                  setDirty(false);
-                  setKey(crypto.randomUUID());
-                  setSuccess('处理结果已保存，相关待办已更新。');
-                  changed();
-                } catch (e) {
-                  setError((e as Error).message);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              <h3>人工复核</h3>
-              <fieldset
-                disabled={loading || busy || analysisBusy || analysisEditing}
-                className="flex flex-col gap-4"
-              >
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel id="review-action-label" htmlFor="review-action">
-                      处理结果
-                    </FieldLabel>
-                    <NativeSelect
-                      aria-labelledby="review-action-label"
-                      id="review-action"
-                      value={action}
-                      disabled={loading || busy || analysisBusy || analysisEditing}
-                      required
-                      onChange={(e) => setAction(e.target.value)}
-                    >
-                      <NativeSelectOption value="" disabled>
-                        请选择处理结果
-                      </NativeSelectOption>
-                      {Object.entries(reviewActions)
-                        .filter(([v]) => v !== 'supplement' || data.stage === 'needs_information')
-                        .filter(
-                          ([v]) =>
-                            (data.stage !== 'ready_to_schedule' && data.job_status === 'open') ||
-                            v === 'withdraw',
+            {data.candidate_deleted_at && (
+              <Alert>
+                <AlertTitle className="text-destructive">已移出候选人库</AlertTitle>
+                <AlertDescription className="flex flex-col gap-3">
+                  <p>
+                    {data.closed_at === null
+                      ? ['pending_review', 'needs_information', 'ready_to_schedule'].includes(
+                          data.stage,
                         )
-                        .map(([v, l]) => (
-                          <NativeSelectOption key={v} value={v}>
-                            {l}
-                          </NativeSelectOption>
-                        ))}
-                    </NativeSelect>
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="review-reason">依据与说明</FieldLabel>
-                    <Textarea
-                      id="review-reason"
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                      required
-                      maxLength={2000}
-                      placeholder="写明材料页码、核对结果及待确认之处；待补充请列明缺少的内容。"
-                    />
-                  </Field>
-                  {action === 'need_info' && (
-                    <>
-                      <Field>
-                        <FieldLabel id="followup-owner-label" htmlFor="followup-owner">
-                          接手 HR
-                        </FieldLabel>
-                        <NativeSelect
-                          aria-labelledby="followup-owner-label"
-                          id="followup-owner"
-                          value={handler}
-                          disabled={loading || busy || analysisBusy || analysisEditing}
-                          onChange={(e) => setHandler(e.target.value)}
-                          required
-                        >
-                          <NativeSelectOption value="">请选择本岗 HR</NativeSelectOption>
-                          {data.handlers.map((h) => (
-                            <NativeSelectOption key={h.id} value={h.id}>
-                              {h.name}
+                        ? '原应聘仍在进行中。可恢复主档案继续招聘；如需结束本次应聘，请在本页人工复核。'
+                        : '原应聘仍在进行中。请先恢复主档案，再按当前阶段处理后续流程。'
+                      : '这里保留的是已结束的应聘记录。恢复主档案后可在候选人库中继续使用，历史结果不变。'}
+                  </p>
+                  {data.can_restore_candidate ? (
+                    <Button
+                      variant="outline"
+                      className="self-start"
+                      disabled={loading || busy || dirty || analysisBusy || analysisEditing}
+                      onClick={async () => {
+                        if (restoring.current) return;
+                        restoring.current = true;
+                        setBusy(true);
+                        setError('');
+                        setSuccess('');
+                        try {
+                          await api(`candidates/${data.candidate}/restore/`, {
+                            updated_at: data.candidate_updated_at,
+                          });
+                          setSuccess('已恢复到候选人库，原有应聘和材料保持不变。');
+                          setLoading(true);
+                          setReload((value) => value + 1);
+                          changed();
+                        } catch (e) {
+                          setError((e as Error).message);
+                        } finally {
+                          restoring.current = false;
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      {busy ? '正在恢复…' : '恢复到候选人库'}
+                    </Button>
+                  ) : (
+                    <p>恢复主档案需由有原始资料及全部关联职位权限的 HR 操作。</p>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+            {data.stage !== 'closed' && data.job_status === 'open' && (
+              <section
+                className="flex flex-col gap-3 rounded-lg border p-4"
+                aria-label="准备本次简历"
+              >
+                <p>
+                  {data.resumes.some((r) => r.parse?.status === 'succeeded' && r.parse.text.trim())
+                    ? '简历已准备好，可查看岗位对照。需要更新材料时，先补充简历。'
+                    : '下一步：补充本次应聘的简历。上传并核对身份后，就能开始对照招人要求。'}
+                </p>
+                <Button
+                  className="self-start"
+                  variant={data.resumes.length ? 'outline' : 'default'}
+                  disabled={loading || busy || dirty || analysisBusy || analysisEditing}
+                  onClick={() => setSupplementing(true)}
+                >
+                  补充简历
+                </Button>
+              </section>
+            )}
+            {data.stage !== 'closed' && (
+              <form
+                className="flex flex-col gap-4"
+                onChange={() => {
+                  setDirty(true);
+                  setKey(crypto.randomUUID());
+                  setSuccess('');
+                }}
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (loading || busy || analysisBusy || analysisEditing) return;
+                  setBusy(true);
+                  setError('');
+                  try {
+                    const next = await api<Application>(`applications/${id}/review/`, {
+                      version: data.version,
+                      profile: data.profile,
+                      request_key: key,
+                      action,
+                      reason,
+                      followup_owner: action === 'need_info' ? Number(handler) : null,
+                      due_at: action === 'need_info' ? new Date(due).toISOString() : null,
+                    });
+                    setData(next);
+                    setAction(next.stage === 'ready_to_schedule' ? 'withdraw' : 'advance');
+                    setReason('');
+                    setDirty(false);
+                    setKey(crypto.randomUUID());
+                    setSuccess('处理结果已保存，相关待办已更新。');
+                    changed();
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <h3>人工复核</h3>
+                <fieldset
+                  disabled={loading || busy || analysisBusy || analysisEditing}
+                  className="flex flex-col gap-4"
+                >
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel id="review-action-label" htmlFor="review-action">
+                        处理结果
+                      </FieldLabel>
+                      <NativeSelect
+                        aria-labelledby="review-action-label"
+                        id="review-action"
+                        value={action}
+                        disabled={loading || busy || analysisBusy || analysisEditing}
+                        required
+                        onChange={(e) => setAction(e.target.value)}
+                      >
+                        <NativeSelectOption value="" disabled>
+                          请选择处理结果
+                        </NativeSelectOption>
+                        {Object.entries(reviewActions)
+                          .filter(([v]) => v !== 'supplement' || data.stage === 'needs_information')
+                          .filter(
+                            ([v]) =>
+                              (data.stage !== 'ready_to_schedule' && data.job_status === 'open') ||
+                              v === 'withdraw',
+                          )
+                          .map(([v, l]) => (
+                            <NativeSelectOption key={v} value={v}>
+                              {l}
                             </NativeSelectOption>
                           ))}
-                        </NativeSelect>
-                      </Field>
-                      <Field>
-                        <FieldLabel htmlFor="followup-due">跟进期限（本机时区）</FieldLabel>
-                        <Input
-                          id="followup-due"
-                          type="datetime-local"
-                          value={due}
-                          onChange={(e) => setDue(e.target.value)}
-                          required
-                        />
-                      </Field>
+                      </NativeSelect>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="review-reason">依据与说明</FieldLabel>
+                      <Textarea
+                        id="review-reason"
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        required
+                        maxLength={2000}
+                        placeholder="写明材料页码、核对结果及待确认之处；待补充请列明缺少的内容。"
+                      />
+                    </Field>
+                    {action === 'need_info' && (
+                      <>
+                        <Field>
+                          <FieldLabel id="followup-owner-label" htmlFor="followup-owner">
+                            接手 HR
+                          </FieldLabel>
+                          <NativeSelect
+                            aria-labelledby="followup-owner-label"
+                            id="followup-owner"
+                            value={handler}
+                            disabled={loading || busy || analysisBusy || analysisEditing}
+                            onChange={(e) => setHandler(e.target.value)}
+                            required
+                          >
+                            <NativeSelectOption value="">请选择本岗 HR</NativeSelectOption>
+                            {data.handlers.map((h) => (
+                              <NativeSelectOption key={h.id} value={h.id}>
+                                {h.name}
+                              </NativeSelectOption>
+                            ))}
+                          </NativeSelect>
+                        </Field>
+                        <Field>
+                          <FieldLabel htmlFor="followup-due">跟进期限（本机时区）</FieldLabel>
+                          <Input
+                            id="followup-due"
+                            type="datetime-local"
+                            value={due}
+                            onChange={(e) => setDue(e.target.value)}
+                            required
+                          />
+                        </Field>
+                      </>
+                    )}
+                  </FieldGroup>
+                  <Button type="submit" disabled={busy}>
+                    {busy ? '正在保存…' : '提交人工处理结果'}
+                  </Button>
+                </fieldset>
+              </form>
+            )}
+            {data.job_status !== 'open' && data.stage !== 'closed' && (
+              <Alert>
+                <AlertDescription>
+                  职位当前暂停或未招聘，恢复后再继续复核；已有内容继续保留。
+                </AlertDescription>
+              </Alert>
+            )}
+            {data.stage === 'ready_to_schedule' && (
+              <fieldset
+                disabled={loading || busy || analysisBusy || analysisEditing}
+                inert={loading || busy || analysisBusy || analysisEditing}
+              >
+                <ScheduleInterview
+                  application={data}
+                  dirty={dirty}
+                  setDirty={setDirty}
+                  scheduled={() => {
+                    setSuccess('排期已保存，候选人与面试官的系统内时间冲突已检查。邀请尚未发送。');
+                    setDirty(false);
+                    setLoading(true);
+                    setReload((old) => old + 1);
+                  }}
+                />
+              </fieldset>
+            )}
+            {data.reviews.length > 0 && (
+              <details className="rounded-lg border p-3">
+                <summary className="cursor-pointer">
+                  查看人工处理记录（{data.reviews.length} 条）
+                </summary>
+                <div className="mt-3 flex flex-col gap-3">
+                  {data.reviews.map((r) => (
+                    <article key={r.id} className="rounded-lg border p-4">
+                      <strong>
+                        {reviewActions[r.action]} · {r.reviewer_name}
+                      </strong>
+                      <p className="whitespace-pre-wrap">{r.reason}</p>
+                      {r.followup_owner && (
+                        <p>
+                          接手：{r.followup_owner} · 截止 {r.due_at && dateTime(r.due_at)}
+                        </p>
+                      )}
+                      <small>
+                        {dateTime(r.created_at)} · {stages[r.result_stage]} · 固定{' '}
+                        {r.input_parses.length} 份材料版本
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              </details>
+            )}
+          </TabsContent>
+          <TabsContent value="comparison" keepMounted className="flex flex-col gap-4">
+            <ApplicationProfile
+              application={data}
+              disabled={loading || busy || dirty}
+              onBusyChange={setAnalysisBusy}
+              onEditingChange={setAnalysisEditing}
+            />
+            <details className="rounded-lg border p-3">
+              <summary className="cursor-pointer">
+                查看当前正式招人要求（{data.requirements.length} 项）
+              </summary>
+              {data.requirements.map((r) => (
+                <p key={r.id} className="mt-3">
+                  {kindLabel[r.kind]}：{r.text}
+                  {r.needs_verification && <Badge variant="warning">岗位要求待确认</Badge>}
+                  {r.rationale && `（${r.rationale}）`}
+                </p>
+              ))}
+            </details>
+          </TabsContent>
+          <TabsContent value="materials" keepMounted className="flex flex-col gap-4">
+            <section className="flex flex-col gap-3">
+              <h3>本次应聘的原始材料</h3>
+              {!data.resumes.length && (
+                <p>尚无材料。可从导入简历补充并选用此人才主档，或记录需要补充的内容。</p>
+              )}
+              {data.resumes.map((r) => (
+                <details key={r.document} className="rounded-lg border p-3">
+                  <summary className="cursor-pointer break-all">
+                    {r.name} ·{' '}
+                    {r.parse
+                      ? `文字版本 v${r.parse.version} · ${r.parse.parser_version === '人工摘录' ? '人工摘录' : '原件文字提取'}`
+                      : '已停止访问'}
+                  </summary>
+                  {r.parse && (
+                    <>
+                      <pre className="resume-text">{r.parse.text}</pre>
+                      {r.download && (
+                        <a
+                          href={`/api/v1/documents/${r.document}/download/`}
+                          className="text-primary underline"
+                        >
+                          下载原件（重新校验权限）
+                        </a>
+                      )}
                     </>
                   )}
-                </FieldGroup>
-                <Button type="submit" disabled={busy}>
-                  {busy ? '正在保存…' : '提交人工处理结果'}
-                </Button>
-              </fieldset>
-            </form>
-          )}
-          {data.job_status !== 'open' && data.stage !== 'closed' && (
-            <Alert>
-              <AlertDescription>
-                职位当前暂停或未招聘，恢复后再继续复核；已有内容继续保留。
-              </AlertDescription>
-            </Alert>
-          )}
-          {data.stage === 'ready_to_schedule' && (
-            <fieldset
-              disabled={loading || busy || analysisBusy || analysisEditing}
-              inert={loading || busy || analysisBusy || analysisEditing}
-            >
-              <ScheduleInterview
-                application={data}
-                dirty={dirty}
-                setDirty={setDirty}
-                scheduled={() => {
-                  setSuccess('排期已保存，候选人与面试官的系统内时间冲突已检查。邀请尚未发送。');
-                  setDirty(false);
-                  setLoading(true);
-                  setReload((old) => old + 1);
-                }}
-              />
-            </fieldset>
-          )}
-          {data.stage === 'closed' && <p>本次结束原因：{data.close_reason}</p>}
-          <section className="flex flex-col gap-3">
-            <h3>人工处理记录</h3>
-            {data.reviews.length === 0 ? (
-              <p>尚未提交人工处理结果。</p>
-            ) : (
-              data.reviews.map((r) => (
-                <article key={r.id} className="rounded-lg border p-4">
-                  <strong>
-                    {reviewActions[r.action]} · {r.reviewer_name}
-                  </strong>
-                  <p className="whitespace-pre-wrap">{r.reason}</p>
-                  {r.followup_owner && (
-                    <p>
-                      接手：{r.followup_owner} · 截止 {r.due_at && dateTime(r.due_at)}
-                    </p>
-                  )}
-                  <small>
-                    {dateTime(r.created_at)} · {stages[r.result_stage]} · 固定{' '}
-                    {r.input_parses.length} 份材料版本
-                  </small>
-                </article>
-              ))
-            )}
-          </section>
-        </>
+                </details>
+              ))}
+            </section>
+          </TabsContent>
+        </Tabs>
       )}
     </Drawer>
   );
