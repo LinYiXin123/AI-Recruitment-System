@@ -1,7 +1,11 @@
 import { Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ErrorNotice } from '@/components/feedback';
-import { type RequirementMatch, RequirementMatches } from '@/components/requirement-matches';
+import {
+  type RequirementMatch,
+  RequirementMatches,
+  RequirementMatchSummary,
+} from '@/components/requirement-matches';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
@@ -39,35 +43,28 @@ export type ProfileAnalysis = {
 
 export function ApplicationProfile({
   application,
+  report,
+  onReportChange,
+  onDifferentMaterialChange,
   disabled,
   onBusyChange,
-  onEditingChange,
 }: {
   application: Application;
+  report: ProfileAnalysis | null;
+  onReportChange: (report: ProfileAnalysis | null) => void;
+  onDifferentMaterialChange: (different: boolean) => void;
   disabled: boolean;
   onBusyChange: (busy: boolean) => void;
-  onEditingChange: (editing: boolean) => void;
 }) {
   const available = application.resumes.filter(
     (r) => r.parse?.status === 'succeeded' && r.parse.text.trim(),
   );
   const [parseId, setParseId] = useState(() => String(available[0]?.parse?.id ?? ''));
-  const [report, setReport] = useState<ProfileAnalysis | null>(
-    application.profile_analysis ?? null,
-  );
   const [busy, setBusy] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [verificationBusy, setVerificationBusy] = useState(false);
   const [error, setError] = useState('');
   const retry = useRef<{ signature: string; key: string } | null>(null);
   const inFlight = useRef(false);
-  const incoming = useRef(application);
   const selected = available.find((r) => String(r.parse?.id) === parseId)?.parse;
-  useEffect(() => {
-    if (incoming.current === application || busy || editing) return;
-    incoming.current = application;
-    setReport(application.profile_analysis ?? null);
-  }, [application, busy, editing]);
   useEffect(() => {
     setParseId((current) => {
       const usable = application.resumes.filter(
@@ -79,13 +76,9 @@ export function ApplicationProfile({
     });
   }, [application.resumes]);
   useEffect(() => {
-    onBusyChange(busy || verificationBusy);
+    onBusyChange(busy);
     return () => onBusyChange(false);
-  }, [busy, verificationBusy, onBusyChange]);
-  useEffect(() => {
-    onEditingChange(editing);
-    return () => onEditingChange(false);
-  }, [editing, onEditingChange]);
+  }, [busy, onBusyChange]);
   // A review refresh may also observe a newer profile/material version in the same drawer.
   const profileStale =
     report?.source_status?.profile_stale ||
@@ -99,9 +92,12 @@ export function ApplicationProfile({
   const differentMaterial = Boolean(
     selected && report && report.source_context?.source.resume_parse_id !== selected.id,
   );
+  useEffect(() => {
+    onDifferentMaterialChange(differentMaterial);
+  }, [differentMaterial, onDifferentMaterialChange]);
 
   async function analyze() {
-    if (!selected || inFlight.current || disabled || editing) return;
+    if (!selected || inFlight.current || disabled) return;
     inFlight.current = true;
     setBusy(true);
     setError('');
@@ -116,7 +112,7 @@ export function ApplicationProfile({
         resume_parse_id: selected.id,
         resume: selected.text,
       });
-      setReport(next);
+      onReportChange(next);
       retry.current = null;
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) retry.current = null;
@@ -149,7 +145,7 @@ export function ApplicationProfile({
               id="profile-resume"
               aria-labelledby="profile-resume-label"
               value={parseId}
-              disabled={busy || disabled || editing}
+              disabled={busy || disabled}
               onChange={(e) => setParseId(e.target.value)}
             >
               {available.map((r) => (
@@ -158,13 +154,9 @@ export function ApplicationProfile({
                 </NativeSelectOption>
               ))}
             </NativeSelect>
-            <FieldDescription>每次分析一份简历；结果保留当时的岗位和材料版本。</FieldDescription>
+            <FieldDescription>报告保留所选简历及岗位要求版本。</FieldDescription>
           </Field>
-          <Button
-            className="self-start"
-            disabled={busy || disabled || editing || !selected}
-            onClick={analyze}
-          >
+          <Button className="self-start" disabled={busy || disabled || !selected} onClick={analyze}>
             <Sparkles data-icon="inline-start" />
             {busy ? '正在对照岗位要求…' : report ? '重新分析当前材料' : 'AI 分析候选人画像'}
           </Button>
@@ -207,22 +199,82 @@ export function ApplicationProfile({
               </AlertDescription>
             </Alert>
           )}
+          <RequirementMatchSummary items={report.requirement_matches} />
           <ScreeningQualityNotice report={report} />
-          <h4>AI 预分析</h4>
-          <p className="whitespace-pre-wrap">{report.summary}</p>
-          <RequirementMatches items={report.requirement_matches} questions={report.questions} />
-          <ScreeningSourceDetails source={report.source_context} />
-          <ScreeningVerification
-            key={report.id}
-            reportId={report.id}
-            questions={report.questions}
-            initial={report.verifications}
-            disabled={busy || disabled || differentMaterial}
-            onEditingChange={setEditing}
-            onBusyChange={setVerificationBusy}
-          />
+          {report.summary && (
+            <details className="rounded-lg border p-3">
+              <summary className="cursor-pointer">查看 AI 分析摘要</summary>
+              <p className="mt-3 whitespace-pre-wrap">{report.summary}</p>
+            </details>
+          )}
         </>
       )}
+    </section>
+  );
+}
+
+export function ApplicationProfileComparison({
+  application,
+  report,
+  differentMaterial,
+  disabled,
+  onBusyChange,
+  onEditingChange,
+}: {
+  application: Application;
+  report: ProfileAnalysis | null;
+  differentMaterial: boolean;
+  disabled: boolean;
+  onBusyChange: (busy: boolean) => void;
+  onEditingChange: (editing: boolean) => void;
+}) {
+  if (!report)
+    return (
+      <section className="rounded-lg border p-4" aria-label="岗位对照详情">
+        <p>还没有岗位对照。请先在“应聘概览”选择简历并开始 AI 对照。</p>
+      </section>
+    );
+  const profileStale =
+    report.source_status?.profile_stale ||
+    (report.source_context?.job?.profile_id != null &&
+      report.source_context.job.profile_id !== application.profile);
+  const materialStale = report.source_status?.material_stale;
+  const sourceUnknown =
+    (report.source_status?.profile_stale == null &&
+      report.source_context?.job?.profile_id == null) ||
+    materialStale == null;
+  return (
+    <section className="flex flex-col gap-4" aria-label="岗位对照详情">
+      {(differentMaterial || profileStale || materialStale || sourceUnknown) && (
+        <Alert>
+          <AlertTitle>对照结果需要留意</AlertTitle>
+          <AlertDescription>
+            {differentMaterial
+              ? '当前选择的简历尚未分析；下方仍是先前材料的对照。'
+              : profileStale
+                ? '岗位标准已变化；下方保留旧标准的分析结果。'
+                : materialStale
+                  ? '应聘材料已变化；下方保留旧材料的分析结果。'
+                  : '旧报告的来源信息不完整，无法确认是否仍适用。'}{' '}
+            请回到“应聘概览”重新分析后再用于复核。
+          </AlertDescription>
+        </Alert>
+      )}
+      <RequirementMatches
+        items={report.requirement_matches}
+        questions={report.questions}
+        showSummary={false}
+      />
+      <ScreeningSourceDetails source={report.source_context} />
+      <ScreeningVerification
+        key={report.id}
+        reportId={report.id}
+        questions={report.questions}
+        initial={report.verifications}
+        disabled={disabled || differentMaterial}
+        onEditingChange={onEditingChange}
+        onBusyChange={onBusyChange}
+      />
     </section>
   );
 }

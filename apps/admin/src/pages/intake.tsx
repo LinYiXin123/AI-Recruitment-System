@@ -52,7 +52,11 @@ import {
   stages,
   stageVariants,
 } from '@/lib/intake';
-import { ApplicationProfile } from '@/pages/application-profile';
+import {
+  ApplicationProfile,
+  ApplicationProfileComparison,
+  type ProfileAnalysis,
+} from '@/pages/application-profile';
 import { ScheduleInterview } from '@/pages/interviews';
 import './candidate-detail.css';
 
@@ -3076,6 +3080,9 @@ export function ApplicationDetail({
   const [dirty, setDirty] = useState(false);
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [analysisEditing, setAnalysisEditing] = useState(false);
+  const [verificationBusy, setVerificationBusy] = useState(false);
+  const [analysisReport, setAnalysisReport] = useState<ProfileAnalysis | null>(null);
+  const [differentMaterial, setDifferentMaterial] = useState(false);
   const [reload, setReload] = useState(0);
   const [action, setAction] = useState('advance');
   const [reason, setReason] = useState('');
@@ -3093,6 +3100,8 @@ export function ApplicationDetail({
       .then((d) => {
         if (c.signal.aborted) return;
         setData(d);
+        setAnalysisReport(d.profile_analysis ?? null);
+        setDifferentMaterial(false);
         if (d.stage === 'ready_to_schedule' || d.job_status !== 'open') setAction('withdraw');
       })
       .catch((e) => {
@@ -3135,14 +3144,14 @@ export function ApplicationDetail({
         ) : undefined
       }
       close={close}
-      busy={busy || analysisBusy}
+      busy={busy || analysisBusy || verificationBusy}
       dirty={dirty || analysisEditing}
     >
       {error && (
         <ErrorNotice
           message={error}
           retry={
-            busy || loading || analysisBusy || analysisEditing
+            busy || loading || analysisBusy || verificationBusy || analysisEditing
               ? undefined
               : () => {
                   setLoading(true);
@@ -3193,7 +3202,14 @@ export function ApplicationDetail({
                     <Button
                       variant="outline"
                       className="self-start"
-                      disabled={loading || busy || dirty || analysisBusy || analysisEditing}
+                      disabled={
+                        loading ||
+                        busy ||
+                        dirty ||
+                        analysisBusy ||
+                        verificationBusy ||
+                        analysisEditing
+                      }
                       onClick={async () => {
                         if (restoring.current) return;
                         restoring.current = true;
@@ -3237,13 +3253,23 @@ export function ApplicationDetail({
                 <Button
                   className="self-start"
                   variant={data.resumes.length ? 'outline' : 'default'}
-                  disabled={loading || busy || dirty || analysisBusy || analysisEditing}
+                  disabled={
+                    loading || busy || dirty || analysisBusy || verificationBusy || analysisEditing
+                  }
                   onClick={() => setSupplementing(true)}
                 >
                   补充简历
                 </Button>
               </section>
             )}
+            <ApplicationProfile
+              application={data}
+              report={analysisReport}
+              onReportChange={setAnalysisReport}
+              onDifferentMaterialChange={setDifferentMaterial}
+              disabled={loading || busy || dirty || verificationBusy || analysisEditing}
+              onBusyChange={setAnalysisBusy}
+            />
             {data.stage !== 'closed' && (
               <form
                 className="flex flex-col gap-4"
@@ -3254,7 +3280,8 @@ export function ApplicationDetail({
                 }}
                 onSubmit={async (e) => {
                   e.preventDefault();
-                  if (loading || busy || analysisBusy || analysisEditing) return;
+                  if (loading || busy || analysisBusy || verificationBusy || analysisEditing)
+                    return;
                   setBusy(true);
                   setError('');
                   try {
@@ -3268,6 +3295,7 @@ export function ApplicationDetail({
                       due_at: action === 'need_info' ? new Date(due).toISOString() : null,
                     });
                     setData(next);
+                    setAnalysisReport(next.profile_analysis ?? null);
                     setAction(next.stage === 'ready_to_schedule' ? 'withdraw' : 'advance');
                     setReason('');
                     setDirty(false);
@@ -3283,7 +3311,7 @@ export function ApplicationDetail({
               >
                 <h3>人工复核</h3>
                 <fieldset
-                  disabled={loading || busy || analysisBusy || analysisEditing}
+                  disabled={loading || busy || analysisBusy || verificationBusy || analysisEditing}
                   className="flex flex-col gap-4"
                 >
                   <FieldGroup>
@@ -3295,7 +3323,9 @@ export function ApplicationDetail({
                         aria-labelledby="review-action-label"
                         id="review-action"
                         value={action}
-                        disabled={loading || busy || analysisBusy || analysisEditing}
+                        disabled={
+                          loading || busy || analysisBusy || verificationBusy || analysisEditing
+                        }
                         required
                         onChange={(e) => setAction(e.target.value)}
                       >
@@ -3337,7 +3367,9 @@ export function ApplicationDetail({
                             aria-labelledby="followup-owner-label"
                             id="followup-owner"
                             value={handler}
-                            disabled={loading || busy || analysisBusy || analysisEditing}
+                            disabled={
+                              loading || busy || analysisBusy || verificationBusy || analysisEditing
+                            }
                             onChange={(e) => setHandler(e.target.value)}
                             required
                           >
@@ -3377,8 +3409,8 @@ export function ApplicationDetail({
             )}
             {data.stage === 'ready_to_schedule' && (
               <fieldset
-                disabled={loading || busy || analysisBusy || analysisEditing}
-                inert={loading || busy || analysisBusy || analysisEditing}
+                disabled={loading || busy || analysisBusy || verificationBusy || analysisEditing}
+                inert={loading || busy || analysisBusy || verificationBusy || analysisEditing}
               >
                 <ScheduleInterview
                   application={data}
@@ -3421,10 +3453,12 @@ export function ApplicationDetail({
             )}
           </TabsContent>
           <TabsContent value="comparison" keepMounted className="flex flex-col gap-4">
-            <ApplicationProfile
+            <ApplicationProfileComparison
               application={data}
-              disabled={loading || busy || dirty}
-              onBusyChange={setAnalysisBusy}
+              report={analysisReport}
+              differentMaterial={differentMaterial}
+              disabled={loading || busy || dirty || analysisBusy || analysisEditing}
+              onBusyChange={setVerificationBusy}
               onEditingChange={setAnalysisEditing}
             />
             <details className="rounded-lg border p-3">

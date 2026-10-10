@@ -14,19 +14,8 @@ export type RequirementMatch = {
   question_index: number | null;
 };
 
-export function RequirementMatches({
-  items,
-  questions = [],
-}: {
-  items?: RequirementMatch[];
-  questions?: { requirement_id?: number | null }[];
-}) {
-  if (!items?.length)
-    return (
-      <p className="text-muted-foreground">
-        此报告没有逐项对照记录。使用已生效的岗位画像重新分析后，可查看每条要求的材料依据。
-      </p>
-    );
+export function RequirementMatchSummary({ items }: { items?: RequirementMatch[] }) {
+  if (!items?.length) return null;
   const confirmed = items.filter((item) => !item.needs_verification);
   const supported = confirmed.filter(
     (item) => item.status === 'supported' && item.kind !== 'exclusion',
@@ -35,34 +24,53 @@ export function RequirementMatches({
     (item) => item.status === 'supported' && item.kind === 'exclusion',
   ).length;
   return (
-    <section className="flex flex-col gap-3" aria-label="岗位要求与材料对照">
-      <div className="flex flex-col gap-2">
-        <h3>岗位要求与材料对照</h3>
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="success">材料支持 {supported} 项</Badge>
+    <section className="flex flex-col gap-2" aria-label="岗位对照概览">
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="success">材料支持 {supported} 项</Badge>
+        <Badge variant="warning">
+          信息不足 {confirmed.filter((i) => i.status === 'insufficient').length} 项
+        </Badge>
+        {items.length > confirmed.length && (
+          <Badge variant="warning">岗位要求待确认 {items.length - confirmed.length} 项</Badge>
+        )}
+        {confirmed.some((i) => i.status === 'contradictory') && (
           <Badge variant="warning">
-            信息不足 {confirmed.filter((i) => i.status === 'insufficient').length} 项
+            材料矛盾待核实 {confirmed.filter((i) => i.status === 'contradictory').length} 项
           </Badge>
-          {items.length > confirmed.length && (
-            <Badge variant="warning">岗位要求待确认 {items.length - confirmed.length} 项</Badge>
-          )}
-          {confirmed.some((i) => i.status === 'contradictory') && (
-            <Badge variant="warning">
-              材料矛盾待核实 {confirmed.filter((i) => i.status === 'contradictory').length} 项
-            </Badge>
-          )}
-          {confirmed.some((i) => i.status === 'analysis_error') && (
-            <Badge variant="destructive">
-              分析需重试 {confirmed.filter((i) => i.status === 'analysis_error').length} 项
-            </Badge>
-          )}
-          {signals > 0 && <Badge variant="warning">排除信号待核实 {signals} 项</Badge>}
-        </div>
-        <p className="text-sm text-muted-foreground">
-          材料支持表示简历中有相关原文，不代表能力已核实。信息不足不等于不符合要求。
-          分析异常来自模型输出，不代表候选人存在负面情况。
-        </p>
+        )}
+        {confirmed.some((i) => i.status === 'analysis_error') && (
+          <Badge variant="destructive">
+            分析需重试 {confirmed.filter((i) => i.status === 'analysis_error').length} 项
+          </Badge>
+        )}
+        {signals > 0 && <Badge variant="warning">排除信号待核实 {signals} 项</Badge>}
       </div>
+      <p className="text-sm text-muted-foreground">
+        材料支持仅表示原文相关，仍需核实；信息不足不代表不符合要求。
+      </p>
+    </section>
+  );
+}
+
+export function RequirementMatches({
+  items,
+  questions = [],
+  showSummary = true,
+}: {
+  items?: RequirementMatch[];
+  questions?: { requirement_id?: number | null }[];
+  showSummary?: boolean;
+}) {
+  if (!items?.length)
+    return (
+      <p className="text-muted-foreground">
+        此报告没有逐项对照记录。使用已生效的岗位画像重新分析后，可查看每条要求的材料依据。
+      </p>
+    );
+  return (
+    <section className="flex flex-col gap-3" aria-label="岗位要求与材料对照">
+      <h3>岗位要求与材料对照</h3>
+      {showSummary && <RequirementMatchSummary items={items} />}
       {items.map((item) => {
         const quotes = [
           ...new Set(item.quotes?.length ? item.quotes : item.quote ? [item.quote] : []),
