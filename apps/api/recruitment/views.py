@@ -32,7 +32,13 @@ from .models import (
     QuestionTemplate,
     Task,
 )
-from .profile_ai import bind_preview, generate_profile, requirement_sources, same_creation_profile
+from .profile_ai import (
+    bind_preview,
+    generate_job_description,
+    generate_profile,
+    requirement_sources,
+    same_creation_profile,
+)
 from .serializers import (
     AuditSerializer,
     ClarificationAnswerSerializer,
@@ -228,11 +234,15 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
 
     def get_queryset(self):
         qs = visible_jobs(member(self.request)).select_related(
-            "department", "owner__user", "approver__user", "enterprise"
+            "department", "owner__user", "approver__user", "enterprise", "active_profile"
         )
         if self.action == "list":
             if search := self.request.query_params.get("search", "").strip():
                 qs = qs.filter(Q(title__icontains=search) | Q(location__icontains=search))
+            if title := self.request.query_params.get("title", "").strip():
+                qs = qs.filter(title__icontains=title)
+            if location := self.request.query_params.get("location", "").strip():
+                qs = qs.filter(location__icontains=location)
             if status := self.request.query_params.get("status"):
                 qs = qs.filter(status=status)
             if department := self.request.query_params.get("department"):
@@ -247,6 +257,7 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 qs = qs.filter(company_name=company)
         return qs.prefetch_related(
             "profiles__requirements",
+            "active_profile__requirements",
             "collaborators",
             Prefetch(
                 "owner__user__feishuidentity_set",
@@ -440,6 +451,8 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         for position, requirement in enumerate(requirements):
             profile.requirements.create(position=position, **requirement)
         job.jd = data["jd"]
+        job.location = data.get("location", job.location)
+        job.salary_range = data.get("salary_range", job.salary_range)
         if data["activate"]:
             self.use_profile(job, profile, m)
         else:
@@ -452,6 +465,10 @@ class JobViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
     @action(detail=True, methods=["get", "post"], url_path="profile-ai")
     def profile_ai(self, request, pk=None):
         return generate_profile(request, pk)
+
+    @action(detail=True, methods=["post"], url_path="job-description-ai")
+    def job_description_ai(self, request, pk=None):
+        return generate_job_description(request, pk)
 
     def use_profile(self, job, profile, m):
         if profile.requirements.filter(kind="must", needs_verification=True).exists():

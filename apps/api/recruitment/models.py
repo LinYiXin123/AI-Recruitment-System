@@ -183,6 +183,13 @@ class ProfileVersion(Timestamped):
 
 
 class ProfileRequirement(models.Model):
+    class Category(models.TextChoices):
+        EDUCATION = "education", "学历门槛"
+        EXPERIENCE = "experience", "工作年限"
+        INDUSTRY = "industry", "行业背景"
+        SKILL = "skill", "技能"
+        OTHER = "other", "其他要求"
+
     class Kind(models.TextChoices):
         MUST = "must", "必须满足"
         PREFERRED = "preferred", "优先考虑"
@@ -191,6 +198,7 @@ class ProfileRequirement(models.Model):
     profile = models.ForeignKey(
         ProfileVersion, on_delete=models.PROTECT, related_name="requirements"
     )
+    category = models.CharField(max_length=20, choices=Category.choices, default=Category.OTHER)
     kind = models.CharField(max_length=20, choices=Kind.choices)
     text = models.CharField(max_length=1000)
     rationale = models.CharField(max_length=1000, blank=True)

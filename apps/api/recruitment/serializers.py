@@ -55,6 +55,7 @@ class RequirementSerializer(serializers.ModelSerializer):
         model = ProfileRequirement
         fields = [
             "id",
+            "category",
             "kind",
             "text",
             "rationale",
@@ -119,6 +120,7 @@ class JobSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source="department.name")
     department_path = serializers.SerializerMethodField()
     active_profile_number = serializers.IntegerField(source="active_profile.number", default=None)
+    active_profile_detail = serializers.SerializerMethodField()
     owner_name = serializers.SerializerMethodField()
     owner_avatar_url = serializers.SerializerMethodField()
     owner_chat_url = serializers.SerializerMethodField()
@@ -150,6 +152,9 @@ class JobSerializer(serializers.ModelSerializer):
     def get_latest_profile(self, obj):
         profile = obj.profiles.first()
         return ProfileSerializer(profile).data if profile else None
+
+    def get_active_profile_detail(self, obj):
+        return ProfileSerializer(obj.active_profile).data if obj.active_profile else None
 
     def get_permissions(self, obj):
         membership = self.context["member"]
@@ -189,6 +194,7 @@ class JobSerializer(serializers.ModelSerializer):
             "latest_profile",
             "active_profile",
             "active_profile_number",
+            "active_profile_detail",
             "permissions",
         ]
 
@@ -313,6 +319,8 @@ class ClarificationSerializer(serializers.ModelSerializer):
 
 class SaveProfileSerializer(ProfileContentSerializer, VersionSerializer):
     jd = serializers.CharField(max_length=30000)
+    location = serializers.CharField(max_length=100, required=False)
+    salary_range = serializers.CharField(max_length=200, allow_blank=True, required=False)
 
 
 class ReviewSerializer(VersionSerializer):

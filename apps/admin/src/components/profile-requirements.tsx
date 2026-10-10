@@ -9,6 +9,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { kindLabel, type Requirement } from '@/lib/api';
 
 export type EditableRequirement = Requirement & { key: string };
+const categories = {
+  education: '学历门槛',
+  experience: '工作年限',
+  industry: '行业背景',
+  skill: '技能',
+  other: '其他要求',
+} as const;
 
 export function ProfileRequirementSummary({ requirements }: { requirements: Requirement[] }) {
   return (
@@ -67,22 +74,44 @@ function RequirementCard({
       <FieldSet className="mt-4" disabled={busy}>
         <FieldGroup>
           <div className="flex items-center justify-between gap-3">
-            <FieldLabel id={`kind-label-${r.key}`} htmlFor={`kind-${r.key}`} className="sr-only">
-              要求 {index} 类型
-            </FieldLabel>
-            <NativeSelect
-              id={`kind-${r.key}`}
-              aria-labelledby={`kind-label-${r.key}`}
-              disabled={busy}
-              value={r.kind}
-              onChange={(e) => update({ kind: e.target.value as Requirement['kind'] })}
-            >
-              {Object.entries(kindLabel).map(([value, label]) => (
-                <NativeSelectOption key={value} value={value}>
-                  {label}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
+            <div className="flex gap-2">
+              <FieldLabel
+                id={`category-label-${r.key}`}
+                htmlFor={`category-${r.key}`}
+                className="sr-only"
+              >
+                要求 {index} 内容类别
+              </FieldLabel>
+              <NativeSelect
+                id={`category-${r.key}`}
+                aria-labelledby={`category-label-${r.key}`}
+                disabled={busy}
+                value={r.category ?? 'other'}
+                onChange={(e) => update({ category: e.target.value as Requirement['category'] })}
+              >
+                {Object.entries(categories).map(([value, label]) => (
+                  <NativeSelectOption key={value} value={value}>
+                    {label}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+              <FieldLabel id={`kind-label-${r.key}`} htmlFor={`kind-${r.key}`} className="sr-only">
+                要求 {index} 类型
+              </FieldLabel>
+              <NativeSelect
+                id={`kind-${r.key}`}
+                aria-labelledby={`kind-label-${r.key}`}
+                disabled={busy}
+                value={r.kind}
+                onChange={(e) => update({ kind: e.target.value as Requirement['kind'] })}
+              >
+                {Object.entries(kindLabel).map(([value, label]) => (
+                  <NativeSelectOption key={value} value={value}>
+                    {label}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </div>
             <Button
               type="button"
               variant="ghost"
@@ -179,6 +208,7 @@ export function ProfileRequirements({
             {
               key: crypto.randomUUID(),
               kind: 'preferred',
+              category: 'skill',
               text: '',
               rationale: '',
               needs_verification: false,

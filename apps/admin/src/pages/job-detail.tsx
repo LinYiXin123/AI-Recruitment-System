@@ -1,7 +1,11 @@
 import { Check, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Blank, ErrorNotice, Loading, Pager } from '@/components/feedback';
-import { ProfileRequirementSummary, ProfileRequirements } from '@/components/profile-requirements';
+import {
+  type EditableRequirement,
+  ProfileRequirementSummary,
+  ProfileRequirements,
+} from '@/components/profile-requirements';
 import { RecruitmentSitesEditor, RecruitmentSitesField } from '@/components/recruitment-sites';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -450,22 +454,36 @@ export function JobDetail({
         if (!open) requestClose();
       }}
     >
-      <SheetContent className="job-sheet" finalFocus={returnFocus}>
-        <SheetHeader>
-          <div className="flex items-center gap-3">
-            <Badge variant="secondary">职位详情</Badge>
-            {job && (
-              <Badge variant={job.status === 'open' ? 'default' : 'outline'}>
-                {jobStatus[job.status]}
-              </Badge>
-            )}
-          </div>
-          <SheetTitle>{job?.title || '正在读取职位'}</SheetTitle>
-          <SheetDescription>
-            {job
-              ? `${job.department_path || job.department_name} · ${job.location} · 计划 ${job.headcount} 人`
-              : '正在读取你获授权的职位信息'}
-          </SheetDescription>
+      <SheetContent
+        className={editing ? 'profile-settings-dialog' : 'job-sheet'}
+        finalFocus={returnFocus}
+      >
+        <SheetHeader className={editing ? 'profile-settings-header' : undefined}>
+          {editing ? (
+            <>
+              <SheetTitle>编辑画像</SheetTitle>
+              <SheetDescription className="sr-only">
+                编辑 {job?.title || '职位'} 的招聘需求和岗位画像字段。
+              </SheetDescription>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <Badge variant="secondary">职位详情</Badge>
+                {job && (
+                  <Badge variant={job.status === 'open' ? 'default' : 'outline'}>
+                    {jobStatus[job.status]}
+                  </Badge>
+                )}
+              </div>
+              <SheetTitle>{job?.title || '正在读取职位'}</SheetTitle>
+              <SheetDescription>
+                {job
+                  ? `${job.department_path || job.department_name} · ${job.location} · 计划 ${job.headcount} 人`
+                  : '正在读取你获授权的职位信息'}
+              </SheetDescription>
+            </>
+          )}
         </SheetHeader>
         <div className={editing && job ? 'flex min-h-0 flex-1 flex-col' : 'sheet-scroll'}>
           {notice && (
@@ -955,21 +973,142 @@ function ProfileEditor({
   const [requirements, setRequirements] = useState<(Requirement & { key: string })[]>(
     (
       job.latest_profile?.requirements || [
-        { kind: 'must' as const, text: '', rationale: '', needs_verification: false },
+        {
+          category: 'other' as const,
+          kind: 'must' as const,
+          text: '',
+          rationale: '',
+          needs_verification: false,
+        },
       ]
     ).map((r) => ({ ...r, key: crypto.randomUUID() })),
   );
   const [error, setError] = useState('');
   const [jd, setJd] = useState(job.jd);
-  const [source, setSource] = useState(job.latest_profile?.source || '');
+  const [source, setSource] = useState(job.latest_profile?.source || 'HR 核对');
   const [businessGoal, setBusinessGoal] = useState(job.latest_profile?.business_goal || '');
+  const [location, setLocation] = useState(job.location);
+  const [salaryRange, setSalaryRange] = useState(job.salary_range);
   const [generation, setGeneration] = useState<ProfileGeneration | null>(null);
-  const [materialsOpen, setMaterialsOpen] = useState(!job.jd.trim() || !job.latest_profile?.source);
+  const [materialsOpen, setMaterialsOpen] = useState(true);
   const inputChanged = Boolean(
     generation &&
       (generation.input.jd !== jd.trim() || generation.input.business_goal !== businessGoal.trim()),
   );
   const unverified = requirements.some((r) => r.kind === 'must' && r.needs_verification);
+  const categoryItems = (category: Requirement['category'], kind?: Requirement['kind']) =>
+    requirements.filter(
+      (item) => (item.category ?? 'other') === category && (!kind || item.kind === kind),
+    );
+  function replaceCategory(
+    category: NonNullable<Requirement['category']>,
+    kind: Requirement['kind'],
+    values: string[],
+  ) {
+    onDirty();
+    setRequirements((current) => {
+      const previous = current.filter(
+        (item) => (item.category ?? 'other') === category && item.kind === kind,
+      );
+      const used = new Set<string>();
+      const next = values
+        .map((text) => text.trim())
+        .filter(Boolean)
+        .map((text) => {
+          const prior =
+            previous.find((item) => !used.has(item.key) && item.text.trim() === text) ??
+            previous.find((item) => !used.has(item.key));
+          if (prior) {
+            used.add(prior.key);
+            return { ...prior, category, text };
+          }
+          return {
+            key: crypto.randomUUID(),
+            category,
+            kind,
+            text,
+            rationale: '',
+            needs_verification: false,
+          };
+        });
+      return [...current.filter((item) => !previous.includes(item)), ...next];
+    });
+  }
+  function replaceCategoryValues(
+    category: NonNullable<Requirement['category']>,
+    values: string[],
+    newKind: Requirement['kind'],
+  ) {
+    onDirty();
+    setRequirements((current) => {
+      const previous = current.filter((item) => (item.category ?? 'other') === category);
+      const used = new Set<string>();
+      const next = values
+        .map((text) => text.trim())
+        .filter(Boolean)
+        .map((text) => {
+          const prior =
+            previous.find((item) => !used.has(item.key) && item.text.trim() === text) ??
+            previous.find((item) => !used.has(item.key));
+          if (prior) {
+            used.add(prior.key);
+            return { ...prior, category, text };
+          }
+          return {
+            key: crypto.randomUUID(),
+            category,
+            kind: newKind,
+            text,
+            rationale: '',
+            needs_verification: false,
+          };
+        });
+      return [...current.filter((item) => !previous.includes(item)), ...next];
+    });
+  }
+  const splitTerms = (value: string) => value.split(/[，,、;；\n]+/).map((item) => item.trim());
+  const experienceItem = categoryItems('experience')[0];
+  const experienceText = experienceItem?.text ?? '';
+  const experienceRange = experienceText.match(
+    /(\d+(?:\.\d+)?)\s*(?:-|~|～|至|到)\s*(\d+(?:\.\d+)?)\s*年/,
+  );
+  const experienceMinimum =
+    experienceRange?.[1] ?? experienceText.match(/(\d+(?:\.\d+)?)\s*年以上/)?.[1] ?? '';
+  const experienceMaximum = experienceRange?.[2] ?? '';
+  function updateExperience(minimum: string, maximum: string) {
+    const text =
+      minimum && maximum
+        ? `${minimum}-${maximum} 年相关工作经验`
+        : minimum
+          ? `${minimum} 年以上相关工作经验`
+          : maximum
+            ? `${maximum} 年以内相关工作经验`
+            : '';
+    replaceCategory('experience', experienceItem?.kind ?? 'must', text ? [text] : []);
+  }
+  async function generateJobDescription() {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    onDirty();
+    try {
+      const result = await api<{ jd: string; error: string; status: string }>(
+        `jobs/${job.id}/job-description-ai/`,
+        {
+          request_key: crypto.randomUUID(),
+          version: job.version,
+          jd,
+          business_goal: businessGoal,
+        },
+      );
+      if (result.status !== 'succeeded') throw new Error(result.error || '暂未生成成功，请重试。');
+      setJd(result.jd);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <>
       <form
@@ -993,6 +1132,8 @@ function ProfileEditor({
                 generation_id: generation?.id ?? null,
                 activate,
                 requirements: requirements.map(({ key: _key, ...r }) => r),
+                location,
+                salary_range: salaryRange,
               }),
             );
           } catch (e) {
@@ -1007,7 +1148,7 @@ function ProfileEditor({
             <div className="section-heading">
               <div>
                 <h2>AI 辅助整理岗位要求</h2>
-                <p>本次保存为 v{(job.latest_profile?.number || 0) + 1}，历史版本会保留。</p>
+                <p>修改后保存，简历对照会使用你确认的岗位要求。</p>
               </div>
             </div>
             <ProfileRequirementSummary requirements={requirements} />
@@ -1026,7 +1167,7 @@ function ProfileEditor({
                 setMaterialsOpen(true);
               }}
             >
-              <summary className="cursor-pointer">招聘说明与入职目标</summary>
+              <summary className="cursor-pointer">职位描述与入职目标</summary>
               <FieldGroup className="mt-4">
                 <Field>
                   <FieldLabel htmlFor="profile-jd">对外职位描述</FieldLabel>
@@ -1042,6 +1183,15 @@ function ProfileEditor({
                     maxLength={30000}
                     required
                   />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => void generateJobDescription()}
+                  >
+                    <Sparkles data-icon="inline-start" />
+                    {busy ? '正在生成…' : 'AI 生成 JD'}
+                  </Button>
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="profile-goal">希望入职后完成什么（可选）</FieldLabel>
@@ -1055,7 +1205,7 @@ function ProfileEditor({
                   />
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor="profile-source">要求来源</FieldLabel>
+                  <FieldLabel htmlFor="profile-source">来源备注</FieldLabel>
                   <Input
                     id="profile-source"
                     value={source}
@@ -1087,14 +1237,150 @@ function ProfileEditor({
                 setError('');
               }}
             />
-            <ProfileRequirements
-              requirements={requirements}
-              busy={busy}
-              onChange={(next) => {
-                onDirty();
-                setRequirements(next);
-              }}
-            />
+            <section className="rounded-lg border p-4" aria-label="岗位画像字段">
+              <div className="section-heading">
+                <div>
+                  <h2>岗位画像字段</h2>
+                  <p>先看整理结果，直接改需要的内容；保存后会用于简历对照。</p>
+                </div>
+              </div>
+              <FieldGroup className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor="profile-location">工作城市</FieldLabel>
+                  <Input
+                    id="profile-location"
+                    value={location}
+                    maxLength={100}
+                    onChange={(event) => {
+                      onDirty();
+                      setLocation(event.target.value);
+                    }}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="profile-education">学历门槛</FieldLabel>
+                  <Input
+                    id="profile-education"
+                    value={categoryItems('education')
+                      .map((item) => item.text)
+                      .join('；')}
+                    placeholder="如：本科及以上"
+                    onChange={(event) =>
+                      replaceCategoryValues('education', splitTerms(event.target.value), 'must')
+                    }
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="profile-experience-min">年限下限</FieldLabel>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="profile-experience-min"
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={experienceMinimum}
+                      onChange={(event) => updateExperience(event.target.value, experienceMaximum)}
+                    />
+                    <span>年</span>
+                  </div>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="profile-experience-max">年限上限</FieldLabel>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="profile-experience-max"
+                      type="number"
+                      min={0}
+                      max={50}
+                      value={experienceMaximum}
+                      onChange={(event) => updateExperience(experienceMinimum, event.target.value)}
+                    />
+                    <span>年</span>
+                  </div>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="profile-salary">薪资范围</FieldLabel>
+                  <Input
+                    id="profile-salary"
+                    value={salaryRange}
+                    maxLength={200}
+                    placeholder="如：20-35K，13 薪"
+                    onChange={(event) => {
+                      onDirty();
+                      setSalaryRange(event.target.value);
+                    }}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="profile-industry">行业背景</FieldLabel>
+                  <Input
+                    id="profile-industry"
+                    value={categoryItems('industry')
+                      .map((item) => item.text)
+                      .join('；')}
+                    placeholder="选填"
+                    onChange={(event) =>
+                      replaceCategoryValues('industry', splitTerms(event.target.value), 'preferred')
+                    }
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="profile-must-skills">必备技能</FieldLabel>
+                  <Textarea
+                    id="profile-must-skills"
+                    rows={2}
+                    value={categoryItems('skill', 'must')
+                      .map((item) => item.text)
+                      .join('，')}
+                    placeholder="用逗号分开，如：Python、Dify、Coze"
+                    onChange={(event) =>
+                      replaceCategory('skill', 'must', splitTerms(event.target.value))
+                    }
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="profile-bonus-skills">加分技能</FieldLabel>
+                  <Textarea
+                    id="profile-bonus-skills"
+                    rows={2}
+                    value={categoryItems('skill', 'preferred')
+                      .map((item) => item.text)
+                      .join('，')}
+                    placeholder="选填，用逗号分开"
+                    onChange={(event) =>
+                      replaceCategory('skill', 'preferred', splitTerms(event.target.value))
+                    }
+                  />
+                </Field>
+                <Field className="sm:col-span-2">
+                  <FieldLabel htmlFor="profile-other-requirements">其他要求</FieldLabel>
+                  <Textarea
+                    id="profile-other-requirements"
+                    rows={3}
+                    value={categoryItems('other', 'must')
+                      .map((item) => item.text)
+                      .join('\n')}
+                    placeholder="每行一项，可写工作职责或项目经验要求"
+                    onChange={(event) =>
+                      replaceCategory('other', 'must', splitTerms(event.target.value))
+                    }
+                  />
+                </Field>
+              </FieldGroup>
+            </section>
+            <details className="rounded-lg border p-4">
+              <summary className="cursor-pointer">逐条核对原文依据与待核实项</summary>
+              <div className="mt-4">
+                <ProfileRequirements
+                  requirements={requirements as EditableRequirement[]}
+                  busy={busy}
+                  onChange={(next) => {
+                    onDirty();
+                    setRequirements(next);
+                  }}
+                />
+              </div>
+            </details>
           </FieldGroup>
         </FieldSet>
       </form>

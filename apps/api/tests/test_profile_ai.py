@@ -66,7 +66,7 @@ def test_generate_save_edit_and_hr_directly_use_without_approval(team, settings)
         "recruitment.profile_ai.chat_completion",
         return_value=json.dumps(
             {
-                "requirements": [generated_requirement()],
+                "requirements": [generated_requirement(category="skill")],
             }
         ),
     ) as model:
@@ -74,6 +74,7 @@ def test_generate_save_edit_and_hr_directly_use_without_approval(team, settings)
         assert first.status_code == 200, first.data
         result = first.data
         assert result["status"] == "succeeded"
+        assert result["requirements"][0]["category"] == "skill"
         assert generate(c, job, payload).data == result
         assert model.call_count == 1
         assert model.call_args.kwargs["thinking"] == {"type": "disabled"}
@@ -97,6 +98,7 @@ def test_generate_save_edit_and_hr_directly_use_without_approval(team, settings)
     assert not Task.objects.filter(kind="review").exists()
     assert Task.objects.get(kind="start").status == "pending"
     requirement = profile["requirements"][0]
+    assert requirement["category"] == "skill"
     assert requirement["source_quote"] == payload["jd"]
     assert requirement["source_edited"] is False
     edited = {**requirement, "text": "能独立完成并复盘需求分析"}
@@ -109,6 +111,41 @@ def test_generate_save_edit_and_hr_directly_use_without_approval(team, settings)
     )
     assert newer["latest_profile"]["number"] == 2
     assert AuditEvent.objects.filter(action__startswith="HR 直接使用").count() == 2
+
+
+def test_generate_job_description_is_versioned_and_does_not_save_the_job(team, settings):
+    settings.LLM_MODEL = "fake-test-model"
+    c = client_for(team[2])
+    job = new_job(team)
+    payload = {
+        "request_key": str(uuid.uuid4()),
+        "version": job["version"],
+        "jd": "",
+        "business_goal": "完成渠道试点并复盘结果",
+    }
+    with patch(
+        "recruitment.profile_ai.chat_completion",
+        return_value=json.dumps({"jd": "负责渠道拓展，推进合作并复盘结果。"}),
+    ) as model:
+        result = c.post(
+            f"/api/v1/jobs/{job['id']}/job-description-ai/", payload, format="json"
+        )
+        assert result.status_code == 200, result.data
+        assert result.data["status"] == "succeeded"
+        assert result.data["jd"] == "负责渠道拓展，推进合作并复盘结果。"
+        assert c.post(
+            f"/api/v1/jobs/{job['id']}/job-description-ai/", payload, format="json"
+        ).data == result.data
+        assert model.call_count == 1
+        assert "不得编造" in model.call_args.kwargs["system_prompt"]
+
+    generation = ProfileGeneration.objects.get(pk=result.data["id"])
+    assert generation.purpose == "job_description"
+    assert generation.job_version == job["version"]
+    assert generation.input_snapshot["business_goal"] == payload["business_goal"]
+    saved_job = Job.objects.get(pk=job["id"])
+    assert saved_job.jd == job["jd"]
+    assert saved_job.profiles.count() == 0
 
 
 @pytest.mark.parametrize("field", ["jd", "business_goal"])

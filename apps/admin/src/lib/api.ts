@@ -1,5 +1,6 @@
 export type Requirement = {
   id?: number;
+  category?: 'education' | 'experience' | 'industry' | 'skill' | 'other';
   kind: 'must' | 'preferred' | 'exclusion';
   text: string;
   rationale: string;
@@ -27,6 +28,7 @@ export type Profile = {
 export type Job = {
   active_profile: number | null;
   active_profile_number: number | null;
+  active_profile_detail?: Profile | null;
   id: number;
   title: string;
   department: number;

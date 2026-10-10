@@ -56,6 +56,7 @@ def hr_jobs(m):
 def requirement_data(item):
     return {
         "id": item.id,
+        "category": item.category,
         "kind": item.kind,
         "text": item.text,
         "rationale": item.rationale,

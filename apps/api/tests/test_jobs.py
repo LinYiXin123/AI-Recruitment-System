@@ -266,6 +266,58 @@ def test_job_list_filters_department_and_company_without_expanding_scope(team):
     ).data["count"] == 0
 
 
+def test_job_list_filters_target_title_and_city_together(team):
+    _, _, hr, _, _ = team
+    first = new_job(team, title="AI 应用工程师", location="深圳")
+    new_job(team, title="AI 应用工程师", location="厦门")
+    new_job(team, title="后端工程师", location="深圳")
+
+    response = client_for(hr).get("/api/v1/jobs/?title=AI&location=深圳")
+
+    assert response.data["count"] == 1
+    assert response.data["results"][0]["id"] == first["id"]
+
+
+def test_job_list_includes_requirements_from_the_active_profile(team):
+    _, _, hr, _, _ = team
+    job = new_job(
+        team,
+        title="AI 应用工程师",
+        location="深圳",
+        jd="负责 AI 应用开发。",
+        profile={
+            "source": "HR 核对",
+            "requirements": [
+                {
+                    "kind": "must",
+                    "text": "本科及以上学历，3 年以上 Python 开发经验",
+                    "needs_verification": False,
+                }
+            ],
+        },
+    )
+
+    item = client_for(hr).get("/api/v1/jobs/").data["results"][0]
+
+    assert item["active_profile_detail"]["id"] == job["active_profile"]
+    assert item["active_profile_detail"]["requirements"][0]["text"] == (
+        "本科及以上学历，3 年以上 Python 开发经验"
+    )
+
+
+def test_saving_profile_also_saves_edited_job_location_and_salary(team):
+    job = new_job(team)
+    response = save_profile(
+        client_for(team[2]), job, location="厦门", salary_range="20-35K，13 薪"
+    )
+    assert response.status_code == 201, response.data
+    assert response.data["location"] == "厦门"
+    assert response.data["salary_range"] == "20-35K，13 薪"
+    saved_job = Job.objects.get(pk=job["id"])
+    assert saved_job.location == "厦门"
+    assert saved_job.salary_range == "20-35K，13 薪"
+
+
 def test_creation_rejects_cross_org_and_unauthorized_relations(team):
     org, dept, hr, manager, outsider = team
     other = Organization.objects.create(name="外部组织")

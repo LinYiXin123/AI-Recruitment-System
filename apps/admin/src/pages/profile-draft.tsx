@@ -38,6 +38,7 @@ export function ProfileDraft({
   const [requirements, setRequirements] = useState<EditableRequirement[]>([]);
   const [title, setTitle] = useState('');
   const [location, setLocation] = useState('');
+  const [salaryRange, setSalaryRange] = useState('');
   const [headcount, setHeadcount] = useState(1);
   const [department, setDepartment] = useState(me.departments[0]?.id ?? 0);
   const [approver, setApprover] = useState('');
@@ -98,6 +99,7 @@ export function ProfileDraft({
                   request_id: requestId,
                   title,
                   location,
+                  salary_range: salaryRange,
                   headcount,
                   department,
                   approver: Number(approver),
@@ -269,6 +271,16 @@ export function ProfileDraft({
                         maxLength={100}
                         required
                         onChange={(e) => setLocation(e.target.value)}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="draft-salary-range">薪资范围</FieldLabel>
+                      <Input
+                        id="draft-salary-range"
+                        value={salaryRange}
+                        maxLength={200}
+                        placeholder="如：20-35K，13 薪"
+                        onChange={(e) => setSalaryRange(e.target.value)}
                       />
                     </Field>
                     <Field>
